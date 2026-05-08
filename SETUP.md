@@ -55,7 +55,7 @@ git push origin main   # triggers auto-deploy
 After deploying, sign in with Google. Then in the Supabase SQL Editor, promote yourself to admin:
 
 ```sql
-UPDATE profiles SET role = 'admin' WHERE email = 'thanhphong018@gmail.com';
+UPDATE profiles SET role = 'admin' WHERE email = 'your-email@example.com';
 ```
 
 ## Architecture Summary
