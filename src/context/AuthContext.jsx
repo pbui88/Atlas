@@ -18,11 +18,23 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
+    let initialized = false
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
       else setProfile(null)
-      setLoading(false)
+      if (!initialized) { initialized = true; setLoading(false) }
+    })
+
+    // Fallback: ensure loading clears even if onAuthStateChange is slow
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!initialized) {
+        initialized = true
+        setUser(session?.user ?? null)
+        if (session?.user) fetchProfile(session.user.id)
+        setLoading(false)
+      }
     })
 
     return () => subscription.unsubscribe()
