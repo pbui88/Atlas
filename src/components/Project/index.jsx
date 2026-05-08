@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useJsApiLoader } from '@react-google-maps/api'
 import { supabase } from '../../lib/supabase'
 import { updateProject } from '../../lib/api'
 import { STATUS_LABELS, STATUS_BADGE_CLASS } from '../../lib/constants'
 import MapTab     from './MapTab'
 import ScanTab    from './ScanTab'
 import ResultsTab from './ResultsTab'
+
+const LIBRARIES = ['drawing', 'geometry']
 
 const TABS = [
   {
@@ -41,6 +44,10 @@ const TABS = [
 export default function ProjectPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY || '',
+    libraries: LIBRARIES,
+  })
   const [project,    setProject]    = useState(null)
   const [scanPoints, setScanPoints] = useState([])
   const [activeTab,  setActiveTab]  = useState('map')
@@ -123,6 +130,8 @@ export default function ProjectPage() {
             project={project}
             scanPoints={scanPoints}
             onPointsGenerated={() => loadProject()}
+            isLoaded={isLoaded}
+            loadError={loadError}
           />
         )}
         {activeTab === 'scan' && (
@@ -132,7 +141,7 @@ export default function ProjectPage() {
           />
         )}
         {activeTab === 'results' && (
-          <ResultsTab project={project} />
+          <ResultsTab project={project} isLoaded={isLoaded} />
         )}
       </div>
     </div>

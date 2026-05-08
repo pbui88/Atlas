@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
+import { GoogleMap, Marker, InfoWindow } from '@react-google-maps/api'
 import { supabase } from '../../lib/supabase'
 import { exportProject } from '../../lib/api'
 import { scoreColor, scoreLabel } from '../../lib/geo'
@@ -106,11 +106,7 @@ function ImageGallery({ pointId, onClose }) {
   )
 }
 
-export default function ResultsTab({ project }) {
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY || '',
-  })
-
+export default function ResultsTab({ project, isLoaded }) {
   const [points,    setPoints]    = useState([])
   const [loading,   setLoading]   = useState(true)
   const [selected,  setSelected]  = useState(null)

@@ -1,10 +1,8 @@
 import { useState, useCallback, useRef } from 'react'
-import { GoogleMap, useJsApiLoader, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
+import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost, polygonBbox } from '../../lib/geo'
 import { scoreColor } from '../../lib/geo'
-
-const LIBRARIES = ['drawing', 'geometry']
 
 const MAP_STYLE = [
   { elementType: 'geometry',            stylers: [{ color: '#1a1a2e' }] },
@@ -35,12 +33,7 @@ function CostBadge({ cost }) {
   )
 }
 
-export default function MapTab({ project, scanPoints, onPointsGenerated }) {
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY || '',
-    libraries: LIBRARIES,
-  })
-
+export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const [drawingMode, setDrawingMode] = useState(null)
   const [polygon,     setPolygon]     = useState(project.scan_area_geojson || null)
   const [spacing,     setSpacing]     = useState(project.point_spacing_meters || 50)
