@@ -7,6 +7,7 @@ const DIRECTIONS = [
   { label: 'E', heading: 90  },
   { label: 'W', heading: 270 },
 ]
+// pitch=10 tilts camera upward toward building facades instead of road surface
 
 async function hasCoverage(lat, lng) {
   try {
@@ -20,7 +21,7 @@ async function hasCoverage(lat, lng) {
 }
 
 async function downloadImage(lat, lng, heading) {
-  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=0&fov=90&return_error_code=true&key=${GOOGLE_KEY}`
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=10&fov=90&return_error_code=true&key=${GOOGLE_KEY}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Street View ${res.status}`)
   const ct = res.headers.get('content-type') || ''

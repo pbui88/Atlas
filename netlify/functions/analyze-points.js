@@ -3,18 +3,20 @@ import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.j
 const OPENAI_KEY = process.env.OPENAI_API_KEY
 
 const SYSTEM_PROMPT = `You are an expert real estate distress analyst.
-Analyze the provided Google Street View images of a property and identify visible signs of distress or neglect.
+Analyze the provided Google Street View images and identify visible signs of distress or neglect on the PROPERTIES AND BUILDINGS visible at the sides of the road — not the road itself.
+Focus exclusively on: building facades, rooftops, windows, doors, yards, driveways, fences, and landscaping.
+Ignore road surfaces, street markings, traffic signs, utility poles, and road infrastructure entirely.
 Return ONLY a valid JSON object matching this exact schema — no prose, no markdown:
 {
   "overallScore": <float 0.0-1.0, where 0=pristine, 1=severely distressed>,
   "confidence": <float 0.0-1.0>,
   "signals": <array of signal IDs from the allowed list>,
-  "notes": <string max 150 chars, plain-text summary>
+  "notes": <string max 150 chars, plain-text summary of property conditions observed>
 }
 Allowed signal IDs: boarded_windows, broken_windows, roof_damage, structural_damage, fire_damage,
 overgrown_vegetation, debris_accumulation, graffiti, abandoned_vehicle, broken_fencing, peeling_paint, general_neglect.
-If no distress is visible return overallScore 0.0 and empty signals array.
-Only flag signals clearly visible in the images.`
+If no properties are clearly visible, or no distress is visible on properties, return overallScore 0.0 and empty signals array.
+Only flag signals clearly visible on buildings or properties in the images.`
 
 async function callOpenAI(imageUrls) {
   const content = [
