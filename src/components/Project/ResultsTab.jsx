@@ -118,13 +118,33 @@ export default function ResultsTab({ project, isLoaded }) {
 
   const fetchResults = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
+
+    const { data: pts } = await supabase
       .from('scan_points')
-      .select('id, lat, lng, address, status, ai_analyses(overall_score, confidence, signals, notes)')
+      .select('id, lat, lng, address, status')
       .eq('project_id', project.id)
       .eq('status', 'complete')
       .order('created_at')
-    setPoints(data || [])
+
+    if (!pts?.length) {
+      setPoints([])
+      setLoading(false)
+      return
+    }
+
+    const { data: analyses } = await supabase
+      .from('ai_analyses')
+      .select('scan_point_id, overall_score, confidence, signals, notes')
+      .in('scan_point_id', pts.map(p => p.id))
+
+    const analysisMap = Object.fromEntries(
+      (analyses || []).map(a => [a.scan_point_id, a])
+    )
+
+    setPoints(pts.map(pt => ({
+      ...pt,
+      ai_analyses: analysisMap[pt.id] ? [analysisMap[pt.id]] : [],
+    })))
     setLoading(false)
   }, [project.id])
 
