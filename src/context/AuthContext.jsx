@@ -18,23 +18,13 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    let initialized = false
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
       else setProfile(null)
-      if (!initialized) { initialized = true; setLoading(false) }
-    })
-
-    // Fallback: ensure loading clears even if onAuthStateChange is slow
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!initialized) {
-        initialized = true
-        setUser(session?.user ?? null)
-        if (session?.user) fetchProfile(session.user.id)
-        setLoading(false)
-      }
+      // INITIAL_SESSION fires after Supabase processes the URL hash (OAuth tokens)
+      // Only clear loading after that, so React Router doesn't wipe the hash first
+      if (event === 'INITIAL_SESSION') setLoading(false)
     })
 
     return () => subscription.unsubscribe()
