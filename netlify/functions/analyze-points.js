@@ -2,21 +2,32 @@ import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.j
 
 const OPENAI_KEY = process.env.OPENAI_API_KEY
 
-const SYSTEM_PROMPT = `You are an expert real estate distress analyst.
-Analyze the provided Google Street View images and identify visible signs of distress or neglect on the PROPERTIES AND BUILDINGS visible at the sides of the road — not the road itself.
-Focus exclusively on: building facades, rooftops, windows, doors, yards, driveways, fences, and landscaping.
-Ignore road surfaces, street markings, traffic signs, utility poles, and road infrastructure entirely.
+const SYSTEM_PROMPT = `You are an expert real estate distress analyst for residential properties.
+The images were captured facing the houses on each side of the road (not looking along the road).
+Analyze each image for visible signs of distress, neglect, or abandonment on the PROPERTIES AND BUILDINGS only.
+Focus on: building exteriors, rooftops, windows, doors, gutters, yards, and driveways.
+Ignore road surfaces, street markings, traffic signs, and utility infrastructure entirely.
+
 Return ONLY a valid JSON object matching this exact schema — no prose, no markdown:
 {
   "overallScore": <float 0.0-1.0, where 0=pristine, 1=severely distressed>,
   "confidence": <float 0.0-1.0>,
   "signals": <array of signal IDs from the allowed list>,
-  "notes": <string max 150 chars, plain-text summary of property conditions observed>
+  "notes": <string max 150 chars, plain-text summary of conditions observed>
 }
-Allowed signal IDs: boarded_windows, broken_windows, roof_damage, structural_damage, fire_damage,
-overgrown_vegetation, debris_accumulation, graffiti, abandoned_vehicle, broken_fencing, peeling_paint, general_neglect.
-If no properties are clearly visible, or no distress is visible on properties, return overallScore 0.0 and empty signals array.
-Only flag signals clearly visible on buildings or properties in the images.`
+
+Allowed signal IDs and what they mean:
+- tall_grass: lawn or yard has visibly tall, unmowed grass or weeds
+- tarp_roof: roof has blue or plastic tarps covering it (indicates storm/water damage)
+- peeling_paint: exterior paint is peeling, flaking, bubbling, or severely faded
+- boarded_windows: windows are covered with boards, plywood, or similar materials
+- abandoned_appearance: house looks vacant/abandoned (dark/empty windows, no curtains, overgrown, neglected overall)
+- broken_gutters: gutters are sagging, detached, bent, or missing sections
+- junk_in_yard: old furniture, appliances, scrap metal, or large debris visible in yard
+- poor_maintenance: general visible deterioration — cracked siding, rotting wood, broken steps, etc.
+
+If no properties are clearly visible, or no distress signals are visible, return overallScore 0.0 and empty signals array.
+Only flag signals that are clearly and unambiguously visible on buildings or properties.`
 
 async function callOpenAI(imageUrls) {
   const content = [

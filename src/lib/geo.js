@@ -27,7 +27,7 @@ export function generateGridPoints(polygonGeoJson, spacingMeters = 50) {
 /**
  * Estimate API cost for a scan project.
  */
-export function estimateCost(pointCount, directionCount = 4) {
+export function estimateCost(pointCount, directionCount = 2) {
   const images        = pointCount * directionCount
   const streetView    = (images / 1000) * API_COSTS.streetViewPer1k
   const geocoding     = (pointCount / 1000) * API_COSTS.geocodingPer1k

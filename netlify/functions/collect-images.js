@@ -1,22 +1,19 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_KEY
-const DIRECTIONS = [
-  { label: 'N', heading: 0   },
-  { label: 'S', heading: 180 },
-  { label: 'E', heading: 90  },
-  { label: 'W', heading: 270 },
-]
 // pitch=10 tilts camera upward toward building facades instead of road surface
 
-async function hasCoverage(lat, lng) {
+// Returns { heading } of the nearest Street View panorama, or null if no coverage.
+// heading is the road travel direction; we use ±90° to look at houses on each side.
+async function getPanoInfo(lat, lng) {
   try {
     const url = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
     const res  = await fetch(url)
     const data = await res.json()
-    return data.status === 'OK'
+    if (data.status !== 'OK') return null
+    return { heading: data.heading ?? 0 }
   } catch {
-    return false
+    return null
   }
 }
 
@@ -60,17 +57,23 @@ export const handler = async (event) => {
 
       if (!pt) { results.push({ pointId, status: 'not_found' }); continue }
 
-      // Coverage check
-      const covered = await hasCoverage(pt.lat, pt.lng)
-      if (!covered) {
+      // Coverage check — also returns road heading for perpendicular shots
+      const pano = await getPanoInfo(pt.lat, pt.lng)
+      if (!pano) {
         await supabase.from('scan_points').update({ status: 'no_coverage', updated_at: new Date().toISOString() }).eq('id', pointId)
         results.push({ pointId, status: 'no_coverage' }); continue
       }
 
       await supabase.from('scan_points').update({ status: 'downloading', updated_at: new Date().toISOString() }).eq('id', pointId)
 
+      // Look perpendicular to road direction — directly at houses on each side
+      const directions = [
+        { label: 'L', heading: (pano.heading + 90) % 360 },
+        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
+      ]
+
       const imageRows = []
-      for (const dir of DIRECTIONS) {
+      for (const dir of directions) {
         try {
           const buffer      = await downloadImage(pt.lat, pt.lng, dir.heading)
           const storagePath = `${projectId}/${pointId}/${dir.label}.jpg`
@@ -120,8 +123,8 @@ export const handler = async (event) => {
         user_id: user.id,
         service: 'street_view',
         action:  'image_download',
-        count:   4,
-        cost_usd: 4 * 0.007,
+        count:   2,
+        cost_usd: 2 * 0.007,
         metadata: { projectId, pointId },
       })
     }

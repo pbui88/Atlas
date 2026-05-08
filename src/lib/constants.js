@@ -39,18 +39,14 @@ export const STATUS_BADGE_CLASS = {
 }
 
 export const DISTRESS_SIGNALS = [
-  { id: 'boarded_windows',     label: 'Boarded Windows',     severity: 'high' },
-  { id: 'broken_windows',      label: 'Broken Windows',      severity: 'high' },
-  { id: 'roof_damage',         label: 'Roof Damage',         severity: 'high' },
-  { id: 'structural_damage',   label: 'Structural Damage',   severity: 'high' },
-  { id: 'fire_damage',         label: 'Fire Damage',         severity: 'high' },
-  { id: 'overgrown_vegetation',label: 'Overgrown Vegetation',severity: 'medium' },
-  { id: 'debris_accumulation', label: 'Debris / Trash',      severity: 'medium' },
-  { id: 'graffiti',            label: 'Graffiti',            severity: 'medium' },
-  { id: 'abandoned_vehicle',   label: 'Abandoned Vehicle',   severity: 'medium' },
-  { id: 'broken_fencing',      label: 'Broken Fencing',      severity: 'low' },
-  { id: 'peeling_paint',       label: 'Peeling Paint',       severity: 'low' },
-  { id: 'general_neglect',     label: 'General Neglect',     severity: 'low' },
+  { id: 'boarded_windows',      label: 'Boarded Windows',      severity: 'high'   },
+  { id: 'abandoned_appearance', label: 'Abandoned / Vacant',   severity: 'high'   },
+  { id: 'tarp_roof',            label: 'Tarp on Roof',         severity: 'high'   },
+  { id: 'tall_grass',           label: 'Tall Grass',           severity: 'medium' },
+  { id: 'junk_in_yard',         label: 'Junk in Yard',         severity: 'medium' },
+  { id: 'broken_gutters',       label: 'Broken Gutters',       severity: 'medium' },
+  { id: 'peeling_paint',        label: 'Peeling Paint',        severity: 'low'    },
+  { id: 'poor_maintenance',     label: 'Poor Maintenance',     severity: 'low'    },
 ]
 
 export const SIGNAL_BADGE = {
@@ -66,7 +62,7 @@ export const DIRECTIONS = [
   { label: 'W', heading: 270 },
 ]
 
-// $7 per 1,000 Street View images; $5 per 1,000 geocodes; ~$0.015 per AI call (4 imgs)
+// $7 per 1,000 Street View images; $5 per 1,000 geocodes; ~$0.015 per AI call (2 imgs)
 export const API_COSTS = {
   streetViewPer1k: 7.00,
   geocodingPer1k:  5.00,

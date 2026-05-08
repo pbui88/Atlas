@@ -243,7 +243,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               <p className="text-xs font-medium text-slate-300">Estimated Cost</p>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Street View ({ptCount * 4} imgs)</span>
+                  <span className="text-slate-500">Street View ({ptCount * 2} imgs)</span>
                   <span className="text-slate-300">${cost.streetView}</span>
                 </div>
                 <div className="flex justify-between">
@@ -260,7 +260,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                   <span className="text-brand-400">${cost.total}</span>
                 </div>
               </div>
-              <p className="text-xs text-slate-600 pt-1">{ptCount.toLocaleString()} points × 4 directions</p>
+              <p className="text-xs text-slate-600 pt-1">{ptCount.toLocaleString()} points × 2 directions</p>
             </div>
           )}
 
