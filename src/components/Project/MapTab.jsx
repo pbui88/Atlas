@@ -120,7 +120,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       {/* Map */}
       <div className="flex-1 relative">
         <GoogleMap
-          mapContainerStyle={{ width: '100%', height: '100%' }}
+          mapContainerStyle={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           center={DEFAULT_CENTER}
           zoom={12}
           options={{ styles: MAP_STYLE, disableDefaultUI: false, zoomControl: true, streetViewControl: false, mapTypeControl: false }}
@@ -133,9 +133,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               options={{
                 drawingControl: false,
                 polygonOptions: {
-                  fillColor: '#ea580c',
+                  fillColor: '#0d9488',
                   fillOpacity: 0.15,
-                  strokeColor: '#ea580c',
+                  strokeColor: '#0d9488',
                   strokeWeight: 2,
                 },
               }}
@@ -148,9 +148,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             <Polygon
               paths={polygon.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
               options={{
-                fillColor: '#ea580c',
+                fillColor: '#0d9488',
                 fillOpacity: 0.08,
-                strokeColor: '#ea580c',
+                strokeColor: '#0d9488',
                 strokeWeight: 2,
               }}
             />
@@ -165,7 +165,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 icon: {
                   path: window.google.maps.SymbolPath.CIRCLE,
                   scale: 3,
-                  fillColor: pt.overall_score != null ? scoreColor(pt.overall_score) : '#ea580c',
+                  fillColor: pt.overall_score != null ? scoreColor(pt.overall_score) : '#0d9488',
                   fillOpacity: 0.8,
                   strokeColor: 'transparent',
                 },
@@ -184,9 +184,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       </div>
 
       {/* Right panel */}
-      <div className="w-72 bg-slate-950 border-l border-slate-800 flex flex-col">
-        <div className="p-4 border-b border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-200">Scan Area</h3>
+      <div className="w-72 bg-white border-l border-slate-200 flex flex-col">
+        <div className="p-4 border-b border-slate-200">
+          <h3 className="text-sm font-semibold text-slate-900">Scan Area</h3>
           <p className="text-xs text-slate-500 mt-0.5">Draw your target neighborhood</p>
         </div>
 
@@ -210,8 +210,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           ) : (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-slate-300">Polygon drawn</span>
-                <button onClick={handleClear} className="text-xs text-slate-500 hover:text-red-400 transition">
+                <span className="text-xs font-medium text-slate-700">Polygon drawn</span>
+                <button onClick={handleClear} className="text-xs text-slate-400 hover:text-red-500 transition">
                   Clear
                 </button>
               </div>
@@ -232,35 +232,35 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 onChange={e => handleSpacingChange(+e.target.value)}
                 className="flex-1 accent-brand-500"
               />
-              <span className="text-sm font-mono text-slate-300 w-14 text-right">{spacing}m</span>
+              <span className="text-sm font-mono text-slate-700 w-14 text-right">{spacing}m</span>
             </div>
             <p className="text-xs text-slate-600 mt-1">Smaller = more points, higher cost</p>
           </div>
 
           {/* Cost estimate */}
           {cost && (
-            <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-medium text-slate-300">Estimated Cost</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Estimated Cost</p>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Street View ({ptCount * 2} imgs)</span>
-                  <span className="text-slate-300">${cost.streetView}</span>
+                  <span className="text-slate-700">${cost.streetView}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Geocoding</span>
-                  <span className="text-slate-300">${cost.geocoding}</span>
+                  <span className="text-slate-700">${cost.geocoding}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">AI Analysis</span>
-                  <span className="text-slate-300">${cost.ai}</span>
+                  <span className="text-slate-700">${cost.ai}</span>
                 </div>
                 <div className="divider pt-1 mt-1" />
                 <div className="flex justify-between font-semibold">
-                  <span className="text-slate-300">Total</span>
-                  <span className="text-brand-400">${cost.total}</span>
+                  <span className="text-slate-700">Total</span>
+                  <span className="text-brand-600">${cost.total}</span>
                 </div>
               </div>
-              <p className="text-xs text-slate-600 pt-1">{ptCount.toLocaleString()} points × 2 directions</p>
+              <p className="text-xs text-slate-400 pt-1">{ptCount.toLocaleString()} points × 2 directions</p>
             </div>
           )}
 
@@ -272,10 +272,10 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
         </div>
 
         {/* Generate button */}
-        <div className="p-4 border-t border-slate-800">
+        <div className="p-4 border-t border-slate-200">
           {scanPoints?.length > 0 ? (
             <div className="text-center">
-              <p className="text-xs text-green-400 mb-2">
+              <p className="text-xs text-green-600 font-medium mb-2">
                 {scanPoints.length.toLocaleString()} points generated
               </p>
               <p className="text-xs text-slate-500">Go to the Scan tab to start image collection.</p>

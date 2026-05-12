@@ -4,16 +4,16 @@ import { collectImages, analyzePoints, geocodePoints } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 import { PROJECT_STATUS } from '../../lib/constants'
 
-const BATCH_SIZE = 8   // points per Netlify function call
-const AI_BATCH   = 5   // points per AI analysis call
+const BATCH_SIZE = 8
+const AI_BATCH   = 5
 
 function StatusRow({ label, value, sub, accent = false }) {
   return (
-    <div className="flex items-center justify-between py-2">
-      <span className="text-sm text-slate-400">{label}</span>
+    <div className="flex items-center justify-between py-2.5">
+      <span className="text-sm text-slate-500">{label}</span>
       <div className="text-right">
-        <span className={`text-sm font-semibold ${accent ? 'text-brand-400' : 'text-slate-200'}`}>{value}</span>
-        {sub && <span className="text-xs text-slate-600 ml-1">{sub}</span>}
+        <span className={`text-sm font-semibold ${accent ? 'text-brand-600' : 'text-slate-900'}`}>{value}</span>
+        {sub && <span className="text-xs text-slate-400 ml-1">{sub}</span>}
       </div>
     </div>
   )
@@ -22,9 +22,9 @@ function StatusRow({ label, value, sub, accent = false }) {
 function ProgressBar({ value, max, color = 'bg-brand-600' }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
-    <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
       <div
-        className={`h-2 rounded-full transition-all duration-300 ${color}`}
+        className={`h-1.5 rounded-full transition-all duration-300 ${color}`}
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -44,7 +44,7 @@ function LogLine({ text, type = 'info' }) {
 export default function ScanTab({ project, onProjectUpdate }) {
   const [stats,    setStats]    = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
   const [running,  setRunning]  = useState(false)
-  const [phase,    setPhase]    = useState('')   // 'collecting' | 'geocoding' | 'analyzing' | ''
+  const [phase,    setPhase]    = useState('')
   const [logs,     setLogs]     = useState([])
   const [abortRef] = useState({ current: false })
   const logEndRef  = useRef(null)
@@ -78,7 +78,6 @@ export default function ScanTab({ project, onProjectUpdate }) {
     setRunning(true)
     log('Starting image collection…', 'info')
 
-    // ── Phase 1: Collect Street View Images ──────────────────
     setPhase('collecting')
     try {
       const { data: pendingPoints } = await supabase
@@ -110,7 +109,6 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
-    // ── Phase 2: Reverse Geocode ──────────────────────────────
     setPhase('geocoding')
     log('Running reverse geocoding…')
     try {
@@ -132,7 +130,6 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
-    // ── Phase 3: AI Analysis ──────────────────────────────────
     setPhase('analyzing')
     log('Starting AI analysis…')
     try {
@@ -171,7 +168,6 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
   const pause = () => { abortRef.current = true }
 
-  const isActive = ['collecting', 'analyzing', 'geocoding'].includes(project.status)
   const canStart = stats.total > 0 && !running
 
   const phaseLabel = {
@@ -183,40 +179,38 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
   return (
     <div className="flex h-full">
-      {/* Left: controls + stats */}
-      <div className="w-80 bg-slate-950 border-r border-slate-800 flex flex-col">
-        <div className="p-4 border-b border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-200">Scan Progress</h3>
-          {phase && <p className="text-xs text-brand-400 mt-0.5 animate-pulse">{phaseLabel[phase]}</p>}
+      {/* Left: controls + stats — light panel */}
+      <div className="w-80 bg-white border-r border-slate-200 flex flex-col">
+        <div className="p-4 border-b border-slate-200">
+          <h3 className="text-sm font-semibold text-slate-900">Scan Progress</h3>
+          {phase && <p className="text-xs text-brand-600 mt-0.5 animate-pulse">{phaseLabel[phase]}</p>}
         </div>
 
         <div className="flex-1 p-4 space-y-5 overflow-y-auto">
           {stats.total === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-8">
+            <p className="text-sm text-slate-400 text-center py-8">
               No scan points generated yet. Go to the Map tab first.
             </p>
           ) : (
             <>
-              {/* Overall progress */}
               <div className="space-y-2">
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>Image collection</span>
-                  <span>{stats.downloaded + stats.complete} / {stats.total}</span>
+                  <span className="font-medium text-slate-700">{stats.downloaded + stats.complete} / {stats.total}</span>
                 </div>
                 <ProgressBar value={stats.downloaded + stats.complete} max={stats.total} />
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>AI analysis</span>
-                  <span>{stats.complete} / {stats.total}</span>
+                  <span className="font-medium text-slate-700">{stats.complete} / {stats.total}</span>
                 </div>
-                <ProgressBar value={stats.complete} max={stats.total} color="bg-green-600" />
+                <ProgressBar value={stats.complete} max={stats.total} color="bg-green-500" />
               </div>
 
               <div className="divider" />
 
-              {/* Point stats */}
-              <div className="divide-y divide-slate-800">
+              <div className="divide-y divide-slate-100">
                 <StatusRow label="Total points" value={stats.total.toLocaleString()} />
                 <StatusRow label="Pending"      value={stats.pending.toLocaleString()} />
                 <StatusRow label="Images ready" value={stats.downloaded.toLocaleString()} accent />
@@ -228,9 +222,9 @@ export default function ScanTab({ project, onProjectUpdate }) {
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-800 space-y-3">
+        <div className="p-4 border-t border-slate-200 space-y-3">
           {running ? (
-            <button onClick={pause} className="btn-outline w-full border-yellow-600/50 text-yellow-400 hover:bg-yellow-600/10">
+            <button onClick={pause} className="btn w-full border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" />
               </svg>
@@ -244,16 +238,13 @@ export default function ScanTab({ project, onProjectUpdate }) {
               {stats.complete === stats.total && stats.total > 0 ? 'Re-scan' : 'Start Scan'}
             </button>
           )}
-          <button
-            onClick={fetchStats}
-            className="btn-ghost w-full text-xs"
-          >
+          <button onClick={fetchStats} className="btn-ghost w-full text-xs">
             Refresh stats
           </button>
         </div>
       </div>
 
-      {/* Right: activity log */}
+      {/* Right: activity log — stays dark (terminal aesthetic) */}
       <div className="flex-1 bg-slate-950 flex flex-col">
         <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Activity Log</h4>
@@ -261,7 +252,7 @@ export default function ScanTab({ project, onProjectUpdate }) {
             Clear
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono bg-slate-950">
+        <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono">
           {logs.length === 0 ? (
             <p className="text-xs text-slate-700 font-mono">Waiting for scan to start…</p>
           ) : (

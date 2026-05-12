@@ -12,7 +12,7 @@ function EmptyState({ onNew }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
         </svg>
       </div>
-      <h3 className="text-lg font-semibold text-slate-300 mb-2">No scan projects yet</h3>
+      <h3 className="text-lg font-semibold text-slate-700 mb-2">No scan projects yet</h3>
       <p className="text-sm text-slate-500 mb-8 max-w-xs">
         Create a project, draw your scan area on the map, and Atlas will start collecting Street View imagery.
       </p>
@@ -66,7 +66,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">
+          <h1 className="text-2xl font-bold text-slate-900">
             {profile?.full_name ? `${profile.full_name.split(' ')[0]}'s Projects` : 'Projects'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">Manage your neighborhood scan projects</p>
@@ -89,7 +89,7 @@ export default function Dashboard() {
           ].map(s => (
             <div key={s.label} className="stat-card">
               <p className="text-xs text-slate-500 mb-1">{s.label}</p>
-              <p className={`text-2xl font-bold ${s.highlight ? 'text-brand-400' : 'text-slate-100'}`}>
+              <p className={`text-2xl font-bold ${s.highlight ? 'text-brand-600' : 'text-slate-900'}`}>
                 {s.value}
               </p>
             </div>

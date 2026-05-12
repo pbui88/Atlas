@@ -1,24 +1,48 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_KEY
-// pitch=10 tilts camera upward toward building facades instead of road surface
 
-// Returns { heading } of the nearest Street View panorama, or null if no coverage.
-// heading is the road travel direction; we use ±90° to look at houses on each side.
+// Bearing (degrees, 0=N, 90=E) from one lat/lng to another.
+function bearingTo(fromLat, fromLng, toLat, toLng) {
+  const φ1 = fromLat * Math.PI / 180
+  const φ2 = toLat   * Math.PI / 180
+  const Δλ = (toLng - fromLng) * Math.PI / 180
+  const y   = Math.sin(Δλ) * Math.cos(φ2)
+  const x   = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360
+}
+
+// Haversine distance in meters.
+function distMeters(lat1, lng1, lat2, lng2) {
+  const R    = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a    = Math.sin(dLat / 2) ** 2
+              + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// Returns pano metadata or null if no coverage.
 async function getPanoInfo(lat, lng) {
   try {
-    const url = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
+    const url  = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
     const res  = await fetch(url)
     const data = await res.json()
     if (data.status !== 'OK') return null
-    return { heading: data.heading ?? 0 }
+    return {
+      heading: data.heading ?? 0,
+      panoLat: data.location?.lat ?? lat,
+      panoLng: data.location?.lng ?? lng,
+    }
   } catch {
     return null
   }
 }
 
 async function downloadImage(lat, lng, heading) {
-  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=10&fov=90&return_error_code=true&key=${GOOGLE_KEY}`
+  // fov=72 (narrower than 90) frames building facades without too much sky/road.
+  // pitch=15 tilts upward to capture the facade above the curb line.
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=72&return_error_code=true&key=${GOOGLE_KEY}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Street View ${res.status}`)
   const ct = res.headers.get('content-type') || ''
@@ -47,6 +71,7 @@ export const handler = async (event) => {
   for (const pointId of pointIds.slice(0, 10)) {  // cap per call
     let pointStatus = 'failed'
     let errorMsg    = null
+    let imageRows   = []
 
     try {
       const { data: pt } = await supabase
@@ -66,13 +91,26 @@ export const handler = async (event) => {
 
       await supabase.from('scan_points').update({ status: 'downloading', updated_at: new Date().toISOString() }).eq('id', pointId)
 
-      // Look perpendicular to road direction — directly at houses on each side
-      const directions = [
-        { label: 'L', heading: (pano.heading + 90) % 360 },
-        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
-      ]
+      // When the panorama is more than 8 m from the scan point, the scan point
+      // is off the road (on a lot / setback) — aim the camera directly from
+      // the pano toward the scan point so it faces the property.
+      // Otherwise the pano is on the road itself: shoot perpendicular to the
+      // travel direction to capture houses on both sides of the street.
+      const dist = distMeters(pt.lat, pt.lng, pano.panoLat, pano.panoLng)
+      let directions
+      if (dist > 8) {
+        const towardProperty = bearingTo(pano.panoLat, pano.panoLng, pt.lat, pt.lng)
+        directions = [
+          { label: 'F', heading: towardProperty },
+        ]
+      } else {
+        directions = [
+          { label: 'L', heading: (pano.heading + 90) % 360 },
+          { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
+        ]
+      }
 
-      const imageRows = []
+      imageRows = []
       for (const dir of directions) {
         try {
           const buffer      = await downloadImage(pt.lat, pt.lng, dir.heading)
@@ -119,12 +157,13 @@ export const handler = async (event) => {
 
     // Log usage
     if (pointStatus === 'downloaded') {
+      const imgCount = imageRows.length || 1
       await supabase.from('usage_logs').insert({
         user_id: user.id,
         service: 'street_view',
         action:  'image_download',
-        count:   2,
-        cost_usd: 2 * 0.007,
+        count:   imgCount,
+        cost_usd: imgCount * 0.007,
         metadata: { projectId, pointId },
       })
     }

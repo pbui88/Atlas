@@ -4,27 +4,32 @@
 
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-100 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased;
   }
   ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { @apply bg-slate-900; }
-  ::-webkit-scrollbar-thumb { @apply bg-slate-600 rounded-full; }
+  ::-webkit-scrollbar-track { @apply bg-slate-100; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-full; }
 }
 
 @layer components {
   .card {
-    @apply bg-slate-900 border border-slate-800 rounded-xl p-5;
+    @apply bg-white border border-slate-200 rounded-xl p-5 shadow-sm;
   }
   .card-hover {
-    @apply card hover:border-slate-700 transition-colors cursor-pointer;
+    @apply card hover:border-slate-300 hover:shadow-md transition-all cursor-pointer;
   }
   .input {
+    @apply w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm
+           text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2
+           focus:ring-brand-500 focus:border-brand-500 transition;
+  }
+  .input-dark {
     @apply w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm
            text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2
            focus:ring-brand-500 focus:border-brand-500 transition;
   }
   .label {
-    @apply block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide;
+    @apply block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2
@@ -34,10 +39,10 @@
     @apply btn bg-brand-600 hover:bg-brand-700 text-white shadow-sm shadow-brand-600/20;
   }
   .btn-ghost {
-    @apply btn hover:bg-slate-800 text-slate-300 hover:text-slate-100;
+    @apply btn hover:bg-slate-100 text-slate-600 hover:text-slate-900;
   }
   .btn-outline {
-    @apply btn border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-slate-100;
+    @apply btn border border-slate-300 hover:bg-slate-100 text-slate-700 hover:text-slate-900;
   }
   .btn-danger {
     @apply btn bg-red-600 hover:bg-red-700 text-white;
@@ -45,14 +50,14 @@
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
   }
-  .badge-red    { @apply badge bg-red-500/20 text-red-400; }
-  .badge-orange { @apply badge bg-orange-500/20 text-orange-400; }
-  .badge-yellow { @apply badge bg-yellow-500/20 text-yellow-400; }
-  .badge-green  { @apply badge bg-green-500/20 text-green-400; }
-  .badge-blue   { @apply badge bg-blue-500/20 text-blue-400; }
-  .badge-slate  { @apply badge bg-slate-700 text-slate-300; }
-  .divider { @apply border-t border-slate-800; }
+  .badge-red    { @apply badge bg-red-100 text-red-600; }
+  .badge-orange { @apply badge bg-orange-100 text-orange-600; }
+  .badge-yellow { @apply badge bg-yellow-100 text-yellow-700; }
+  .badge-green  { @apply badge bg-green-100 text-green-700; }
+  .badge-blue   { @apply badge bg-blue-100 text-blue-600; }
+  .badge-slate  { @apply badge bg-slate-100 text-slate-600; }
+  .divider { @apply border-t border-slate-200; }
   .stat-card {
-    @apply bg-slate-900 border border-slate-800 rounded-xl p-4;
+    @apply bg-white border border-slate-200 rounded-xl p-5 shadow-sm;
   }
 }
