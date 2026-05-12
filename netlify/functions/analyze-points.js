@@ -1,136 +1,85 @@
-import jpeg from 'jpeg-js'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
-// ---------------------------------------------------------------------------
-// Pixel-level heuristic analysis — no external AI API required
-// ---------------------------------------------------------------------------
+const GEMINI_KEY = process.env.GEMINI_API_KEY
+const GEMINI_MODEL = 'gemini-2.0-flash'
+const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
 
-function analyzePixels(decoded) {
-  const { data, width, height } = decoded
-  const totalPixels     = width * height
-  const lowerStartY     = Math.floor(height * 0.6)   // bottom 40% = ground / yard
-  const upperEndY       = Math.floor(height * 0.45)  // top 45% = roof / sky zone
-  const lowerPixels     = (height - lowerStartY) * width
-  const upperPixels     = upperEndY * width
+const PROMPT = `You are an expert real estate distress analyst for residential properties.
+The images were captured facing the houses on each side of the road (not looking along the road).
+Analyze each image for visible signs of distress, neglect, or abandonment on the PROPERTIES AND BUILDINGS only.
+Focus on: building exteriors, rooftops, windows, doors, gutters, yards, and driveways.
+Ignore road surfaces, street markings, traffic signs, and utility infrastructure entirely.
 
-  let totalLuminance = 0
-  let darkPixels     = 0   // very dark  → boarded / abandoned
-  let grayPixels     = 0   // desaturated mid-tone → faded / neglected
-  let greenGrass     = 0   // green in lower zone → tall grass
-  let blueTarp       = 0   // saturated blue in upper zone → tarp
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4
-      const r = data[i], g = data[i + 1], b = data[i + 2]
-
-      const lum = r * 0.299 + g * 0.587 + b * 0.114
-      const max = Math.max(r, g, b)
-      const min = Math.min(r, g, b)
-      const sat = max > 0 ? (max - min) / max : 0
-
-      totalLuminance += lum
-
-      if (lum < 38) darkPixels++
-
-      // Desaturated mid-tone — faded paint, neglected exterior
-      if (lum > 55 && lum < 185 && sat < 0.14) grayPixels++
-
-      // Grass green: dominant green, medium brightness, some saturation
-      if (y >= lowerStartY && g > r * 1.12 && g > b * 1.05 && g > 55 && g < 225 && sat > 0.1) {
-        greenGrass++
-      }
-
-      // Tarp blue: saturated blue in roof zone, NOT light sky-blue
-      // Sky is high-brightness low-saturation; tarps are mid-brightness high-saturation
-      if (y < upperEndY && b > r * 1.35 && b > g * 1.18 && sat > 0.28 && lum < 185) {
-        blueTarp++
-      }
-    }
-  }
-
-  const meanLum    = totalLuminance / totalPixels
-  const darkRatio  = darkPixels  / totalPixels
-  const grayRatio  = grayPixels  / totalPixels
-  const greenRatio = lowerPixels > 0 ? greenGrass / lowerPixels : 0
-  const blueRatio  = upperPixels > 0 ? blueTarp   / upperPixels : 0
-
-  const signals = []
-  let score = 0
-
-  // Abandoned / very dark interior
-  if (darkRatio > 0.28) {
-    signals.push('abandoned_appearance')
-    score += 0.35
-  } else if (darkRatio > 0.14) {
-    score += 0.12
-  }
-
-  // Boarded windows — combine high dark ratio with low overall brightness
-  if (darkRatio > 0.38 && meanLum < 65) {
-    signals.push('boarded_windows')
-    score += 0.20
-  }
-
-  // Tall grass in yard / lower zone
-  if (greenRatio > 0.22) {
-    signals.push('tall_grass')
-    score += 0.25
-  } else if (greenRatio > 0.12) {
-    score += 0.08
-  }
-
-  // Blue tarp on roof
-  if (blueRatio > 0.055) {
-    signals.push('tarp_roof')
-    score += 0.35
-  }
-
-  // Faded / poor exterior — heavy desaturation over mid-tones
-  if (grayRatio > 0.42) {
-    signals.push('poor_maintenance')
-    score += 0.15
-  } else if (grayRatio > 0.28) {
-    score += 0.06
-  }
-
-  return {
-    overallScore: parseFloat(Math.min(1, score).toFixed(3)),
-    signals: [...new Set(signals)],
-    meta: { meanLum: meanLum.toFixed(1), darkRatio, grayRatio, greenRatio, blueRatio },
-  }
+Return ONLY a valid JSON object matching this exact schema — no prose, no markdown:
+{
+  "overallScore": <float 0.0-1.0, where 0=pristine, 1=severely distressed>,
+  "confidence": <float 0.0-1.0>,
+  "signals": <array of signal IDs from the allowed list>,
+  "notes": <string max 150 chars, plain-text summary of conditions observed>
 }
 
-async function fetchAndDecode(url) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Image fetch ${res.status}`)
-  const ct = res.headers.get('content-type') || ''
-  if (!ct.includes('image')) throw new Error('Not an image')
-  const buf = Buffer.from(await res.arrayBuffer())
-  return jpeg.decode(buf, { useTArray: true })
-}
+Allowed signal IDs:
+- tall_grass: visibly tall, unmowed grass or weeds in yard
+- tarp_roof: blue or plastic tarps covering the roof
+- peeling_paint: exterior paint is peeling, flaking, or severely faded
+- boarded_windows: windows covered with boards or plywood
+- abandoned_appearance: house looks vacant/abandoned overall
+- broken_gutters: gutters sagging, detached, or missing sections
+- junk_in_yard: old furniture, appliances, or large debris in yard
+- poor_maintenance: general deterioration — cracked siding, rotting wood, broken steps
 
-function aggregate(results) {
-  if (!results.length) return { overallScore: 0, confidence: 0, signals: [], notes: '' }
+If no properties are clearly visible or no distress signals exist, return overallScore 0.0 and empty signals array.
+Only flag signals that are clearly and unambiguously visible.`
 
-  const avgScore = results.reduce((s, r) => s + r.overallScore, 0) / results.length
-  const signals  = [...new Set(results.flatMap(r => r.signals))]
-
-  const noteParts = results.map(r =>
-    `lum=${r.meta.meanLum} dark=${(r.meta.darkRatio * 100).toFixed(0)}% green=${(r.meta.greenRatio * 100).toFixed(0)}% tarp=${(r.meta.blueRatio * 100).toFixed(0)}%`
+async function callGemini(imageUrls) {
+  // Fetch images and encode as base64 for Gemini inline data
+  const imageParts = await Promise.all(
+    imageUrls.map(async (url) => {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`)
+      const buf = Buffer.from(await res.arrayBuffer())
+      return {
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: buf.toString('base64'),
+        },
+      }
+    })
   )
 
-  return {
-    overallScore: parseFloat(avgScore.toFixed(3)),
-    confidence:   0.4,   // heuristic is inherently lower confidence than AI vision
-    signals,
-    notes: noteParts.join(' | ').slice(0, 200),
-  }
-}
+  const res = await fetch(GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: PROMPT },
+          ...imageParts,
+        ],
+      }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 512,
+        temperature: 0.1,
+      },
+    }),
+  })
 
-// ---------------------------------------------------------------------------
-// Handler
-// ---------------------------------------------------------------------------
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error?.message || `Gemini ${res.status}`)
+
+  const text   = data.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Empty Gemini response')
+
+  const parsed       = JSON.parse(text)
+  const inputTokens  = data.usageMetadata?.promptTokenCount     || 0
+  const outputTokens = data.usageMetadata?.candidatesTokenCount || 0
+
+  // gemini-2.0-flash pricing: $0.10/1M input, $0.40/1M output tokens
+  const costUsd = (inputTokens * 0.0000001) + (outputTokens * 0.0000004)
+
+  return { result: parsed, inputTokens, outputTokens, costUsd }
+}
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -138,6 +87,8 @@ export const handler = async (event) => {
 
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
+
+  if (!GEMINI_KEY) return err('GEMINI_API_KEY not configured', 503)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
   if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
@@ -147,7 +98,7 @@ export const handler = async (event) => {
   const supabase = adminSupabase()
   const results  = []
 
-  for (const pointId of pointIds.slice(0, 10)) {
+  for (const pointId of pointIds.slice(0, 5)) {
     try {
       const { data: images } = await supabase
         .from('images')
@@ -163,37 +114,20 @@ export const handler = async (event) => {
         .update({ status: 'analyzing', updated_at: new Date().toISOString() })
         .eq('id', pointId)
 
-      // Decode and analyze each image
-      const pixelResults = []
-      for (const img of images) {
-        try {
-          const decoded = await fetchAndDecode(img.storage_url)
-          pixelResults.push(analyzePixels(decoded))
-        } catch (imgErr) {
-          console.warn(`Pixel analysis failed for ${img.storage_url}:`, imgErr.message)
-        }
-      }
-
-      if (!pixelResults.length) {
-        await supabase.from('scan_points')
-          .update({ status: 'failed', error_msg: 'Image decode failed', updated_at: new Date().toISOString() })
-          .eq('id', pointId)
-        results.push({ pointId, status: 'error' }); continue
-      }
-
-      const result = aggregate(pixelResults)
+      const imageUrls = images.map(i => i.storage_url)
+      const { result, inputTokens, outputTokens, costUsd } = await callGemini(imageUrls)
 
       await supabase.from('ai_analyses').upsert({
         scan_point_id:      pointId,
-        overall_score:      result.overallScore,
-        confidence:         result.confidence,
-        signals:            result.signals,
-        notes:              result.notes,
-        model_used:         'heuristic',
-        prompt_tokens:      0,
-        completion_tokens:  0,
-        estimated_cost_usd: 0,
-        raw_response:       { images: pixelResults.map(r => r.meta) },
+        overall_score:      result.overallScore  ?? 0,
+        confidence:         result.confidence    ?? 0,
+        signals:            result.signals       ?? [],
+        notes:              result.notes         ?? '',
+        model_used:         GEMINI_MODEL,
+        prompt_tokens:      inputTokens,
+        completion_tokens:  outputTokens,
+        estimated_cost_usd: costUsd,
+        raw_response:       result,
         updated_at:         new Date().toISOString(),
       }, { onConflict: 'scan_point_id' })
 
@@ -201,9 +135,18 @@ export const handler = async (event) => {
         .update({ status: 'complete', updated_at: new Date().toISOString() })
         .eq('id', pointId)
 
+      await supabase.from('usage_logs').insert({
+        user_id:  user.id,
+        service:  'gemini_vision',
+        action:   'analyze_point',
+        count:    1,
+        cost_usd: costUsd,
+        metadata: { projectId, pointId, model: GEMINI_MODEL, inputTokens, outputTokens },
+      })
+
       results.push({ pointId, status: 'complete', score: result.overallScore })
     } catch (ptErr) {
-      console.error(`Heuristic analysis failed ${pointId}:`, ptErr.message)
+      console.error(`Gemini analysis failed ${pointId}:`, ptErr.message)
       await supabase.from('scan_points').update({
         status: 'failed', error_msg: ptErr.message, updated_at: new Date().toISOString(),
       }).eq('id', pointId)
