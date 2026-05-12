@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost, polygonBbox } from '../../lib/geo'
@@ -41,7 +41,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [cost,        setCost]        = useState(null)
   const [generating,  setGenerating]  = useState(false)
   const [error,       setError]       = useState(null)
-  const mapRef = useRef(null)
+  const mapRef        = useRef(null)
+  const drawingMgrRef = useRef(null)
 
   const onMapLoad = useCallback((map) => {
     mapRef.current = map
@@ -52,6 +53,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       map.fitBounds(bounds, 60)
     }
   }, [polygon])
+
+  // Imperatively push drawingMode changes to the native DrawingManager instance
+  useEffect(() => {
+    if (!drawingMgrRef.current) return
+    const mode = drawingMode ? window.google.maps.drawing.OverlayType.POLYGON : null
+    drawingMgrRef.current.setDrawingMode(mode)
+  }, [drawingMode])
 
   const handlePolygonComplete = useCallback((poly) => {
     const path = poly.getPath().getArray()
@@ -129,7 +137,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Drawing manager */}
           {!polygon && (
             <DrawingManager
-              drawingMode={drawingMode}
+              onLoad={dm => { drawingMgrRef.current = dm }}
               options={{
                 drawingControl: false,
                 polygonOptions: {
