@@ -30,11 +30,15 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  const signInWithGoogle = () =>
-    supabase.auth.signInWithOAuth({
+  const signInWithGoogle = () => {
+    const redirectTo = import.meta.env.DEV
+      ? 'http://localhost:3000'
+      : (import.meta.env.VITE_SITE_URL || window.location.origin)
+    return supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     })
+  }
 
   const signOut = () => supabase.auth.signOut()
 

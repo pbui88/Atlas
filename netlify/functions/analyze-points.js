@@ -1,67 +1,136 @@
+import jpeg from 'jpeg-js'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
-const OPENAI_KEY = process.env.OPENAI_API_KEY
+// ---------------------------------------------------------------------------
+// Pixel-level heuristic analysis — no external AI API required
+// ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are an expert real estate distress analyst for residential properties.
-The images were captured facing the houses on each side of the road (not looking along the road).
-Analyze each image for visible signs of distress, neglect, or abandonment on the PROPERTIES AND BUILDINGS only.
-Focus on: building exteriors, rooftops, windows, doors, gutters, yards, and driveways.
-Ignore road surfaces, street markings, traffic signs, and utility infrastructure entirely.
+function analyzePixels(decoded) {
+  const { data, width, height } = decoded
+  const totalPixels     = width * height
+  const lowerStartY     = Math.floor(height * 0.6)   // bottom 40% = ground / yard
+  const upperEndY       = Math.floor(height * 0.45)  // top 45% = roof / sky zone
+  const lowerPixels     = (height - lowerStartY) * width
+  const upperPixels     = upperEndY * width
 
-Return ONLY a valid JSON object matching this exact schema — no prose, no markdown:
-{
-  "overallScore": <float 0.0-1.0, where 0=pristine, 1=severely distressed>,
-  "confidence": <float 0.0-1.0>,
-  "signals": <array of signal IDs from the allowed list>,
-  "notes": <string max 150 chars, plain-text summary of conditions observed>
-}
+  let totalLuminance = 0
+  let darkPixels     = 0   // very dark  → boarded / abandoned
+  let grayPixels     = 0   // desaturated mid-tone → faded / neglected
+  let greenGrass     = 0   // green in lower zone → tall grass
+  let blueTarp       = 0   // saturated blue in upper zone → tarp
 
-Allowed signal IDs and what they mean:
-- tall_grass: lawn or yard has visibly tall, unmowed grass or weeds
-- tarp_roof: roof has blue or plastic tarps covering it (indicates storm/water damage)
-- peeling_paint: exterior paint is peeling, flaking, bubbling, or severely faded
-- boarded_windows: windows are covered with boards, plywood, or similar materials
-- abandoned_appearance: house looks vacant/abandoned (dark/empty windows, no curtains, overgrown, neglected overall)
-- broken_gutters: gutters are sagging, detached, bent, or missing sections
-- junk_in_yard: old furniture, appliances, scrap metal, or large debris visible in yard
-- poor_maintenance: general visible deterioration — cracked siding, rotting wood, broken steps, etc.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      const r = data[i], g = data[i + 1], b = data[i + 2]
 
-If no properties are clearly visible, or no distress signals are visible, return overallScore 0.0 and empty signals array.
-Only flag signals that are clearly and unambiguously visible on buildings or properties.`
+      const lum = r * 0.299 + g * 0.587 + b * 0.114
+      const max = Math.max(r, g, b)
+      const min = Math.min(r, g, b)
+      const sat = max > 0 ? (max - min) / max : 0
 
-async function callOpenAI(imageUrls) {
-  const content = [
-    { type: 'text', text: SYSTEM_PROMPT },
-    ...imageUrls.map(url => ({
-      type: 'image_url',
-      image_url: { url, detail: 'low' },
-    })),
-  ]
+      totalLuminance += lum
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content }],
-      max_tokens: 400,
-      response_format: { type: 'json_object' },
-    }),
-  })
+      if (lum < 38) darkPixels++
 
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || `OpenAI ${res.status}`)
+      // Desaturated mid-tone — faded paint, neglected exterior
+      if (lum > 55 && lum < 185 && sat < 0.14) grayPixels++
 
-  const parsed = JSON.parse(data.choices[0].message.content)
+      // Grass green: dominant green, medium brightness, some saturation
+      if (y >= lowerStartY && g > r * 1.12 && g > b * 1.05 && g > 55 && g < 225 && sat > 0.1) {
+        greenGrass++
+      }
+
+      // Tarp blue: saturated blue in roof zone, NOT light sky-blue
+      // Sky is high-brightness low-saturation; tarps are mid-brightness high-saturation
+      if (y < upperEndY && b > r * 1.35 && b > g * 1.18 && sat > 0.28 && lum < 185) {
+        blueTarp++
+      }
+    }
+  }
+
+  const meanLum    = totalLuminance / totalPixels
+  const darkRatio  = darkPixels  / totalPixels
+  const grayRatio  = grayPixels  / totalPixels
+  const greenRatio = lowerPixels > 0 ? greenGrass / lowerPixels : 0
+  const blueRatio  = upperPixels > 0 ? blueTarp   / upperPixels : 0
+
+  const signals = []
+  let score = 0
+
+  // Abandoned / very dark interior
+  if (darkRatio > 0.28) {
+    signals.push('abandoned_appearance')
+    score += 0.35
+  } else if (darkRatio > 0.14) {
+    score += 0.12
+  }
+
+  // Boarded windows — combine high dark ratio with low overall brightness
+  if (darkRatio > 0.38 && meanLum < 65) {
+    signals.push('boarded_windows')
+    score += 0.20
+  }
+
+  // Tall grass in yard / lower zone
+  if (greenRatio > 0.22) {
+    signals.push('tall_grass')
+    score += 0.25
+  } else if (greenRatio > 0.12) {
+    score += 0.08
+  }
+
+  // Blue tarp on roof
+  if (blueRatio > 0.055) {
+    signals.push('tarp_roof')
+    score += 0.35
+  }
+
+  // Faded / poor exterior — heavy desaturation over mid-tones
+  if (grayRatio > 0.42) {
+    signals.push('poor_maintenance')
+    score += 0.15
+  } else if (grayRatio > 0.28) {
+    score += 0.06
+  }
+
   return {
-    result:           parsed,
-    promptTokens:     data.usage?.prompt_tokens || 0,
-    completionTokens: data.usage?.completion_tokens || 0,
+    overallScore: parseFloat(Math.min(1, score).toFixed(3)),
+    signals: [...new Set(signals)],
+    meta: { meanLum: meanLum.toFixed(1), darkRatio, grayRatio, greenRatio, blueRatio },
   }
 }
+
+async function fetchAndDecode(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Image fetch ${res.status}`)
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('image')) throw new Error('Not an image')
+  const buf = Buffer.from(await res.arrayBuffer())
+  return jpeg.decode(buf, { useTArray: true })
+}
+
+function aggregate(results) {
+  if (!results.length) return { overallScore: 0, confidence: 0, signals: [], notes: '' }
+
+  const avgScore = results.reduce((s, r) => s + r.overallScore, 0) / results.length
+  const signals  = [...new Set(results.flatMap(r => r.signals))]
+
+  const noteParts = results.map(r =>
+    `lum=${r.meta.meanLum} dark=${(r.meta.darkRatio * 100).toFixed(0)}% green=${(r.meta.greenRatio * 100).toFixed(0)}% tarp=${(r.meta.blueRatio * 100).toFixed(0)}%`
+  )
+
+  return {
+    overallScore: parseFloat(avgScore.toFixed(3)),
+    confidence:   0.4,   // heuristic is inherently lower confidence than AI vision
+    signals,
+    notes: noteParts.join(' | ').slice(0, 200),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -69,8 +138,6 @@ export const handler = async (event) => {
 
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
-
-  if (!OPENAI_KEY) return err('OPENAI_API_KEY not configured', 503)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
   if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
@@ -80,9 +147,8 @@ export const handler = async (event) => {
   const supabase = adminSupabase()
   const results  = []
 
-  for (const pointId of pointIds.slice(0, 5)) {
+  for (const pointId of pointIds.slice(0, 10)) {
     try {
-      // Get images for this point
       const { data: images } = await supabase
         .from('images')
         .select('storage_url, direction')
@@ -93,43 +159,51 @@ export const handler = async (event) => {
         results.push({ pointId, status: 'no_images' }); continue
       }
 
-      await supabase.from('scan_points').update({ status: 'analyzing', updated_at: new Date().toISOString() }).eq('id', pointId)
+      await supabase.from('scan_points')
+        .update({ status: 'analyzing', updated_at: new Date().toISOString() })
+        .eq('id', pointId)
 
-      const imageUrls = images.map(i => i.storage_url)
-      const { result, promptTokens, completionTokens } = await callOpenAI(imageUrls)
+      // Decode and analyze each image
+      const pixelResults = []
+      for (const img of images) {
+        try {
+          const decoded = await fetchAndDecode(img.storage_url)
+          pixelResults.push(analyzePixels(decoded))
+        } catch (imgErr) {
+          console.warn(`Pixel analysis failed for ${img.storage_url}:`, imgErr.message)
+        }
+      }
 
-      const costUsd = (promptTokens * 0.000005) + (completionTokens * 0.000015)
+      if (!pixelResults.length) {
+        await supabase.from('scan_points')
+          .update({ status: 'failed', error_msg: 'Image decode failed', updated_at: new Date().toISOString() })
+          .eq('id', pointId)
+        results.push({ pointId, status: 'error' }); continue
+      }
 
-      // Upsert analysis
+      const result = aggregate(pixelResults)
+
       await supabase.from('ai_analyses').upsert({
         scan_point_id:      pointId,
-        overall_score:      result.overallScore ?? 0,
-        confidence:         result.confidence ?? 0,
-        signals:            result.signals ?? [],
-        notes:              result.notes ?? '',
-        model_used:         'gpt-4o',
-        prompt_tokens:      promptTokens,
-        completion_tokens:  completionTokens,
-        estimated_cost_usd: costUsd,
-        raw_response:       result,
+        overall_score:      result.overallScore,
+        confidence:         result.confidence,
+        signals:            result.signals,
+        notes:              result.notes,
+        model_used:         'heuristic',
+        prompt_tokens:      0,
+        completion_tokens:  0,
+        estimated_cost_usd: 0,
+        raw_response:       { images: pixelResults.map(r => r.meta) },
         updated_at:         new Date().toISOString(),
       }, { onConflict: 'scan_point_id' })
 
-      await supabase.from('scan_points').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', pointId)
-
-      // Log usage
-      await supabase.from('usage_logs').insert({
-        user_id:  user.id,
-        service:  'openai_vision',
-        action:   'analyze_point',
-        count:    1,
-        cost_usd: costUsd,
-        metadata: { projectId, pointId, model: 'gpt-4o' },
-      })
+      await supabase.from('scan_points')
+        .update({ status: 'complete', updated_at: new Date().toISOString() })
+        .eq('id', pointId)
 
       results.push({ pointId, status: 'complete', score: result.overallScore })
     } catch (ptErr) {
-      console.error(`Analysis failed ${pointId}:`, ptErr.message)
+      console.error(`Heuristic analysis failed ${pointId}:`, ptErr.message)
       await supabase.from('scan_points').update({
         status: 'failed', error_msg: ptErr.message, updated_at: new Date().toISOString(),
       }).eq('id', pointId)
@@ -137,7 +211,7 @@ export const handler = async (event) => {
     }
   }
 
-  // Update project completed count
+  // Update project counters
   const { count: completed } = await supabase
     .from('scan_points')
     .select('*', { count: 'exact', head: true })
