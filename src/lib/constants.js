@@ -62,9 +62,9 @@ export const DIRECTIONS = [
   { label: 'W', heading: 270 },
 ]
 
-// $7 per 1,000 Street View images; $5 per 1,000 geocodes; ~$0.015 per AI call (2 imgs)
+// $7 per 1,000 Street View images; geocoding free (Positionstack); ~$0.001 per AI call (Gemini 2.5-flash)
 export const API_COSTS = {
   streetViewPer1k: 7.00,
-  geocodingPer1k:  5.00,
-  aiPerPoint:      0.015,
+  geocodingPer1k:  0,
+  aiPerPoint:      0.001,
 }

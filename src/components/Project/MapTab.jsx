@@ -379,7 +379,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Geocoding</span>
-                  <span className="text-slate-700">${cost.geocoding}</span>
+                  <span className="text-emerald-600">Free</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">AI Analysis</span>
@@ -391,7 +391,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                   <span className="text-brand-600">${cost.total}</span>
                 </div>
               </div>
-              <p className="text-xs text-slate-400 pt-1">{ptCount.toLocaleString()} points × 2 directions</p>
+              <p className="text-xs text-slate-400 pt-1">
+                ≤ {ptCount.toLocaleString()} pts × L+R — road points may be fewer
+              </p>
             </div>
           )}
 
