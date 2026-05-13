@@ -176,7 +176,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Map */}
-        <div className={`relative transition-all duration-300 ${showSV ? 'h-1/2' : 'flex-1'}`}>
+        <div className="relative flex-1">
           <GoogleMap
             mapContainerStyle={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
             center={US_CENTER}
@@ -308,33 +308,33 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
             </div>
           )}
-        </div>
 
-        {/* ── Street View panel ── */}
-        {showSV && (
-          <div className="h-1/2 relative border-t border-slate-800 bg-slate-950 overflow-hidden">
-            <div ref={svContainerRef} className="absolute inset-0" />
+          {/* ── Street View centered overlay ── */}
+          {showSV && searchPin && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+              <div className="relative w-3/4 h-3/4 rounded-2xl overflow-hidden shadow-2xl border border-slate-700">
+                <div ref={svContainerRef} className="absolute inset-0" />
 
-            {/* Address label */}
-            {searchPin?.address && (
-              <div className="absolute top-2 left-3 z-10 max-w-xs">
-                <div className="bg-slate-900/85 backdrop-blur-sm border border-slate-700 rounded-lg px-2.5 py-1">
-                  <p className="text-xs text-slate-300 truncate">{searchPin.address}</p>
-                </div>
+                {searchPin.address && (
+                  <div className="absolute top-3 left-3 z-10 max-w-xs">
+                    <div className="bg-slate-900/85 backdrop-blur-sm border border-slate-700 rounded-lg px-2.5 py-1">
+                      <p className="text-xs text-slate-300 truncate">{searchPin.address.split(',').slice(0, 3).join(',')}</p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={closeSV}
+                  className="absolute top-3 right-3 z-10 w-8 h-8 bg-slate-800/90 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center justify-center transition"
+                >
+                  <svg className="w-4 h-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-            )}
-
-            {/* Close button */}
-            <button
-              onClick={closeSV}
-              className="absolute top-2 right-2 z-10 w-7 h-7 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center justify-center transition"
-            >
-              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Right panel ── */}
