@@ -2,7 +2,10 @@ import { supabase } from './supabase'
 
 async function getToken() {
   const { data: { session } } = await supabase.auth.getSession()
-  return session?.access_token ?? null
+  if (session?.access_token) return session.access_token
+  // Session missing or expired — attempt silent refresh
+  const { data } = await supabase.auth.refreshSession()
+  return data?.session?.access_token ?? null
 }
 
 async function call(fn, method = 'GET', body = null) {
@@ -15,6 +18,12 @@ async function call(fn, method = 'GET', body = null) {
     },
     ...(body != null ? { body: JSON.stringify(body) } : {}),
   })
+  if (res.status === 401) {
+    // Token gone or invalid — sign out and reload so user re-authenticates
+    await supabase.auth.signOut()
+    window.location.reload()
+    throw new Error('Session expired. Please sign in again.')
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
   return data
