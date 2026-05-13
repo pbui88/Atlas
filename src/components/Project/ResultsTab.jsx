@@ -66,11 +66,8 @@ export default function ResultsTab({ project }) {
   const [minScore,  setMinScore]  = useState(0)
   const [sigFilter, setSigFilter] = useState([])
   const [exporting, setExporting] = useState(false)
-  const [viewMode,  setViewMode]  = useState('images')   // 'images' | 'streetview'
-  const [selImages, setSelImages] = useState([])
+  const [selImages,  setSelImages]  = useState([])
   const [imgLoading, setImgLoading] = useState(false)
-
-  const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
   const fetchResults = useCallback(async () => {
     setLoading(true)
@@ -95,10 +92,9 @@ export default function ResultsTab({ project }) {
 
   useEffect(() => { fetchResults() }, [fetchResults])
 
-  // When selection changes: reset to Images tab and fetch captured photos
+  // Fetch captured images when selection changes
   useEffect(() => {
     if (!selected) { setSelImages([]); return }
-    setViewMode('images')
     setSelImages([])
     setImgLoading(true)
     supabase.from('images').select('*').eq('scan_point_id', selected.id)
@@ -298,92 +294,35 @@ export default function ResultsTab({ project }) {
               </button>
             </div>
 
-            {/* View toggle tabs */}
-            <div className="flex border-b border-slate-800 bg-slate-900 shrink-0">
-              {[
-                {
-                  id: 'images', label: 'Images',
-                  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />,
-                },
-                {
-                  id: 'streetview', label: 'Street View',
-                  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z M15 12a3 3 0 11-6 0 3 3 0 016 0z" />,
-                },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setViewMode(tab.id)}
-                  className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-                    viewMode === tab.id
-                      ? 'border-brand-500 text-brand-400 bg-slate-800/50'
-                      : 'border-transparent text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    {tab.icon}
-                  </svg>
-                  {tab.label}
-                  {tab.id === 'images' && selImages.length > 0 && (
-                    <span className="ml-1 bg-slate-700 text-slate-300 rounded-full text-[10px] px-1.5 py-0">{selImages.length}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {/* Content area */}
+            {/* Images */}
             <div className="flex-1 relative overflow-hidden">
-
-              {/* Images panel */}
-              {viewMode === 'images' && (
-                <div className="absolute inset-0 overflow-y-auto">
-                  {imgLoading ? (
-                    <div className="flex justify-center py-16">
-                      <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  ) : selImages.filter(i => i.storage_url).length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
-                      <svg className="w-10 h-10 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                      </svg>
-                      <p className="text-sm text-slate-500">No images captured for this location</p>
-                    </div>
-                  ) : (
-                    <div className="p-4 space-y-3">
-                      {selImages.filter(i => i.storage_url).map(img => (
-                        <div key={img.id} className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
-                          <img
-                            src={img.storage_url}
-                            alt={img.direction}
-                            className="w-full object-cover"
-                            loading="lazy"
-                          />
-                          <div className="px-3 py-1.5 flex items-center justify-between">
-                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
-                              {img.direction === 'L' ? 'Left' : img.direction === 'R' ? 'Right' : img.direction === 'F' ? 'Facing' : img.direction}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Street View panel — static API image */}
-              {viewMode === 'streetview' && (
-                <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
-                  <img
-                    key={selected.id}
-                    src={`https://maps.googleapis.com/maps/api/streetview?size=1200x800&location=${selected.lat},${selected.lng}&heading=${selImages[0]?.heading ?? ''}&pitch=10&fov=90&key=${MAPS_KEY}`}
-                    alt="Street View"
-                    className="w-full h-full object-cover"
-                    onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex' }}
-                  />
-                  <div className="hidden absolute inset-0 flex-col items-center justify-center gap-2 text-center px-6">
-                    <p className="text-sm text-slate-500">No Street View coverage at this location</p>
+              <div className="absolute inset-0 overflow-y-auto">
+                {imgLoading ? (
+                  <div className="flex justify-center py-16">
+                    <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                   </div>
-                </div>
-              )}
+                ) : selImages.filter(i => i.storage_url).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
+                    <svg className="w-10 h-10 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                    </svg>
+                    <p className="text-sm text-slate-500">No images captured for this location</p>
+                  </div>
+                ) : (
+                  <div className="p-4 space-y-3">
+                    {selImages.filter(i => i.storage_url).map(img => (
+                      <div key={img.id} className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
+                        <img src={img.storage_url} alt={img.direction} className="w-full object-cover" loading="lazy" />
+                        <div className="px-3 py-1.5">
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                            {img.direction === 'L' ? 'Left' : img.direction === 'R' ? 'Right' : img.direction === 'F' ? 'Facing' : img.direction}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : (
