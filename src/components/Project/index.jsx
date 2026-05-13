@@ -8,7 +8,7 @@ import MapTab     from './MapTab'
 import ScanTab    from './ScanTab'
 import ResultsTab from './ResultsTab'
 
-const LIBRARIES = ['drawing', 'geometry']
+const LIBRARIES = ['drawing', 'geometry', 'places']
 
 const TABS = [
   {

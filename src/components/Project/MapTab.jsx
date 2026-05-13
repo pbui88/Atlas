@@ -1,60 +1,67 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
+import { GoogleMap, DrawingManager, Polygon, Marker, Autocomplete } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
-import { generateGridPoints, estimateCost, polygonBbox } from '../../lib/geo'
+import { generateGridPoints, estimateCost } from '../../lib/geo'
 import { scoreColor } from '../../lib/geo'
 
 const MAP_STYLE = [
-  { elementType: 'geometry',            stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.fill',    stylers: [{ color: '#8892a4' }] },
-  { elementType: 'labels.text.stroke',  stylers: [{ color: '#1a1a2e' }] },
-  { featureType: 'road',                elementType: 'geometry', stylers: [{ color: '#2d2d44' }] },
-  { featureType: 'road',                elementType: 'labels.text.fill', stylers: [{ color: '#8892a4' }] },
-  { featureType: 'water',               elementType: 'geometry', stylers: [{ color: '#0f1a2e' }] },
-  { featureType: 'poi',                 stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative',      elementType: 'geometry', stylers: [{ color: '#314158' }] },
-  { featureType: 'transit',             stylers: [{ visibility: 'off' }] },
+  { elementType: 'geometry',           stylers: [{ color: '#1a1a2e' }] },
+  { elementType: 'labels.text.fill',   stylers: [{ color: '#8892a4' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
+  { featureType: 'road',               elementType: 'geometry',         stylers: [{ color: '#2d2d44' }] },
+  { featureType: 'road',               elementType: 'labels.text.fill', stylers: [{ color: '#8892a4' }] },
+  { featureType: 'water',              elementType: 'geometry',         stylers: [{ color: '#0f1a2e' }] },
+  { featureType: 'poi',                stylers: [{ visibility: 'off' }] },
+  { featureType: 'administrative',     elementType: 'geometry',         stylers: [{ color: '#314158' }] },
+  { featureType: 'transit',            stylers: [{ visibility: 'off' }] },
 ]
 
-const DEFAULT_CENTER = { lat: 33.4484, lng: -112.0740 } // Phoenix
-
-function CostBadge({ cost }) {
-  return (
-    <div className="flex items-center gap-3 text-xs">
-      <span className="text-slate-400">Est. cost:</span>
-      <span className="font-mono text-slate-200">
-        SV <span className="text-brand-400">${cost.streetView}</span>
-        {' · '}Geo <span className="text-brand-400">${cost.geocoding}</span>
-        {' · '}AI <span className="text-brand-400">${cost.ai}</span>
-        {' = '}
-        <span className="font-bold text-white">${cost.total}</span>
-      </span>
-    </div>
-  )
-}
+const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const [drawingMode, setDrawingMode] = useState(null)
   const [polygon,     setPolygon]     = useState(project.scan_area_geojson || null)
   const [spacing,     setSpacing]     = useState(project.point_spacing_meters || 50)
-  const [preview,     setPreview]     = useState([])  // local preview points
+  const [preview,     setPreview]     = useState([])
   const [cost,        setCost]        = useState(null)
   const [generating,  setGenerating]  = useState(false)
   const [error,       setError]       = useState(null)
-  const mapRef        = useRef(null)
-  const drawingMgrRef = useRef(null)
+  const [searchPin,   setSearchPin]   = useState(null)  // { lat, lng, address }
+  const [showSV,      setShowSV]      = useState(false)
+
+  const mapRef          = useRef(null)
+  const drawingMgrRef   = useRef(null)
+  const autocompleteRef = useRef(null)
+  const svContainerRef  = useRef(null)
+  const svPanoRef       = useRef(null)
+
+  // Create / update the native Street View panorama imperatively
+  useEffect(() => {
+    if (!showSV || !svContainerRef.current || !searchPin) return
+    if (!svPanoRef.current) {
+      svPanoRef.current = new window.google.maps.StreetViewPanorama(svContainerRef.current, {
+        position:              { lat: searchPin.lat, lng: searchPin.lng },
+        pov:                   { heading: 0, pitch: 5 },
+        addressControl:        true,
+        fullscreenControl:     true,
+        motionTrackingControl: false,
+        zoomControl:           false,
+      })
+    } else {
+      svPanoRef.current.setPosition({ lat: searchPin.lat, lng: searchPin.lng })
+    }
+  }, [showSV, searchPin])
 
   const onMapLoad = useCallback((map) => {
     mapRef.current = map
     if (polygon) {
-      // Fit map to saved polygon
       const bounds = new window.google.maps.LatLngBounds()
       polygon.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
       map.fitBounds(bounds, 60)
     }
   }, [polygon])
 
-  // Imperatively push drawingMode changes to the native DrawingManager instance
+  // Imperatively sync drawing mode to native DrawingManager instance
   useEffect(() => {
     if (!drawingMgrRef.current) return
     const mode = drawingMode ? window.google.maps.drawing.OverlayType.POLYGON : null
@@ -62,14 +69,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   }, [drawingMode])
 
   const handlePolygonComplete = useCallback((poly) => {
-    const path = poly.getPath().getArray()
+    const path   = poly.getPath().getArray()
     const coords = path.map(ll => [ll.lng(), ll.lat()])
-    coords.push(coords[0]) // close ring
+    coords.push(coords[0])
     const geoJson = { type: 'Polygon', coordinates: [coords] }
     poly.setMap(null)
     setPolygon(geoJson)
     setDrawingMode(null)
-    // Local preview
     const pts = generateGridPoints(geoJson, spacing)
     setPreview(pts)
     setCost(estimateCost(pts.length))
@@ -89,10 +95,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setGenerating(true)
     setError(null)
     try {
-      const result = await generatePoints(project.id, {
-        geojson: polygon,
-        spacingMeters: spacing,
-      })
+      const result = await generatePoints(project.id, { geojson: polygon, spacingMeters: spacing })
       onPointsGenerated(result)
       setPreview([])
     } catch (err) {
@@ -108,8 +111,26 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setCost(null)
   }
 
+  const onPlaceChanged = () => {
+    if (!autocompleteRef.current) return
+    const place = autocompleteRef.current.getPlace()
+    if (!place.geometry?.location) return
+    const lat = place.geometry.location.lat()
+    const lng = place.geometry.location.lng()
+    mapRef.current?.panTo({ lat, lng })
+    mapRef.current?.setZoom(15)
+    svPanoRef.current = null  // reset so useEffect recreates for new location
+    setSearchPin({ lat, lng, address: place.formatted_address })
+    setShowSV(true)
+  }
+
+  const closeSV = () => {
+    setShowSV(false)
+    svPanoRef.current = null
+  }
+
   const displayPoints = scanPoints?.length > 0 ? scanPoints : preview
-  const ptCount = displayPoints.length
+  const ptCount       = displayPoints.length
 
   if (loadError) return (
     <div className="flex items-center justify-center h-full text-red-400 text-sm">
@@ -125,73 +146,142 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   return (
     <div className="flex h-full">
-      {/* Map */}
-      <div className="flex-1 relative">
-        <GoogleMap
-          mapContainerStyle={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-          center={DEFAULT_CENTER}
-          zoom={12}
-          options={{ styles: MAP_STYLE, disableDefaultUI: false, zoomControl: true, streetViewControl: false, mapTypeControl: false }}
-          onLoad={onMapLoad}
-        >
-          {/* Drawing manager */}
-          {!polygon && (
-            <DrawingManager
-              onLoad={dm => { drawingMgrRef.current = dm }}
-              options={{
-                drawingControl: false,
-                polygonOptions: {
-                  fillColor: '#0d9488',
-                  fillOpacity: 0.15,
-                  strokeColor: '#0d9488',
-                  strokeWeight: 2,
-                },
-              }}
-              onPolygonComplete={handlePolygonComplete}
-            />
+
+      {/* ── Map + Street View column ── */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+
+        {/* Map */}
+        <div className={`relative transition-all duration-300 ${showSV ? 'h-1/2' : 'flex-1'}`}>
+          <GoogleMap
+            mapContainerStyle={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            center={US_CENTER}
+            zoom={4}
+            options={{
+              styles: MAP_STYLE,
+              zoomControl: true,
+              streetViewControl: false,
+              mapTypeControl: false,
+              fullscreenControl: false,
+            }}
+            onLoad={onMapLoad}
+          >
+            {/* Drawing manager */}
+            {!polygon && (
+              <DrawingManager
+                onLoad={dm => { drawingMgrRef.current = dm }}
+                options={{
+                  drawingControl: false,
+                  polygonOptions: {
+                    fillColor:   '#0d9488',
+                    fillOpacity: 0.15,
+                    strokeColor: '#0d9488',
+                    strokeWeight: 2,
+                  },
+                }}
+                onPolygonComplete={handlePolygonComplete}
+              />
+            )}
+
+            {polygon && (
+              <Polygon
+                paths={polygon.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
+                options={{ fillColor: '#0d9488', fillOpacity: 0.08, strokeColor: '#0d9488', strokeWeight: 2 }}
+              />
+            )}
+
+            {/* Search result pin */}
+            {searchPin && (
+              <Marker
+                position={{ lat: searchPin.lat, lng: searchPin.lng }}
+                options={{
+                  icon: {
+                    path:        window.google.maps.SymbolPath.CIRCLE,
+                    scale:       9,
+                    fillColor:   '#f59e0b',
+                    fillOpacity: 1,
+                    strokeColor: '#ffffff',
+                    strokeWeight: 2,
+                  },
+                  zIndex: 999,
+                }}
+              />
+            )}
+
+            {/* Scan points */}
+            {displayPoints.slice(0, 2000).map((pt, i) => (
+              <Marker
+                key={`${pt.id || i}`}
+                position={{ lat: pt.lat, lng: pt.lng }}
+                options={{
+                  icon: {
+                    path:        window.google.maps.SymbolPath.CIRCLE,
+                    scale:       3,
+                    fillColor:   pt.overall_score != null ? scoreColor(pt.overall_score) : '#0d9488',
+                    fillOpacity: 0.8,
+                    strokeColor: 'transparent',
+                  },
+                }}
+              />
+            ))}
+          </GoogleMap>
+
+          {/* ── Search box overlay ── */}
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 w-80">
+            <div className="flex items-center bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl px-3 py-2.5 gap-2 backdrop-blur-sm">
+              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <Autocomplete
+                onLoad={ac => { autocompleteRef.current = ac }}
+                onPlaceChanged={onPlaceChanged}
+                options={{ componentRestrictions: { country: 'us' } }}
+              >
+                <input
+                  type="text"
+                  placeholder="Search city, state or ZIP…"
+                  className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none w-64"
+                />
+              </Autocomplete>
+            </div>
+          </div>
+
+          {/* Point count badge */}
+          {ptCount > 0 && (
+            <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
+              {ptCount.toLocaleString()} scan points
+              {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
+            </div>
           )}
+        </div>
 
-          {/* Drawn polygon overlay */}
-          {polygon && (
-            <Polygon
-              paths={polygon.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
-              options={{
-                fillColor: '#0d9488',
-                fillOpacity: 0.08,
-                strokeColor: '#0d9488',
-                strokeWeight: 2,
-              }}
-            />
-          )}
+        {/* ── Street View panel ── */}
+        {showSV && (
+          <div className="h-1/2 relative border-t border-slate-800 bg-slate-950 overflow-hidden">
+            <div ref={svContainerRef} className="absolute inset-0" />
 
-          {/* Scan points (clustered visually by showing small dots) */}
-          {displayPoints.slice(0, 2000).map((pt, i) => (
-            <Marker
-              key={`${pt.id || i}`}
-              position={{ lat: pt.lat, lng: pt.lng }}
-              options={{
-                icon: {
-                  path: window.google.maps.SymbolPath.CIRCLE,
-                  scale: 3,
-                  fillColor: pt.overall_score != null ? scoreColor(pt.overall_score) : '#0d9488',
-                  fillOpacity: 0.8,
-                  strokeColor: 'transparent',
-                },
-              }}
-            />
-          ))}
-        </GoogleMap>
+            {/* Address label */}
+            {searchPin?.address && (
+              <div className="absolute top-2 left-3 z-10 max-w-xs">
+                <div className="bg-slate-900/85 backdrop-blur-sm border border-slate-700 rounded-lg px-2.5 py-1">
+                  <p className="text-xs text-slate-300 truncate">{searchPin.address}</p>
+                </div>
+              </div>
+            )}
 
-        {/* Point count overlay */}
-        {ptCount > 0 && (
-          <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
-            {ptCount.toLocaleString()} scan points
-            {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
+            {/* Close button */}
+            <button
+              onClick={closeSV}
+              className="absolute top-2 right-2 z-10 w-7 h-7 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center justify-center transition"
+            >
+              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
       </div>
 
-      {/* Right panel */}
+      {/* ── Right panel ── */}
       <div className="w-72 bg-white border-l border-slate-200 flex flex-col">
         <div className="p-4 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">Scan Area</h3>
@@ -199,7 +289,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
         </div>
 
         <div className="flex-1 p-4 space-y-5 overflow-y-auto">
-          {/* Draw button */}
+          {/* Draw polygon */}
           {!polygon ? (
             <div>
               <p className="text-xs text-slate-500 mb-3">
@@ -219,9 +309,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-slate-700">Polygon drawn</span>
-                <button onClick={handleClear} className="text-xs text-slate-400 hover:text-red-500 transition">
-                  Clear
-                </button>
+                <button onClick={handleClear} className="text-xs text-slate-400 hover:text-red-500 transition">Clear</button>
               </div>
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
                 <p className="text-xs text-green-400">Area selected</p>
@@ -229,7 +317,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* Spacing */}
+          {/* Point spacing */}
           <div>
             <label className="label">Point Spacing</label>
             <div className="flex items-center gap-3">
@@ -273,9 +361,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           )}
 
           {error && (
-            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-              {error}
-            </p>
+            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
           )}
         </div>
 
