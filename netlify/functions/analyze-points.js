@@ -1,7 +1,7 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY
-const GEMINI_MODEL = 'gemini-2.0-flash'
+const GEMINI_MODEL = 'gemini-2.5-flash'
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
 
 const PROMPT = `You are an expert real estate distress analyst for residential properties.
