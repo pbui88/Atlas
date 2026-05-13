@@ -95,39 +95,47 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const fetchPropertyCount = useCallback(async (geoJson) => {
     setPropertyCount(null)
     setCountLoading(true)
-    try {
-      // Use bounding box query — faster and more reliable than poly filter
-      const coords = geoJson.coordinates[0]
-      const lats   = coords.map(([, lat]) => lat)
-      const lngs   = coords.map(([lng]) => lng)
-      const south  = Math.min(...lats), north = Math.max(...lats)
-      const west   = Math.min(...lngs), east  = Math.max(...lngs)
 
-      const query = `[out:json][timeout:20];(way[building](${south},${west},${north},${east});relation[building](${south},${west},${north},${east}););out count;`
+    const coords = geoJson.coordinates[0]
+    const lats   = coords.map(([, lat]) => lat)
+    const lngs   = coords.map(([lng]) => lng)
+    const south  = Math.min(...lats), north = Math.max(...lats)
+    const west   = Math.min(...lngs), east  = Math.max(...lngs)
 
-      // Try primary mirror, fall back to secondary if it fails
-      let res
+    // addr:housenumber nodes are far more reliably mapped in US suburbs than building footprints
+    const query = `[out:json][timeout:12];(node["addr:housenumber"](${south},${west},${north},${east});way[building](${south},${west},${north},${east});relation[building](${south},${west},${north},${east}););out count;`
+
+    const postWithTimeout = async (url, ms = 12000) => {
+      const ctrl = new AbortController()
+      const t    = setTimeout(() => ctrl.abort(), ms)
       try {
-        res = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
+        const res = await fetch(url, {
+          method:  'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: `data=${encodeURIComponent(query)}`,
+          body:    `data=${encodeURIComponent(query)}`,
+          signal:  ctrl.signal,
         })
-      } catch {
-        res = await fetch('https://overpass.kumi.systems/api/interpreter', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: `data=${encodeURIComponent(query)}`,
-        })
+        clearTimeout(t)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      } catch (e) {
+        clearTimeout(t)
+        throw e
       }
+    }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data  = await res.json()
+    try {
+      let data
+      try {
+        data = await postWithTimeout('https://overpass-api.de/api/interpreter')
+      } catch {
+        data = await postWithTimeout('https://overpass.kumi.systems/api/interpreter')
+      }
       const total = parseInt(data.elements?.[0]?.tags?.total ?? '0', 10)
       setPropertyCount(total)
     } catch (e) {
       console.warn('Property count failed:', e.message)
-      setPropertyCount(-1)  // -1 = failed state
+      setPropertyCount(-1)
     } finally {
       setCountLoading(false)
     }
@@ -379,14 +387,16 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
               )}
               {!countLoading && propertyCount !== null && (
-                propertyCount === -1 ? (
-                  <div className="mt-2 text-xs text-slate-400">Unable to count properties</div>
-                ) : (
+                propertyCount > 0 ? (
                   <div className="mt-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 flex items-center justify-between">
                     <span className="text-xs text-brand-700">Properties in area</span>
                     <span className="text-sm font-bold text-brand-700 tabular-nums">
-                      {propertyCount.toLocaleString()}
+                      ~{propertyCount.toLocaleString()}
                     </span>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-slate-400">
+                    {propertyCount === -1 ? 'Unable to count — check connection' : 'No building data in this area'}
                   </div>
                 )
               )}
