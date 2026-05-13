@@ -40,11 +40,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     })
   }, [onSelectionChange])
 
-  const selectAllPending = () => {
-    const ids = (scanPoints || []).filter(p => p.id && p.status === 'pending').map(p => p.id)
-    onSelectionChange(new Set(ids))
-  }
-
   const clearSelection = () => onSelectionChange(new Set())
 
   const mapRef         = useRef(null)
@@ -412,16 +407,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               </span>
             </div>
             <p className="text-[11px] text-slate-500">Click dots on the map to select. Only selected points will be scanned, saving API cost.</p>
-            <div className="flex gap-2">
-              <button onClick={selectAllPending} className="flex-1 btn-outline text-xs py-1.5">
-                Select All Pending
+            {(selectedPointIds?.size ?? 0) > 0 && (
+              <button onClick={clearSelection} className="w-full text-xs py-1.5 btn border border-red-200 text-red-500 hover:bg-red-50 bg-white">
+                Clear Selection
               </button>
-              {(selectedPointIds?.size ?? 0) > 0 && (
-                <button onClick={clearSelection} className="flex-1 text-xs py-1.5 btn border border-red-200 text-red-500 hover:bg-red-50 bg-white">
-                  Clear
-                </button>
-              )}
-            </div>
+            )}
           </div>
         )}
 
