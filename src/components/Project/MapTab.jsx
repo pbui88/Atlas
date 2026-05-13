@@ -68,7 +68,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const lng = parseFloat(s.lon)
     mapRef.current?.panTo({ lat, lng })
     mapRef.current?.setZoom(14)
-    svPanoRef.current = null
     setSearchPin({ lat, lng, address: s.display_name })
     setShowSV(true)
   }

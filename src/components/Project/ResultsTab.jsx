@@ -97,7 +97,7 @@ export default function ResultsTab({ project }) {
 
   // When selection changes: reset to Images tab and fetch captured photos
   useEffect(() => {
-    if (!selected) { setSelImages([]); svPanoRef.current = null; return }
+    if (!selected) { setSelImages([]); return }
     setViewMode('images')
     setSelImages([])
     setImgLoading(true)
