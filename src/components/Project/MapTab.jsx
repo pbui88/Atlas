@@ -35,25 +35,29 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const svContainerRef = useRef(null)
   const svPanoRef      = useRef(null)
 
-  // Attach Google Places Autocomplete directly to the input element
+  // Load Places library on-demand then attach Autocomplete to the input
   useEffect(() => {
     if (!isLoaded || !searchInputRef.current) return
-    const ac = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-      componentRestrictions: { country: 'us' },
-      fields: ['geometry', 'formatted_address'],
+    let ac
+    window.google.maps.importLibrary('places').then(() => {
+      if (!searchInputRef.current) return
+      ac = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+        componentRestrictions: { country: 'us' },
+        fields: ['geometry', 'formatted_address'],
+      })
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace()
+        if (!place.geometry?.location) return
+        const lat = place.geometry.location.lat()
+        const lng = place.geometry.location.lng()
+        mapRef.current?.panTo({ lat, lng })
+        mapRef.current?.setZoom(15)
+        svPanoRef.current = null
+        setSearchPin({ lat, lng, address: place.formatted_address })
+        setShowSV(true)
+      })
     })
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace()
-      if (!place.geometry?.location) return
-      const lat = place.geometry.location.lat()
-      const lng = place.geometry.location.lng()
-      mapRef.current?.panTo({ lat, lng })
-      mapRef.current?.setZoom(15)
-      svPanoRef.current = null
-      setSearchPin({ lat, lng, address: place.formatted_address })
-      setShowSV(true)
-    })
-    return () => window.google.maps.event.clearInstanceListeners(ac)
+    return () => { if (ac) window.google.maps.event.clearInstanceListeners(ac) }
   }, [isLoaded])
 
   // Create / update the native Street View panorama imperatively
