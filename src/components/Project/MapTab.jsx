@@ -19,46 +19,72 @@ const MAP_STYLE = [
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const [drawingMode, setDrawingMode] = useState(null)
-  const [polygon,     setPolygon]     = useState(project.scan_area_geojson || null)
-  const [spacing,     setSpacing]     = useState(project.point_spacing_meters || 50)
-  const [preview,     setPreview]     = useState([])
-  const [cost,        setCost]        = useState(null)
-  const [generating,  setGenerating]  = useState(false)
-  const [error,       setError]       = useState(null)
-  const [searchPin,   setSearchPin]   = useState(null)  // { lat, lng, address }
-  const [showSV,      setShowSV]      = useState(false)
+  const [drawingMode,  setDrawingMode]  = useState(null)
+  const [polygon,      setPolygon]      = useState(project.scan_area_geojson || null)
+  const [spacing,      setSpacing]      = useState(project.point_spacing_meters || 50)
+  const [preview,      setPreview]      = useState([])
+  const [cost,         setCost]         = useState(null)
+  const [generating,   setGenerating]   = useState(false)
+  const [error,        setError]        = useState(null)
+  const [searchPin,    setSearchPin]    = useState(null)
+  const [showSV,       setShowSV]       = useState(false)
+  const [searchInput,  setSearchInput]  = useState('')
+  const [suggestions,  setSuggestions]  = useState([])
+  const [showDropdown, setShowDropdown] = useState(false)
 
-  const mapRef         = useRef(null)
-  const drawingMgrRef  = useRef(null)
-  const searchInputRef = useRef(null)
-  const svContainerRef = useRef(null)
-  const svPanoRef      = useRef(null)
+  const mapRef          = useRef(null)
+  const drawingMgrRef   = useRef(null)
+  const searchInputRef  = useRef(null)
+  const svContainerRef  = useRef(null)
+  const svPanoRef       = useRef(null)
+  const debounceRef     = useRef(null)
+  const sessionTokenRef = useRef(null)
 
-  // Load Places library on-demand then attach Autocomplete to the input
-  useEffect(() => {
-    if (!isLoaded || !searchInputRef.current) return
-    let ac
-    window.google.maps.importLibrary('places').then(() => {
-      if (!searchInputRef.current) return
-      ac = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-        componentRestrictions: { country: 'us' },
-        fields: ['geometry', 'formatted_address'],
+  // Fetch autocomplete suggestions using the new Places API (New)
+  const fetchSuggestions = async (input) => {
+    if (!input || input.length < 2) { setSuggestions([]); setShowDropdown(false); return }
+    try {
+      const { AutocompleteSuggestion, AutocompleteSessionToken } =
+        await window.google.maps.importLibrary('places')
+      if (!sessionTokenRef.current) {
+        sessionTokenRef.current = new AutocompleteSessionToken()
+      }
+      const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input,
+        sessionToken: sessionTokenRef.current,
+        includedRegionCodes: ['us'],
       })
-      ac.addListener('place_changed', () => {
-        const place = ac.getPlace()
-        if (!place.geometry?.location) return
-        const lat = place.geometry.location.lat()
-        const lng = place.geometry.location.lng()
-        mapRef.current?.panTo({ lat, lng })
-        mapRef.current?.setZoom(15)
-        svPanoRef.current = null
-        setSearchPin({ lat, lng, address: place.formatted_address })
-        setShowSV(true)
+      setSuggestions(suggestions)
+      setShowDropdown(suggestions.length > 0)
+    } catch { setSuggestions([]); setShowDropdown(false) }
+  }
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value
+    setSearchInput(val)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => fetchSuggestions(val), 280)
+  }
+
+  const handleSelectSuggestion = async (suggestion) => {
+    setShowDropdown(false)
+    setSearchInput(suggestion.placePrediction.text.text)
+    try {
+      const place = suggestion.placePrediction.toPlace()
+      await place.fetchFields({
+        fields: ['location', 'formattedAddress'],
+        sessionToken: sessionTokenRef.current,
       })
-    })
-    return () => { if (ac) window.google.maps.event.clearInstanceListeners(ac) }
-  }, [isLoaded])
+      sessionTokenRef.current = null  // session ends on fetchFields
+      const lat = place.location.lat()
+      const lng = place.location.lng()
+      mapRef.current?.panTo({ lat, lng })
+      mapRef.current?.setZoom(15)
+      svPanoRef.current = null
+      setSearchPin({ lat, lng, address: place.formattedAddress })
+      setShowSV(true)
+    } catch (e) { console.error('Place fetch failed:', e) }
+  }
 
   // Create / update the native Street View panorama imperatively
   useEffect(() => {
@@ -239,16 +265,49 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
           {/* ── Search box overlay ── */}
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 w-80">
-            <div className="flex items-center bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl px-3 py-2.5 gap-2 backdrop-blur-sm">
-              <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                ref={searchInputRef}
-                type="text"
-                placeholder="Search city, state or ZIP…"
-                className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none"
-              />
+            <div className="relative">
+              <div className="flex items-center bg-slate-900/95 border border-slate-700 rounded-xl shadow-2xl px-3 py-2.5 gap-2 backdrop-blur-sm">
+                <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchInput}
+                  onChange={handleSearchChange}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                  onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+                  placeholder="Search city, state or ZIP…"
+                  className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none"
+                />
+                {searchInput && (
+                  <button onClick={() => { setSearchInput(''); setSuggestions([]); setShowDropdown(false) }}
+                    className="text-slate-600 hover:text-slate-400 transition">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* Dropdown suggestions */}
+              {showDropdown && suggestions.length > 0 && (
+                <div className="absolute top-full mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      onMouseDown={() => handleSelectSuggestion(s)}
+                      className="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 flex items-center gap-2.5 transition"
+                    >
+                      <svg className="w-3.5 h-3.5 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                      </svg>
+                      <span className="truncate">{s.placePrediction.text.text}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
