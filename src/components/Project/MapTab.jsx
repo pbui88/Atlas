@@ -18,7 +18,7 @@ const MAP_STYLE = [
 
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
-export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError, selectedPointIds, onSelectionChange }) {
+export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const [drawingMode,  setDrawingMode]  = useState(null)
   const [polygon,      setPolygon]      = useState(project.scan_area_geojson || null)
   const [spacing,      setSpacing]      = useState(project.point_spacing_meters || 50)
@@ -30,17 +30,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [searchInput,  setSearchInput]  = useState('')
   const [suggestions,  setSuggestions]  = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
-
-  const togglePoint = useCallback((pointId) => {
-    onSelectionChange(prev => {
-      const next = new Set(prev)
-      if (next.has(pointId)) next.delete(pointId)
-      else next.add(pointId)
-      return next
-    })
-  }, [onSelectionChange])
-
-  const clearSelection = () => onSelectionChange(new Set())
 
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
@@ -218,28 +207,22 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               />
             )}
 
-            {/* Scan points — clickable to select for scanning */}
-            {displayPoints.slice(0, 2000).map((pt, i) => {
-              const isSelected = pt.id && selectedPointIds?.has(pt.id)
-              return (
-                <Marker
-                  key={`${pt.id || i}`}
-                  position={{ lat: pt.lat, lng: pt.lng }}
-                  onClick={pt.id ? () => togglePoint(pt.id) : undefined}
-                  options={{
-                    icon: {
-                      path:        window.google.maps.SymbolPath.CIRCLE,
-                      scale:       isSelected ? 5 : 3,
-                      fillColor:   isSelected ? '#3b82f6' : (pt.overall_score != null ? scoreColor(pt.overall_score) : '#0d9488'),
-                      fillOpacity: isSelected ? 1 : 0.8,
-                      strokeColor: isSelected ? '#ffffff' : 'transparent',
-                      strokeWeight: isSelected ? 1.5 : 0,
-                    },
-                    zIndex: isSelected ? 10 : 1,
-                  }}
-                />
-              )
-            })}
+            {/* Scan points */}
+            {displayPoints.slice(0, 2000).map((pt, i) => (
+              <Marker
+                key={`${pt.id || i}`}
+                position={{ lat: pt.lat, lng: pt.lng }}
+                options={{
+                  icon: {
+                    path:        window.google.maps.SymbolPath.CIRCLE,
+                    scale:       3,
+                    fillColor:   pt.overall_score != null ? scoreColor(pt.overall_score) : '#0d9488',
+                    fillOpacity: 0.8,
+                    strokeColor: 'transparent',
+                  },
+                }}
+              />
+            ))}
           </GoogleMap>
 
           {/* ── Search box overlay ── */}
@@ -293,18 +276,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           </div>
 
-          {/* Point count / selection badge */}
+          {/* Point count badge */}
           {ptCount > 0 && (
-            <div className="absolute top-4 left-4 flex flex-col gap-1.5">
-              <div className="bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
-                {ptCount.toLocaleString()} scan points
-                {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
-              </div>
-              {(selectedPointIds?.size ?? 0) > 0 && (
-                <div className="bg-blue-600/90 border border-blue-500 rounded-lg px-3 py-1.5 text-xs text-white font-medium backdrop-blur-sm">
-                  {selectedPointIds.size} selected for scan
-                </div>
-              )}
+            <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
+              {ptCount.toLocaleString()} scan points
+              {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
             </div>
           )}
 
@@ -396,24 +372,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
           )}
         </div>
-
-        {/* Point selection controls — shown after points generated */}
-        {scanPoints?.length > 0 && (
-          <div className="px-4 py-3 border-b border-slate-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-700">Select Points to Scan</span>
-              <span className="text-xs text-brand-600 font-medium tabular-nums">
-                {selectedPointIds?.size ?? 0} selected
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500">Click dots on the map to select. Only selected points will be scanned, saving API cost.</p>
-            {(selectedPointIds?.size ?? 0) > 0 && (
-              <button onClick={clearSelection} className="w-full text-xs py-1.5 btn border border-red-200 text-red-500 hover:bg-red-50 bg-white">
-                Clear Selection
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Generate button */}
         <div className="p-4 border-t border-slate-200">
