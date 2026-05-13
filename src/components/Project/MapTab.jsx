@@ -19,17 +19,19 @@ const MAP_STYLE = [
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const [drawingMode,  setDrawingMode]  = useState(null)
-  const [polygon,      setPolygon]      = useState(project.scan_area_geojson || null)
-  const [spacing,      setSpacing]      = useState(project.point_spacing_meters || 50)
-  const [preview,      setPreview]      = useState([])
-  const [cost,         setCost]         = useState(null)
-  const [generating,   setGenerating]   = useState(false)
-  const [error,        setError]        = useState(null)
-  const [searchPin,    setSearchPin]    = useState(null)
-  const [searchInput,  setSearchInput]  = useState('')
-  const [suggestions,  setSuggestions]  = useState([])
-  const [showDropdown, setShowDropdown] = useState(false)
+  const [drawingMode,    setDrawingMode]    = useState(null)
+  const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
+  const [spacing,        setSpacing]        = useState(project.point_spacing_meters || 50)
+  const [preview,        setPreview]        = useState([])
+  const [cost,           setCost]           = useState(null)
+  const [generating,     setGenerating]     = useState(false)
+  const [error,          setError]          = useState(null)
+  const [searchPin,      setSearchPin]      = useState(null)
+  const [searchInput,    setSearchInput]    = useState('')
+  const [suggestions,    setSuggestions]    = useState([])
+  const [showDropdown,   setShowDropdown]   = useState(false)
+  const [propertyCount,  setPropertyCount]  = useState(null)
+  const [countLoading,   setCountLoading]   = useState(false)
 
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
@@ -85,6 +87,27 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     drawingMgrRef.current.setDrawingMode(mode)
   }, [drawingMode])
 
+  const fetchPropertyCount = useCallback(async (geoJson) => {
+    setPropertyCount(null)
+    setCountLoading(true)
+    try {
+      // Convert GeoJSON [lng, lat] coords to Overpass poly "lat lng" string
+      const polyStr = geoJson.coordinates[0].map(([lng, lat]) => `${lat} ${lng}`).join(' ')
+      const query   = `[out:json][timeout:15];(way[building](poly:"${polyStr}");relation[building](poly:"${polyStr}"););out count;`
+      const res     = await fetch('https://overpass-api.de/api/interpreter', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    `data=${encodeURIComponent(query)}`,
+      })
+      const data = await res.json()
+      setPropertyCount(+(data.elements?.[0]?.tags?.total ?? 0))
+    } catch {
+      setPropertyCount(null)
+    } finally {
+      setCountLoading(false)
+    }
+  }, [])
+
   const handlePolygonComplete = useCallback((poly) => {
     const path   = poly.getPath().getArray()
     const coords = path.map(ll => [ll.lng(), ll.lat()])
@@ -96,7 +119,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const pts = generateGridPoints(geoJson, spacing)
     setPreview(pts)
     setCost(estimateCost(pts.length, 1))
-  }, [spacing])
+    fetchPropertyCount(geoJson)
+  }, [spacing, fetchPropertyCount])
 
   const handleSpacingChange = (val) => {
     setSpacing(val)
@@ -126,6 +150,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPolygon(null)
     setPreview([])
     setCost(null)
+    setPropertyCount(null)
   }
 
 
@@ -320,6 +345,22 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
                 <p className="text-xs text-green-400">Area selected</p>
               </div>
+
+              {/* Property count from OSM */}
+              {countLoading && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                  <span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                  Counting properties…
+                </div>
+              )}
+              {!countLoading && propertyCount !== null && (
+                <div className="mt-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs text-brand-700">Properties in area</span>
+                  <span className="text-sm font-bold text-brand-700 tabular-nums">
+                    {propertyCount.toLocaleString()}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
