@@ -140,7 +140,7 @@ export default function ProjectPage() {
           />
         )}
         {activeTab === 'results' && (
-          <ResultsTab project={project} isLoaded={isLoaded} />
+          <ResultsTab project={project} />
         )}
       </div>
     </div>
