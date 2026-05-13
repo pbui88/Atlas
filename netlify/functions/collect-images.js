@@ -30,8 +30,9 @@ function angleDiff(a, b) {
 
 // Search Mapillary for images near a point.
 async function getMapillaryImages(lat, lng, radius = 50) {
-  const url = `https://graph.mapillary.com/images?fields=id,geometry,thumb_1024_url,compass_angle,captured_at&lat=${lat}&lng=${lng}&radius=${radius}&limit=20&access_token=${MAPILLARY_TOKEN}`
+  const url = `https://graph.mapillary.com/images?fields=id,geometry,thumb_1024_url,thumb_256_url,compass_angle,captured_at&lat=${lat}&lng=${lng}&radius=${radius}&limit=20&access_token=${MAPILLARY_TOKEN}`
   const res  = await fetch(url)
+  if (!res.ok) throw new Error(`Mapillary API error (${res.status})`)
   const data = await res.json()
   if (data.error) throw new Error(data.error.message || 'Mapillary API error')
   return data.data || []
@@ -50,8 +51,10 @@ async function downloadImage(thumbUrl) {
 function selectDirectionImages(images, scanLat, scanLng) {
   if (!images.length) return []
 
-  // Annotate with distance and bearing from image toward scan point
+  // Annotate with distance and bearing from image toward scan point.
+  // Filter out images missing geometry or compass_angle (would break selection math).
   const annotated = images
+    .filter(img => img.geometry?.coordinates && img.compass_angle != null)
     .map(img => {
       const [imgLng, imgLat] = img.geometry.coordinates
       const dist = distMeters(imgLat, imgLng, scanLat, scanLng)
@@ -140,7 +143,9 @@ export const handler = async (event) => {
       imageRows = []
       for (const { label, image } of selected) {
         try {
-          const buffer      = await downloadImage(image.thumb_1024_url)
+          const thumbUrl    = image.thumb_1024_url || image.thumb_256_url
+          if (!thumbUrl) throw new Error('No thumbnail URL available')
+          const buffer      = await downloadImage(thumbUrl)
           const storagePath = `${projectId}/${pointId}/${label}.jpg`
 
           const { error: upErr } = await supabase.storage
