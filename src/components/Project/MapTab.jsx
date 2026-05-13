@@ -32,11 +32,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [suggestions,  setSuggestions]  = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
 
+  const MAPS_KEY       = import.meta.env.VITE_GOOGLE_MAPS_KEY
+
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
   const searchInputRef = useRef(null)
-  const svContainerRef = useRef(null)
-  const svPanoRef      = useRef(null)
   const debounceRef    = useRef(null)
 
   // Nominatim (OpenStreetMap) autocomplete — no API key required
@@ -73,22 +73,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setShowSV(true)
   }
 
-  // Create / update the native Street View panorama imperatively
-  useEffect(() => {
-    if (!showSV || !svContainerRef.current || !searchPin) return
-    if (!svPanoRef.current) {
-      svPanoRef.current = new window.google.maps.StreetViewPanorama(svContainerRef.current, {
-        position:              { lat: searchPin.lat, lng: searchPin.lng },
-        pov:                   { heading: 0, pitch: 5 },
-        addressControl:        true,
-        fullscreenControl:     true,
-        motionTrackingControl: false,
-        zoomControl:           false,
-      })
-    } else {
-      svPanoRef.current.setPosition({ lat: searchPin.lat, lng: searchPin.lng })
-    }
-  }, [showSV, searchPin])
 
   const onMapLoad = useCallback((map) => {
     mapRef.current = map
@@ -149,10 +133,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setCost(null)
   }
 
-  const closeSV = () => {
-    setShowSV(false)
-    svPanoRef.current = null
-  }
+  const closeSV = () => setShowSV(false)
 
   const displayPoints = scanPoints?.length > 0 ? scanPoints : preview
   const ptCount       = displayPoints.length
@@ -309,11 +290,16 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* ── Street View centered overlay ── */}
+          {/* ── Street View centered overlay (static image) ── */}
           {showSV && searchPin && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-              <div className="relative w-3/4 h-3/4 rounded-2xl overflow-hidden shadow-2xl border border-slate-700">
-                <div ref={svContainerRef} className="absolute inset-0" />
+              <div className="relative w-3/4 h-3/4 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 bg-slate-900">
+                <img
+                  key={`${searchPin.lat},${searchPin.lng}`}
+                  src={`https://maps.googleapis.com/maps/api/streetview?size=1200x800&location=${searchPin.lat},${searchPin.lng}&fov=90&pitch=10&key=${MAPS_KEY}`}
+                  alt="Street View"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
 
                 {searchPin.address && (
                   <div className="absolute top-3 left-3 z-10 max-w-xs">

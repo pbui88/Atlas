@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { exportProject } from '../../lib/api'
 import { scoreLabel } from '../../lib/geo'
@@ -70,8 +70,7 @@ export default function ResultsTab({ project }) {
   const [selImages, setSelImages] = useState([])
   const [imgLoading, setImgLoading] = useState(false)
 
-  const svContainerRef = useRef(null)
-  const svPanoRef      = useRef(null)
+  const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
   const fetchResults = useCallback(async () => {
     setLoading(true)
@@ -106,28 +105,6 @@ export default function ResultsTab({ project }) {
       .then(({ data }) => { setSelImages(data || []); setImgLoading(false) })
   }, [selected?.id])
 
-  // Create / update Street View panorama when on SV tab
-  useEffect(() => {
-    if (!selected || viewMode !== 'streetview' || !svContainerRef.current || !window.google?.maps) return
-    const pos = { lat: selected.lat, lng: selected.lng }
-    if (svPanoRef.current) {
-      svPanoRef.current.setPosition(pos)
-    } else {
-      svPanoRef.current = new window.google.maps.StreetViewPanorama(svContainerRef.current, {
-        position:              pos,
-        pov:                   { heading: 0, pitch: 5 },
-        addressControl:        false,
-        fullscreenControl:     true,
-        motionTrackingControl: false,
-        zoomControl:           false,
-      })
-    }
-  }, [selected?.id, viewMode])
-
-  // Clear panorama ref when leaving SV tab
-  useEffect(() => {
-    if (viewMode !== 'streetview') svPanoRef.current = null
-  }, [viewMode])
 
   const toggleSignal = (id) => setSigFilter(f => f.includes(id) ? f.filter(s => s !== id) : [...f, id])
 
@@ -392,9 +369,20 @@ export default function ResultsTab({ project }) {
                 </div>
               )}
 
-              {/* Street View panel */}
+              {/* Street View panel — static API image */}
               {viewMode === 'streetview' && (
-                <div ref={svContainerRef} className="absolute inset-0" />
+                <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
+                  <img
+                    key={selected.id}
+                    src={`https://maps.googleapis.com/maps/api/streetview?size=1200x800&location=${selected.lat},${selected.lng}&heading=${selImages[0]?.heading ?? ''}&pitch=10&fov=90&key=${MAPS_KEY}`}
+                    alt="Street View"
+                    className="w-full h-full object-cover"
+                    onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex' }}
+                  />
+                  <div className="hidden absolute inset-0 flex-col items-center justify-center gap-2 text-center px-6">
+                    <p className="text-sm text-slate-500">No Street View coverage at this location</p>
+                  </div>
+                </div>
               )}
             </div>
           </>
