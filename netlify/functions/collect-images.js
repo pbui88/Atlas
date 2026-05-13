@@ -112,7 +112,7 @@ export const handler = async (event) => {
   const supabase = adminSupabase()
   const results  = []
 
-  for (const pointId of pointIds.slice(0, 10)) {
+  for (const pointId of pointIds.slice(0, 5)) {
     let pointStatus = 'failed'
     let errorMsg    = null
     let imageRows   = []
@@ -140,11 +140,12 @@ export const handler = async (event) => {
         results.push({ pointId, status: 'no_coverage' }); continue
       }
 
-      imageRows = []
-      for (const { label, image } of selected) {
-        try {
-          const thumbUrl    = image.thumb_1024_url || image.thumb_256_url
+      // Download + upload all directions in parallel to avoid sequential timeout
+      const dirResults = await Promise.allSettled(
+        selected.map(async ({ label, image }) => {
+          const thumbUrl = image.thumb_1024_url || image.thumb_256_url
           if (!thumbUrl) throw new Error('No thumbnail URL available')
+
           const buffer      = await downloadImage(thumbUrl)
           const storagePath = `${projectId}/${pointId}/${label}.jpg`
 
@@ -152,24 +153,26 @@ export const handler = async (event) => {
             .from('street-view-images')
             .upload(storagePath, buffer, { contentType: 'image/jpeg', upsert: true })
 
-          if (upErr) { console.warn(`Upload failed ${label}:`, upErr.message); continue }
+          if (upErr) throw new Error(`Upload failed: ${upErr.message}`)
 
           const { data: { publicUrl } } = supabase.storage
             .from('street-view-images')
             .getPublicUrl(storagePath)
 
-          imageRows.push({
+          return {
             scan_point_id: pointId,
             direction:     label,
             heading:       Math.round(image.compass_angle),
             storage_path:  storagePath,
             storage_url:   publicUrl,
             size_bytes:    buffer.byteLength,
-          })
-        } catch (dirErr) {
-          console.warn(`Dir ${label} failed for ${pointId}:`, dirErr.message)
-        }
-      }
+          }
+        })
+      )
+
+      imageRows = dirResults
+        .filter(r => { if (r.status === 'rejected') console.warn(`Dir failed ${pointId}:`, r.reason?.message); return r.status === 'fulfilled' })
+        .map(r => r.value)
 
       if (imageRows.length > 0) {
         await supabase.from('images').insert(imageRows)
