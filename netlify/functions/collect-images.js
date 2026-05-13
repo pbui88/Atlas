@@ -2,25 +2,6 @@ import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.j
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_KEY
 
-// Bearing (degrees, 0=N, 90=E) from one lat/lng to another.
-function bearingTo(fromLat, fromLng, toLat, toLng) {
-  const φ1 = fromLat * Math.PI / 180
-  const φ2 = toLat   * Math.PI / 180
-  const Δλ = (toLng - fromLng) * Math.PI / 180
-  const y   = Math.sin(Δλ) * Math.cos(φ2)
-  const x   = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
-  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360
-}
-
-// Haversine distance in meters.
-function distMeters(lat1, lng1, lat2, lng2) {
-  const R    = 6371000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLng = (lng2 - lng1) * Math.PI / 180
-  const a    = Math.sin(dLat / 2) ** 2
-              + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
 // Returns pano metadata or null if no coverage.
 async function getPanoInfo(lat, lng) {
@@ -97,12 +78,11 @@ export const handler = async (event) => {
       // Otherwise the pano is on the road itself: shoot perpendicular to the
       // travel direction to capture houses on both sides of the street.
       // Always capture all 3 directions: toward property + both sides of road
-      const dist           = distMeters(pt.lat, pt.lng, pano.panoLat, pano.panoLng)
-      const towardProperty = dist > 8
-        ? bearingTo(pano.panoLat, pano.panoLng, pt.lat, pt.lng)
-        : pano.heading
+      // Scan point is on the road centerline — shoot perpendicular to the road
+      // heading to capture properties on both sides of the street simultaneously.
       const directions = [
-        { label: 'F', heading: towardProperty },
+        { label: 'L', heading: (pano.heading + 90) % 360 },
+        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
       ]
 
       imageRows = []

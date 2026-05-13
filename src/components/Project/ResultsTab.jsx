@@ -450,7 +450,7 @@ export default function ResultsTab({ project, onProjectUpdate, selectedPointIds,
                         <img src={img.storage_url} alt={img.direction} className="w-full object-cover" loading="lazy" />
                         <div className="px-3 py-1.5">
                           <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
-                            {img.direction === 'L' ? 'Left' : img.direction === 'R' ? 'Right' : img.direction === 'F' ? 'Facing' : img.direction}
+                            {img.direction === 'L' ? 'Left Side' : img.direction === 'R' ? 'Right Side' : img.direction === 'F' ? 'Facing' : img.direction}
                           </span>
                         </div>
                       </div>
