@@ -5,8 +5,13 @@ import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
 
-const BATCH_SIZE = 8
-const AI_BATCH   = 5
+const COLLECT_BATCH     = 20   // must match CAP in collect-images.js
+const COLLECT_CONCUR    = 3    // parallel function calls during image collection
+const AI_BATCH          = 8    // must match CAP in analyze-points.js
+const AI_CONCUR         = 2    // parallel function calls during analysis
+const GEO_BATCH         = 50   // must match CAP in geocode-points.js
+const GEO_CONCUR        = 2    // parallel function calls during geocoding
+
 
 const PHASE_LABEL = {
   collecting: 'Collecting Street View images…',
@@ -146,42 +151,63 @@ export default function ResultsTab({ project, onProjectUpdate }) {
     abortRef.current = false
     setRunning(true)
 
+    // ── Phase 1: Collect Street View images ────────────────────
     setPhase('collecting')
     try {
       const { data: pending } = await supabase.from('scan_points').select('id')
         .eq('project_id', project.id).in('status', ['pending', 'failed'])
       if (pending?.length) {
-        for (const batch of chunkArray(pending.map(p => p.id), BATCH_SIZE)) {
+        const chunks = chunkArray(pending.map(p => p.id), COLLECT_BATCH)
+        for (let i = 0; i < chunks.length; i += COLLECT_CONCUR) {
           if (abortRef.current) break
-          try { await collectImages(project.id, batch); await fetchStats() } catch { /* continue */ }
+          await Promise.allSettled(
+            chunks.slice(i, i + COLLECT_CONCUR).map(batch =>
+              collectImages(project.id, batch).catch(() => {})
+            )
+          )
+          await fetchStats()
         }
       }
     } catch { /* continue */ }
 
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
+    // ── Phase 2: Reverse geocode addresses ─────────────────────
     setPhase('geocoding')
     try {
       const { data: dloaded } = await supabase.from('scan_points').select('id')
         .eq('project_id', project.id).eq('status', 'downloaded').is('address', null)
       if (dloaded?.length) {
-        for (const batch of chunkArray(dloaded.map(p => p.id), 20)) {
+        const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
+        for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
           if (abortRef.current) break
-          try { await geocodePoints(project.id, batch) } catch { /* non-fatal */ }
+          await Promise.allSettled(
+            chunks.slice(i, i + GEO_CONCUR).map(batch =>
+              geocodePoints(project.id, batch).catch(() => {})
+            )
+          )
         }
       }
     } catch { /* continue */ }
 
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
+    // ── Phase 3: AI distress analysis ──────────────────────────
     setPhase('analyzing')
     try {
       const { data: toAnalyze } = await supabase.from('scan_points').select('id')
         .eq('project_id', project.id).eq('status', 'downloaded')
       if (toAnalyze?.length) {
-        for (const batch of chunkArray(toAnalyze.map(p => p.id), AI_BATCH)) {
+        const chunks = chunkArray(toAnalyze.map(p => p.id), AI_BATCH)
+        for (let i = 0; i < chunks.length; i += AI_CONCUR) {
           if (abortRef.current) break
-          try { await analyzePoints(project.id, batch); await fetchStats(); await fetchResults() } catch { /* continue */ }
+          await Promise.allSettled(
+            chunks.slice(i, i + AI_CONCUR).map(batch =>
+              analyzePoints(project.id, batch).catch(() => {})
+            )
+          )
+          await fetchStats()
+          await fetchResults()
         }
       }
     } catch { /* continue */ }

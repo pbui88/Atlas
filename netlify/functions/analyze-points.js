@@ -1,8 +1,9 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY
+const GEMINI_KEY   = process.env.GEMINI_API_KEY
 const GEMINI_MODEL = 'gemini-2.5-flash'
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
+const CAP          = 8   // points analyzed in parallel per function call
 
 const PROMPT = `You are an expert real estate distress analyst for residential properties.
 The images were captured facing the houses on each side of the road (not looking along the road).
@@ -32,36 +33,25 @@ If no properties are clearly visible or no distress signals exist, return overal
 Only flag signals that are clearly and unambiguously visible.`
 
 async function callGemini(imageUrls) {
-  // Fetch images and encode as base64 for Gemini inline data
   const imageParts = await Promise.all(
     imageUrls.map(async (url) => {
       const res = await fetch(url)
       if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`)
       const buf = Buffer.from(await res.arrayBuffer())
-      return {
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: buf.toString('base64'),
-        },
-      }
+      return { inlineData: { mimeType: 'image/jpeg', data: buf.toString('base64') } }
     })
   )
 
   const res = await fetch(GEMINI_URL, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: PROMPT },
-          ...imageParts,
-        ],
-      }],
+      contents: [{ parts: [{ text: PROMPT }, ...imageParts] }],
       generationConfig: {
         responseMimeType: 'application/json',
-        maxOutputTokens: 1024,
-        temperature: 0.1,
-        thinkingConfig: { thinkingBudget: 0 },  // disable thinking tokens to avoid truncation
+        maxOutputTokens:  1024,
+        temperature:      0.1,
+        thinkingConfig:   { thinkingBudget: 0 },
       },
     }),
   })
@@ -72,16 +62,66 @@ async function callGemini(imageUrls) {
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text
   if (!text) throw new Error('Empty Gemini response')
 
-  // Strip markdown code fences if present
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   const parsed  = JSON.parse(cleaned)
   const inputTokens  = data.usageMetadata?.promptTokenCount     || 0
   const outputTokens = data.usageMetadata?.candidatesTokenCount || 0
-
-  // gemini-2.0-flash pricing: $0.10/1M input, $0.40/1M output tokens
-  const costUsd = (inputTokens * 0.0000001) + (outputTokens * 0.0000004)
+  const costUsd      = (inputTokens * 0.0000001) + (outputTokens * 0.0000004)
 
   return { result: parsed, inputTokens, outputTokens, costUsd }
+}
+
+async function analyzePoint(pointId, projectId, userId, supabase) {
+  try {
+    const { data: images } = await supabase
+      .from('images')
+      .select('storage_url, direction')
+      .eq('scan_point_id', pointId)
+      .not('storage_url', 'is', null)
+
+    if (!images?.length) return { pointId, status: 'no_images' }
+
+    await supabase.from('scan_points')
+      .update({ status: 'analyzing', updated_at: new Date().toISOString() })
+      .eq('id', pointId)
+
+    const { result, inputTokens, outputTokens, costUsd } = await callGemini(images.map(i => i.storage_url))
+
+    await supabase.from('ai_analyses').upsert({
+      scan_point_id:      pointId,
+      overall_score:      result.overallScore  ?? 0,
+      confidence:         result.confidence    ?? 0,
+      signals:            result.signals       ?? [],
+      notes:              result.notes         ?? '',
+      model_used:         GEMINI_MODEL,
+      prompt_tokens:      inputTokens,
+      completion_tokens:  outputTokens,
+      estimated_cost_usd: costUsd,
+      raw_response:       result,
+      updated_at:         new Date().toISOString(),
+    }, { onConflict: 'scan_point_id' })
+
+    await supabase.from('scan_points')
+      .update({ status: 'complete', updated_at: new Date().toISOString() })
+      .eq('id', pointId)
+
+    await supabase.from('usage_logs').insert({
+      user_id:  userId,
+      service:  'gemini_vision',
+      action:   'analyze_point',
+      count:    1,
+      cost_usd: costUsd,
+      metadata: { projectId, pointId, model: GEMINI_MODEL, inputTokens, outputTokens },
+    })
+
+    return { pointId, status: 'complete', score: result.overallScore }
+  } catch (e) {
+    console.error(`Gemini analysis failed ${pointId}:`, e.message)
+    await supabase.from('scan_points')
+      .update({ status: 'failed', error_msg: e.message, updated_at: new Date().toISOString() })
+      .eq('id', pointId)
+    return { pointId, status: 'error', error: e.message }
+  }
 }
 
 export const handler = async (event) => {
@@ -99,81 +139,30 @@ export const handler = async (event) => {
   }
 
   const supabase = adminSupabase()
-  const results  = []
+  const ids      = pointIds.slice(0, CAP)
 
-  for (const pointId of pointIds.slice(0, 5)) {
-    try {
-      const { data: images } = await supabase
-        .from('images')
-        .select('storage_url, direction')
-        .eq('scan_point_id', pointId)
-        .not('storage_url', 'is', null)
+  // Process all points in parallel
+  const settled = await Promise.allSettled(
+    ids.map(pointId => analyzePoint(pointId, projectId, user.id, supabase))
+  )
 
-      if (!images?.length) {
-        results.push({ pointId, status: 'no_images' }); continue
-      }
-
-      await supabase.from('scan_points')
-        .update({ status: 'analyzing', updated_at: new Date().toISOString() })
-        .eq('id', pointId)
-
-      const imageUrls = images.map(i => i.storage_url)
-      const { result, inputTokens, outputTokens, costUsd } = await callGemini(imageUrls)
-
-      await supabase.from('ai_analyses').upsert({
-        scan_point_id:      pointId,
-        overall_score:      result.overallScore  ?? 0,
-        confidence:         result.confidence    ?? 0,
-        signals:            result.signals       ?? [],
-        notes:              result.notes         ?? '',
-        model_used:         GEMINI_MODEL,
-        prompt_tokens:      inputTokens,
-        completion_tokens:  outputTokens,
-        estimated_cost_usd: costUsd,
-        raw_response:       result,
-        updated_at:         new Date().toISOString(),
-      }, { onConflict: 'scan_point_id' })
-
-      await supabase.from('scan_points')
-        .update({ status: 'complete', updated_at: new Date().toISOString() })
-        .eq('id', pointId)
-
-      await supabase.from('usage_logs').insert({
-        user_id:  user.id,
-        service:  'gemini_vision',
-        action:   'analyze_point',
-        count:    1,
-        cost_usd: costUsd,
-        metadata: { projectId, pointId, model: GEMINI_MODEL, inputTokens, outputTokens },
-      })
-
-      results.push({ pointId, status: 'complete', score: result.overallScore })
-    } catch (ptErr) {
-      console.error(`Gemini analysis failed ${pointId}:`, ptErr.message)
-      await supabase.from('scan_points').update({
-        status: 'failed', error_msg: ptErr.message, updated_at: new Date().toISOString(),
-      }).eq('id', pointId)
-      results.push({ pointId, status: 'error', error: ptErr.message })
-    }
-  }
+  const results = settled.map(s =>
+    s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
+  )
 
   // Update project counters
-  const { count: completed } = await supabase
-    .from('scan_points')
-    .select('*', { count: 'exact', head: true })
-    .eq('project_id', projectId)
-    .eq('status', 'complete')
-
-  const { count: total } = await supabase
-    .from('scan_points')
-    .select('*', { count: 'exact', head: true })
-    .eq('project_id', projectId)
+  const [{ count: completed }, { count: total }] = await Promise.all([
+    supabase.from('scan_points').select('*', { count: 'exact', head: true })
+      .eq('project_id', projectId).eq('status', 'complete'),
+    supabase.from('scan_points').select('*', { count: 'exact', head: true })
+      .eq('project_id', projectId),
+  ])
 
   await supabase.from('projects').update({
     completed_points: completed || 0,
-    status: completed >= total ? 'complete' : 'analyzing',
-    updated_at: new Date().toISOString(),
-    ...(completed >= total ? { completed_at: new Date().toISOString() } : {}),
+    status:           (completed || 0) >= (total || 1) ? 'complete' : 'analyzing',
+    updated_at:       new Date().toISOString(),
+    ...((completed || 0) >= (total || 1) ? { completed_at: new Date().toISOString() } : {}),
   }).eq('id', projectId)
 
   return ok({ results })

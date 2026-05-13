@@ -1,9 +1,8 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
 const POSITIONSTACK_KEY = process.env.POSITIONSTACK_API_KEY
+const CAP               = 50   // points geocoded in parallel per function call
 
-// Positionstack reverse geocoding — free tier: 25,000 req/month
-// Docs: https://positionstack.com/documentation#reverse_geocoding
 async function reverseGeocode(lat, lng) {
   const url = `http://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&limit=1&output=json`
   const res  = await fetch(url)
@@ -14,9 +13,25 @@ async function reverseGeocode(lat, lng) {
   const result = data.data?.[0]
   if (!result) return null
 
-  // Build a clean address string from components
   const parts = [result.name, result.locality, result.region_code, result.postal_code].filter(Boolean)
   return parts.length > 0 ? parts.join(', ') : result.label || null
+}
+
+async function geocodePoint(pt, supabase) {
+  if (pt.address) return { pointId: pt.id, status: 'skipped' }
+  try {
+    const address = await reverseGeocode(pt.lat, pt.lng)
+    if (address) {
+      await supabase.from('scan_points')
+        .update({ address, updated_at: new Date().toISOString() })
+        .eq('id', pt.id)
+      return { pointId: pt.id, status: 'geocoded', address }
+    }
+    return { pointId: pt.id, status: 'no_result' }
+  } catch (e) {
+    console.error(`Geocode failed ${pt.id}:`, e.message)
+    return { pointId: pt.id, status: 'error', error: e.message }
+  }
 }
 
 export const handler = async (event) => {
@@ -34,34 +49,24 @@ export const handler = async (event) => {
   }
 
   const supabase = adminSupabase()
-  const results  = []
-  let geocodedCount = 0
+  const ids      = pointIds.slice(0, CAP)
 
-  for (const pointId of pointIds.slice(0, 20)) {
-    try {
-      const { data: pt } = await supabase
-        .from('scan_points')
-        .select('id, lat, lng, address')
-        .eq('id', pointId)
-        .single()
+  // Batch-fetch all point data
+  const { data: pts } = await supabase
+    .from('scan_points')
+    .select('id, lat, lng, address')
+    .in('id', ids)
 
-      if (!pt || pt.address) { results.push({ pointId, status: 'skipped' }); continue }
+  if (!pts?.length) return ok({ results: [] })
 
-      const address = await reverseGeocode(pt.lat, pt.lng)
-      if (address) {
-        await supabase.from('scan_points')
-          .update({ address, updated_at: new Date().toISOString() })
-          .eq('id', pointId)
-        geocodedCount++
-      }
-      results.push({ pointId, status: 'geocoded', address })
-    } catch (e) {
-      console.error(`Geocode failed ${pointId}:`, e.message)
-      results.push({ pointId, status: 'error', error: e.message })
-    }
-  }
+  // Process all points in parallel
+  const settled = await Promise.allSettled(
+    pts.map(pt => geocodePoint(pt, supabase))
+  )
 
-  // Log usage — Positionstack free tier costs $0
+  const results      = settled.map(s => s.status === 'fulfilled' ? s.value : { status: 'error' })
+  const geocodedCount = results.filter(r => r.status === 'geocoded').length
+
   if (geocodedCount > 0) {
     await supabase.from('usage_logs').insert({
       user_id:  user.id,
