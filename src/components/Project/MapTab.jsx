@@ -111,7 +111,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setDrawingMode(null)
     const pts = generateGridPoints(geoJson, spacing)
     setPreview(pts)
-    setCost(estimateCost(pts.length))
+    setCost(estimateCost(pts.length, 1))
   }, [spacing])
 
   const handleSpacingChange = (val) => {
@@ -119,7 +119,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     if (polygon) {
       const pts = generateGridPoints(polygon, val)
       setPreview(pts)
-      setCost(estimateCost(pts.length))
+      setCost(estimateCost(pts.length, 1))
     }
   }
 
@@ -374,7 +374,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Estimated Cost</p>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Street View ({ptCount * 2} imgs)</span>
+                  <span className="text-slate-500">Street View ({ptCount} imgs)</span>
                   <span className="text-slate-700">${cost.streetView}</span>
                 </div>
                 <div className="flex justify-between">
@@ -392,7 +392,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
               </div>
               <p className="text-xs text-slate-400 pt-1">
-                ≤ {ptCount.toLocaleString()} pts × L+R — road points may be fewer
+                ≤ {ptCount.toLocaleString()} pts × 1 img — road points may be fewer
               </p>
             </div>
           )}

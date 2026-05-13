@@ -78,11 +78,10 @@ export const handler = async (event) => {
       // Otherwise the pano is on the road itself: shoot perpendicular to the
       // travel direction to capture houses on both sides of the street.
       // Always capture all 3 directions: toward property + both sides of road
-      // Scan point is on the road centerline — shoot perpendicular to the road
-      // heading to capture properties on both sides of the street simultaneously.
+      // Scan point is on the road centerline — shoot perpendicular (90° left of
+      // road travel direction) to face the property front-on from the road.
       const directions = [
-        { label: 'L', heading: (pano.heading + 90) % 360 },
-        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
+        { label: 'F', heading: (pano.heading + 90) % 360 },
       ]
 
       imageRows = []
