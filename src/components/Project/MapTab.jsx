@@ -71,6 +71,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   }
 
 
+  // Fetch property count on mount if project already has a saved polygon
+  useEffect(() => {
+    if (polygon) fetchPropertyCount(polygon)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const onMapLoad = useCallback((map) => {
     mapRef.current = map
     if (polygon) {
@@ -91,18 +96,38 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPropertyCount(null)
     setCountLoading(true)
     try {
-      // Convert GeoJSON [lng, lat] coords to Overpass poly "lat lng" string
-      const polyStr = geoJson.coordinates[0].map(([lng, lat]) => `${lat} ${lng}`).join(' ')
-      const query   = `[out:json][timeout:15];(way[building](poly:"${polyStr}");relation[building](poly:"${polyStr}"););out count;`
-      const res     = await fetch('https://overpass-api.de/api/interpreter', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    `data=${encodeURIComponent(query)}`,
-      })
-      const data = await res.json()
-      setPropertyCount(+(data.elements?.[0]?.tags?.total ?? 0))
-    } catch {
-      setPropertyCount(null)
+      // Use bounding box query — faster and more reliable than poly filter
+      const coords = geoJson.coordinates[0]
+      const lats   = coords.map(([, lat]) => lat)
+      const lngs   = coords.map(([lng]) => lng)
+      const south  = Math.min(...lats), north = Math.max(...lats)
+      const west   = Math.min(...lngs), east  = Math.max(...lngs)
+
+      const query = `[out:json][timeout:20];(way[building](${south},${west},${north},${east});relation[building](${south},${west},${north},${east}););out count;`
+
+      // Try primary mirror, fall back to secondary if it fails
+      let res
+      try {
+        res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `data=${encodeURIComponent(query)}`,
+        })
+      } catch {
+        res = await fetch('https://overpass.kumi.systems/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `data=${encodeURIComponent(query)}`,
+        })
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data  = await res.json()
+      const total = parseInt(data.elements?.[0]?.tags?.total ?? '0', 10)
+      setPropertyCount(total)
+    } catch (e) {
+      console.warn('Property count failed:', e.message)
+      setPropertyCount(-1)  // -1 = failed state
     } finally {
       setCountLoading(false)
     }
@@ -354,12 +379,16 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
               )}
               {!countLoading && propertyCount !== null && (
-                <div className="mt-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 flex items-center justify-between">
-                  <span className="text-xs text-brand-700">Properties in area</span>
-                  <span className="text-sm font-bold text-brand-700 tabular-nums">
-                    {propertyCount.toLocaleString()}
-                  </span>
-                </div>
+                propertyCount === -1 ? (
+                  <div className="mt-2 text-xs text-slate-400">Unable to count properties</div>
+                ) : (
+                  <div className="mt-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                    <span className="text-xs text-brand-700">Properties in area</span>
+                    <span className="text-sm font-bold text-brand-700 tabular-nums">
+                      {propertyCount.toLocaleString()}
+                    </span>
+                  </div>
+                )
               )}
             </div>
           )}
