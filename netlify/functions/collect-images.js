@@ -100,11 +100,9 @@ export const handler = async (event) => {
       const dist           = distMeters(pt.lat, pt.lng, pano.panoLat, pano.panoLng)
       const towardProperty = dist > 8
         ? bearingTo(pano.panoLat, pano.panoLng, pt.lat, pt.lng)
-        : pano.heading  // fallback: use road heading when pano is on the scan point
+        : pano.heading
       const directions = [
         { label: 'F', heading: towardProperty },
-        { label: 'L', heading: (pano.heading + 90) % 360 },
-        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
       ]
 
       imageRows = []
