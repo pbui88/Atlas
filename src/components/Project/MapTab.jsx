@@ -27,12 +27,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [generating,   setGenerating]   = useState(false)
   const [error,        setError]        = useState(null)
   const [searchPin,    setSearchPin]    = useState(null)
-  const [showSV,       setShowSV]       = useState(false)
   const [searchInput,  setSearchInput]  = useState('')
   const [suggestions,  setSuggestions]  = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
-
-  const MAPS_KEY       = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
@@ -69,7 +66,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     mapRef.current?.panTo({ lat, lng })
     mapRef.current?.setZoom(14)
     setSearchPin({ lat, lng, address: s.display_name })
-    setShowSV(true)
   }
 
 
@@ -132,7 +128,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setCost(null)
   }
 
-  const closeSV = () => setShowSV(false)
 
   const displayPoints = scanPoints?.length > 0 ? scanPoints : preview
   const ptCount       = displayPoints.length
@@ -289,36 +284,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* ── Street View centered overlay (static image) ── */}
-          {showSV && searchPin && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-              <div className="relative w-3/4 h-3/4 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 bg-slate-900">
-                <img
-                  key={`${searchPin.lat},${searchPin.lng}`}
-                  src={`https://maps.googleapis.com/maps/api/streetview?size=1200x800&location=${searchPin.lat},${searchPin.lng}&fov=90&pitch=10&key=${MAPS_KEY}`}
-                  alt="Street View"
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-
-                {searchPin.address && (
-                  <div className="absolute top-3 left-3 z-10 max-w-xs">
-                    <div className="bg-slate-900/85 backdrop-blur-sm border border-slate-700 rounded-lg px-2.5 py-1">
-                      <p className="text-xs text-slate-300 truncate">{searchPin.address.split(',').slice(0, 3).join(',')}</p>
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  onClick={closeSV}
-                  className="absolute top-3 right-3 z-10 w-8 h-8 bg-slate-800/90 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center justify-center transition"
-                >
-                  <svg className="w-4 h-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

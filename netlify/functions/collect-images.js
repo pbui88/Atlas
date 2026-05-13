@@ -96,19 +96,16 @@ export const handler = async (event) => {
       // the pano toward the scan point so it faces the property.
       // Otherwise the pano is on the road itself: shoot perpendicular to the
       // travel direction to capture houses on both sides of the street.
-      const dist = distMeters(pt.lat, pt.lng, pano.panoLat, pano.panoLng)
-      let directions
-      if (dist > 8) {
-        const towardProperty = bearingTo(pano.panoLat, pano.panoLng, pt.lat, pt.lng)
-        directions = [
-          { label: 'F', heading: towardProperty },
-        ]
-      } else {
-        directions = [
-          { label: 'L', heading: (pano.heading + 90) % 360 },
-          { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
-        ]
-      }
+      // Always capture all 3 directions: toward property + both sides of road
+      const dist           = distMeters(pt.lat, pt.lng, pano.panoLat, pano.panoLng)
+      const towardProperty = dist > 8
+        ? bearingTo(pano.panoLat, pano.panoLng, pt.lat, pt.lng)
+        : pano.heading  // fallback: use road heading when pano is on the scan point
+      const directions = [
+        { label: 'F', heading: towardProperty },
+        { label: 'L', heading: (pano.heading + 90) % 360 },
+        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
+      ]
 
       imageRows = []
       for (const dir of directions) {
