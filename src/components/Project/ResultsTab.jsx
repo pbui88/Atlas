@@ -84,7 +84,7 @@ function PropertyRow({ point, isSelected, onClick }) {
   )
 }
 
-export default function ResultsTab({ project, onProjectUpdate }) {
+export default function ResultsTab({ project, onProjectUpdate, selectedPointIds, onClearSelection }) {
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
   const [resLoading, setResLoading] = useState(true)
@@ -146,12 +146,17 @@ export default function ResultsTab({ project, onProjectUpdate }) {
     abortRef.current = false
     setRunning(true)
 
+    const scanIds = selectedPointIds?.size > 0 ? [...selectedPointIds] : null
+
     setPhase('collecting')
     try {
       const { data: pending } = await supabase.from('scan_points').select('id')
         .eq('project_id', project.id).in('status', ['pending', 'failed'])
-      if (pending?.length) {
-        for (const batch of chunkArray(pending.map(p => p.id), BATCH_SIZE)) {
+      const toScan = scanIds
+        ? (pending || []).filter(p => scanIds.includes(p.id))
+        : (pending || [])
+      if (toScan.length) {
+        for (const batch of chunkArray(toScan.map(p => p.id), BATCH_SIZE)) {
           if (abortRef.current) break
           try { await collectImages(project.id, batch); await fetchStats() } catch { /* continue */ }
         }
@@ -235,7 +240,8 @@ export default function ResultsTab({ project, onProjectUpdate }) {
   }
 
   const hasFilters  = minScore > 0 || sigFilter.length > 0
-  const canStart    = stats.total > 0 && !running
+  const selCount    = selectedPointIds?.size ?? 0
+  const canStart    = (stats.total > 0 || selCount > 0) && !running
   const analysis    = selected?.ai_analyses?.[0]
   const score       = analysis?.overall_score
   const signals     = analysis?.signals || []
@@ -266,7 +272,7 @@ export default function ResultsTab({ project, onProjectUpdate }) {
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
                 </svg>
-                AI Driving
+                {selCount > 0 ? `Scan Selected (${selCount})` : 'Scan All'}
               </button>
             )}
           </div>

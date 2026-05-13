@@ -37,10 +37,11 @@ export default function ProjectPage() {
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY || '',
     libraries: LIBRARIES,
   })
-  const [project,    setProject]    = useState(null)
-  const [scanPoints, setScanPoints] = useState([])
-  const [activeTab,  setActiveTab]  = useState('map')
-  const [loading,    setLoading]    = useState(true)
+  const [project,          setProject]          = useState(null)
+  const [scanPoints,       setScanPoints]       = useState([])
+  const [activeTab,        setActiveTab]        = useState('map')
+  const [loading,          setLoading]          = useState(true)
+  const [selectedPointIds, setSelectedPointIds] = useState(new Set())
 
   const loadProject = async () => {
     const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
@@ -120,10 +121,17 @@ export default function ProjectPage() {
             onPointsGenerated={() => loadProject()}
             isLoaded={isLoaded}
             loadError={loadError}
+            selectedPointIds={selectedPointIds}
+            onSelectionChange={setSelectedPointIds}
           />
         )}
         {activeTab === 'results' && (
-          <ResultsTab project={project} onProjectUpdate={loadProject} />
+          <ResultsTab
+            project={project}
+            onProjectUpdate={loadProject}
+            selectedPointIds={selectedPointIds}
+            onClearSelection={() => setSelectedPointIds(new Set())}
+          />
         )}
       </div>
     </div>
