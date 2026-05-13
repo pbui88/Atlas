@@ -5,7 +5,6 @@ import { supabase } from '../../lib/supabase'
 import { updateProject } from '../../lib/api'
 import { STATUS_LABELS, STATUS_BADGE_CLASS } from '../../lib/constants'
 import MapTab     from './MapTab'
-import ScanTab    from './ScanTab'
 import ResultsTab from './ResultsTab'
 
 const LIBRARIES = ['drawing', 'geometry']
@@ -17,16 +16,6 @@ const TABS = [
     icon: (
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c-.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'scan',
-    label: 'Scan',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75z" />
       </svg>
     ),
   },
@@ -66,7 +55,7 @@ export default function ProjectPage() {
     setScanPoints(pts || [])
     setLoading(false)
 
-    if (pts?.length > 0 && activeTab === 'map') setActiveTab('scan')
+    if (pts?.length > 0 && activeTab === 'map') setActiveTab('results')
   }
 
   useEffect(() => { loadProject() }, [id])
@@ -133,14 +122,8 @@ export default function ProjectPage() {
             loadError={loadError}
           />
         )}
-        {activeTab === 'scan' && (
-          <ScanTab
-            project={project}
-            onProjectUpdate={loadProject}
-          />
-        )}
         {activeTab === 'results' && (
-          <ResultsTab project={project} />
+          <ResultsTab project={project} onProjectUpdate={loadProject} />
         )}
       </div>
     </div>

@@ -1,8 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
-import { exportProject } from '../../lib/api'
+import { collectImages, analyzePoints, geocodePoints, exportProject } from '../../lib/api'
+import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
+
+const BATCH_SIZE = 8
+const AI_BATCH   = 5
+
+const PHASE_LABEL = {
+  collecting: 'Collecting Street View images…',
+  geocoding:  'Reverse geocoding addresses…',
+  analyzing:  'Running AI distress analysis…',
+}
 
 const SIGNAL_MAP = Object.fromEntries(DISTRESS_SIGNALS.map(s => [s.id, s]))
 
@@ -20,6 +30,21 @@ function scoreBorderColor(score) {
   if (score >= 0.45) return 'border-orange-300 bg-orange-50'
   if (score >= 0.20) return 'border-amber-300 bg-amber-50'
   return 'border-emerald-300 bg-emerald-50'
+}
+
+function ProgressBar({ label, value, max, color = 'bg-brand-600' }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[11px] text-slate-500">
+        <span>{label}</span>
+        <span className="font-medium text-slate-700">{value} / {max}</span>
+      </div>
+      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+        <div className={`h-1.5 rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
 }
 
 function PropertyRow({ point, isSelected, onClick }) {
@@ -59,18 +84,33 @@ function PropertyRow({ point, isSelected, onClick }) {
   )
 }
 
-export default function ResultsTab({ project }) {
-  const [points,    setPoints]    = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [selected,  setSelected]  = useState(null)
-  const [minScore,  setMinScore]  = useState(0)
-  const [sigFilter, setSigFilter] = useState([])
-  const [exporting, setExporting] = useState(false)
+export default function ResultsTab({ project, onProjectUpdate }) {
+  // ── Results state ──────────────────────────────────────────
+  const [points,     setPoints]     = useState([])
+  const [resLoading, setResLoading] = useState(true)
+  const [selected,   setSelected]   = useState(null)
+  const [minScore,   setMinScore]   = useState(0)
+  const [sigFilter,  setSigFilter]  = useState([])
+  const [exporting,  setExporting]  = useState(false)
   const [selImages,  setSelImages]  = useState([])
   const [imgLoading, setImgLoading] = useState(false)
 
+  // ── Scan state ─────────────────────────────────────────────
+  const [stats,    setStats]   = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
+  const [running,  setRunning] = useState(false)
+  const [phase,    setPhase]   = useState('')
+  const [abortRef] = useState({ current: false })
+
+  // ── Data fetching ──────────────────────────────────────────
+  const fetchStats = async () => {
+    const { data } = await supabase.from('scan_points').select('status').eq('project_id', project.id)
+    if (!data) return
+    const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
+    setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
+  }
+
   const fetchResults = useCallback(async () => {
-    setLoading(true)
+    setResLoading(true)
     const { data: pts } = await supabase
       .from('scan_points')
       .select('id, lat, lng, address, status')
@@ -78,7 +118,7 @@ export default function ResultsTab({ project }) {
       .eq('status', 'complete')
       .order('created_at')
 
-    if (!pts?.length) { setPoints([]); setLoading(false); return }
+    if (!pts?.length) { setPoints([]); setResLoading(false); return }
 
     const { data: analyses } = await supabase
       .from('ai_analyses')
@@ -87,12 +127,12 @@ export default function ResultsTab({ project }) {
 
     const analysisMap = Object.fromEntries((analyses || []).map(a => [a.scan_point_id, a]))
     setPoints(pts.map(pt => ({ ...pt, ai_analyses: analysisMap[pt.id] ? [analysisMap[pt.id]] : [] })))
-    setLoading(false)
+    setResLoading(false)
   }, [project.id])
 
-  useEffect(() => { fetchResults() }, [fetchResults])
+  useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
-  // Fetch captured images when selection changes
+  // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
     if (!selected) { setSelImages([]); return }
     setSelImages([])
@@ -101,7 +141,61 @@ export default function ResultsTab({ project }) {
       .then(({ data }) => { setSelImages(data || []); setImgLoading(false) })
   }, [selected?.id])
 
+  // ── Scan logic ─────────────────────────────────────────────
+  const runScan = async () => {
+    abortRef.current = false
+    setRunning(true)
 
+    setPhase('collecting')
+    try {
+      const { data: pending } = await supabase.from('scan_points').select('id')
+        .eq('project_id', project.id).in('status', ['pending', 'failed'])
+      if (pending?.length) {
+        for (const batch of chunkArray(pending.map(p => p.id), BATCH_SIZE)) {
+          if (abortRef.current) break
+          try { await collectImages(project.id, batch); await fetchStats() } catch { /* continue */ }
+        }
+      }
+    } catch { /* continue */ }
+
+    if (abortRef.current) { setRunning(false); setPhase(''); return }
+
+    setPhase('geocoding')
+    try {
+      const { data: dloaded } = await supabase.from('scan_points').select('id')
+        .eq('project_id', project.id).eq('status', 'downloaded').is('address', null)
+      if (dloaded?.length) {
+        for (const batch of chunkArray(dloaded.map(p => p.id), 20)) {
+          if (abortRef.current) break
+          try { await geocodePoints(project.id, batch) } catch { /* non-fatal */ }
+        }
+      }
+    } catch { /* continue */ }
+
+    if (abortRef.current) { setRunning(false); setPhase(''); return }
+
+    setPhase('analyzing')
+    try {
+      const { data: toAnalyze } = await supabase.from('scan_points').select('id')
+        .eq('project_id', project.id).eq('status', 'downloaded')
+      if (toAnalyze?.length) {
+        for (const batch of chunkArray(toAnalyze.map(p => p.id), AI_BATCH)) {
+          if (abortRef.current) break
+          try { await analyzePoints(project.id, batch); await fetchStats(); await fetchResults() } catch { /* continue */ }
+        }
+      }
+    } catch { /* continue */ }
+
+    setPhase('')
+    setRunning(false)
+    await fetchStats()
+    await fetchResults()
+    onProjectUpdate?.()
+  }
+
+  const pause = () => { abortRef.current = true }
+
+  // ── Filter / sort ──────────────────────────────────────────
   const toggleSignal = (id) => setSigFilter(f => f.includes(id) ? f.filter(s => s !== id) : [...f, id])
 
   const filtered = points.filter(pt => {
@@ -118,6 +212,7 @@ export default function ResultsTab({ project }) {
     (b.ai_analyses?.[0]?.overall_score ?? 0) - (a.ai_analyses?.[0]?.overall_score ?? 0)
   )
 
+  // ── Export ─────────────────────────────────────────────────
   const handleExport = async (format) => {
     setExporting(true)
     try {
@@ -135,42 +230,67 @@ export default function ResultsTab({ project }) {
       a.download = `${project.name.replace(/\s+/g, '_')}_${format.toLowerCase()}.${format === 'CSV' ? 'csv' : 'json'}`
       a.click()
       URL.revokeObjectURL(url)
-    } catch (err) {
-      alert(err.message)
-    } finally {
-      setExporting(false)
-    }
+    } catch (err) { alert(err.message) }
+    finally { setExporting(false) }
   }
 
-  const handleSelect = (pt) => {
-    setSelected(prev => prev?.id === pt.id ? null : pt)
-  }
-
-  const hasFilters = minScore > 0 || sigFilter.length > 0
-  const analysis   = selected?.ai_analyses?.[0]
-  const score      = analysis?.overall_score
-  const signals    = analysis?.signals || []
-  const notes      = analysis?.notes
+  const hasFilters  = minScore > 0 || sigFilter.length > 0
+  const canStart    = stats.total > 0 && !running
+  const analysis    = selected?.ai_analyses?.[0]
+  const score       = analysis?.overall_score
+  const signals     = analysis?.signals || []
+  const notes       = analysis?.notes
 
   return (
     <div className="flex h-full">
 
-      {/* ── Left: filters + property list ── */}
+      {/* ── Left panel ── */}
       <div className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0">
 
-        {/* Filters */}
-        <div className="p-4 border-b border-slate-200 space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Min Score</span>
-              <span className="text-sm font-bold text-slate-900 tabular-nums">{minScore}</span>
-            </div>
-            <input type="range" min={0} max={90} step={5} value={minScore}
-              onChange={e => setMinScore(+e.target.value)} className="w-full accent-brand-600" />
+        {/* Scan controls header */}
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-900">Results</h3>
+            {running && phase && (
+              <p className="text-[11px] text-brand-600 mt-0.5 truncate">{PHASE_LABEL[phase]}</p>
+            )}
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {running && <span className="w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />}
+            {running ? (
+              <button onClick={pause} className="btn border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white text-xs px-2.5 py-1.5">
+                Pause
+              </button>
+            ) : (
+              <button onClick={runScan} disabled={!canStart} className="btn-primary text-xs px-2.5 py-1.5">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+                </svg>
+                AI Driving
+              </button>
+            )}
+          </div>
+        </div>
 
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Signal Filter</p>
+        {/* Progress bars — shown while running or when scan has started */}
+        {stats.total > 0 && (
+          <div className="px-4 py-3 border-b border-slate-200 space-y-2.5">
+            <ProgressBar label="Images" value={stats.downloaded + stats.complete} max={stats.total} />
+            <ProgressBar label="AI analysis" value={stats.complete} max={stats.total} color="bg-green-500" />
+          </div>
+        )}
+
+        {/* Filters — only shown once there are results */}
+        {points.length > 0 && (
+          <div className="px-4 py-3 border-b border-slate-200 space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Min Score</span>
+                <span className="text-xs font-bold text-slate-900 tabular-nums">{minScore}</span>
+              </div>
+              <input type="range" min={0} max={90} step={5} value={minScore}
+                onChange={e => setMinScore(+e.target.value)} className="w-full accent-brand-600" />
+            </div>
             <div className="flex flex-wrap gap-1">
               {DISTRESS_SIGNALS.map(sig => (
                 <button key={sig.id} onClick={() => toggleSignal(sig.id)}
@@ -184,7 +304,7 @@ export default function ResultsTab({ project }) {
               ))}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Active filter chips */}
         {hasFilters && (
@@ -210,35 +330,46 @@ export default function ResultsTab({ project }) {
         {/* Count + refresh */}
         <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
           <span className="text-xs text-slate-500">
-            {loading ? 'Loading…' : `${sorted.length} properties`}
-            {hasFilters && !loading && points.length !== sorted.length && (
+            {resLoading ? 'Loading…' : `${sorted.length} properties`}
+            {hasFilters && !resLoading && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
             )}
           </span>
-          <button onClick={fetchResults} className="text-xs text-slate-400 hover:text-slate-700 transition">Refresh</button>
+          <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-400 hover:text-slate-700 transition">Refresh</button>
         </div>
 
         {/* Property list */}
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
+          {resLoading ? (
             <div className="flex justify-center py-12">
               <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : sorted.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <p className="text-sm text-slate-500">
-                {hasFilters ? 'No properties match your filters.' : 'No complete results yet.'}
-              </p>
-              {hasFilters && (
-                <button onClick={() => { setMinScore(0); setSigFilter([]) }}
-                  className="mt-2 text-xs text-brand-600 hover:underline">Clear filters</button>
+            <div className="text-center py-10 px-4">
+              {stats.total === 0 ? (
+                <>
+                  <p className="text-sm text-slate-400">No scan points yet.</p>
+                  <p className="text-xs text-slate-400 mt-1">Go to the Map tab to draw a polygon first.</p>
+                </>
+              ) : running ? (
+                <p className="text-sm text-slate-400">Results will appear here as the scan completes…</p>
+              ) : hasFilters ? (
+                <>
+                  <p className="text-sm text-slate-500">No properties match your filters.</p>
+                  <button onClick={() => { setMinScore(0); setSigFilter([]) }}
+                    className="mt-2 text-xs text-brand-600 hover:underline">Clear filters</button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-400">No results yet.</p>
+                  <p className="text-xs text-slate-400 mt-1">Click AI Driving to start the scan.</p>
+                </>
               )}
-              {!hasFilters && <p className="text-xs text-slate-400 mt-1">Run a scan from the Scan tab.</p>}
             </div>
           ) : (
             sorted.map(pt => (
               <PropertyRow key={pt.id} point={pt} isSelected={selected?.id === pt.id}
-                onClick={() => handleSelect(pt)} />
+                onClick={() => setSelected(prev => prev?.id === pt.id ? null : pt)} />
             ))
           )}
         </div>
@@ -258,7 +389,7 @@ export default function ResultsTab({ project }) {
         </div>
       </div>
 
-      {/* ── Right: detail panel ── */}
+      {/* ── Right panel: image viewer ── */}
       <div className="flex-1 flex flex-col bg-slate-950 min-w-0">
         {selected ? (
           <>
@@ -282,9 +413,7 @@ export default function ResultsTab({ project }) {
                     })}
                   </div>
                 )}
-                {notes && (
-                  <p className="text-xs text-slate-400 mt-1.5 leading-relaxed line-clamp-2">{notes}</p>
-                )}
+                {notes && <p className="text-xs text-slate-400 mt-1.5 leading-relaxed line-clamp-2">{notes}</p>}
               </div>
               <button onClick={() => setSelected(null)}
                 className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
@@ -330,7 +459,7 @@ export default function ResultsTab({ project }) {
             <svg className="w-12 h-12 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
             </svg>
-            <p className="text-sm text-slate-500">Select a property from the list</p>
+            <p className="text-sm text-slate-500">Select a property to view captured images</p>
           </div>
         )}
       </div>
