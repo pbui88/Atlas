@@ -31,8 +31,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [searchInput,    setSearchInput]    = useState('')
   const [suggestions,    setSuggestions]    = useState([])
   const [showDropdown,   setShowDropdown]   = useState(false)
-  const [propertyCount,  setPropertyCount]  = useState(null)
-  const [countLoading,   setCountLoading]   = useState(false)
 
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
@@ -72,11 +70,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   }
 
 
-  // Fetch property count on mount if project already has a saved polygon
-  useEffect(() => {
-    if (polygon) fetchPropertyCount(polygon)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const onMapLoad = useCallback((map) => {
     mapRef.current = map
     if (polygon) {
@@ -93,55 +86,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     drawingMgrRef.current.setDrawingMode(mode)
   }, [drawingMode])
 
-  const fetchPropertyCount = useCallback(async (geoJson) => {
-    setPropertyCount(null)
-    setCountLoading(true)
-
-    const coords = geoJson.coordinates[0]
-    const lats   = coords.map(([, lat]) => lat)
-    const lngs   = coords.map(([lng]) => lng)
-    const south  = Math.min(...lats), north = Math.max(...lats)
-    const west   = Math.min(...lngs), east  = Math.max(...lngs)
-
-    // addr:housenumber nodes are far more reliably mapped in US suburbs than building footprints
-    const query = `[out:json][timeout:12];(node["addr:housenumber"](${south},${west},${north},${east});way[building](${south},${west},${north},${east});relation[building](${south},${west},${north},${east}););out count;`
-
-    const postWithTimeout = async (url, ms = 12000) => {
-      const ctrl = new AbortController()
-      const t    = setTimeout(() => ctrl.abort(), ms)
-      try {
-        const res = await fetch(url, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body:    `data=${encodeURIComponent(query)}`,
-          signal:  ctrl.signal,
-        })
-        clearTimeout(t)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      } catch (e) {
-        clearTimeout(t)
-        throw e
-      }
-    }
-
-    try {
-      let data
-      try {
-        data = await postWithTimeout('https://overpass-api.de/api/interpreter')
-      } catch {
-        data = await postWithTimeout('https://overpass.kumi.systems/api/interpreter')
-      }
-      const total = parseInt(data.elements?.[0]?.tags?.total ?? '0', 10)
-      setPropertyCount(total)
-    } catch (e) {
-      console.warn('Property count failed:', e.message)
-      setPropertyCount(-1)
-    } finally {
-      setCountLoading(false)
-    }
-  }, [])
-
   const handlePolygonComplete = useCallback((poly) => {
     const path   = poly.getPath().getArray()
     const coords = path.map(ll => [ll.lng(), ll.lat()])
@@ -153,8 +97,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const pts = generateGridPoints(geoJson, SPACING)
     setPreview(pts)
     setCost(estimateCost(pts.length, 1))
-    fetchPropertyCount(geoJson)
-  }, [fetchPropertyCount])
+  }, [])
 
   const handleGenerate = async () => {
     if (!polygon) return
@@ -175,7 +118,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPolygon(null)
     setPreview([])
     setCost(null)
-    setPropertyCount(null)
   }
 
 
@@ -370,28 +312,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
                 <p className="text-xs text-green-400">Area selected</p>
               </div>
-
-              {/* Property count from OSM */}
-              {countLoading && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-                  <span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin shrink-0" />
-                  Counting properties…
-                </div>
-              )}
-              {!countLoading && propertyCount !== null && (
-                propertyCount > 0 ? (
-                  <div className="mt-2 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2 flex items-center justify-between">
-                    <span className="text-xs text-brand-700">Properties in area</span>
-                    <span className="text-sm font-bold text-brand-700 tabular-nums">
-                      ~{propertyCount.toLocaleString()}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="mt-2 text-xs text-slate-400">
-                    {propertyCount === -1 ? 'Unable to count — check connection' : 'No building data in this area'}
-                  </div>
-                )
-              )}
             </div>
           )}
 
