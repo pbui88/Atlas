@@ -1,6 +1,6 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
-const MAPILLARY_TOKEN = process.env.MAPILLARY_ACCESS_TOKEN
+const GOOGLE_KEY = process.env.GOOGLE_MAPS_KEY
 
 // Bearing (degrees, 0=N, 90=E) from one lat/lng to another.
 function bearingTo(fromLat, fromLng, toLat, toLng) {
@@ -22,77 +22,33 @@ function distMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-// Shortest angular difference between two bearings (0–180).
-function angleDiff(a, b) {
-  const d = Math.abs((a - b + 360) % 360)
-  return d > 180 ? 360 - d : d
-}
-
-// Search Mapillary for images near a point.
-async function getMapillaryImages(lat, lng, radius = 50) {
-  const url = `https://graph.mapillary.com/images?fields=id,geometry,thumb_1024_url,thumb_256_url,compass_angle,captured_at&lat=${lat}&lng=${lng}&radius=${radius}&limit=20&access_token=${MAPILLARY_TOKEN}`
-  const res  = await fetch(url)
-  if (!res.ok) throw new Error(`Mapillary API error (${res.status})`)
-  const data = await res.json()
-  if (data.error) throw new Error(data.error.message || 'Mapillary API error')
-  return data.data || []
-}
-
-async function downloadImage(thumbUrl) {
-  const res = await fetch(thumbUrl)
-  if (!res.ok) throw new Error(`Image download failed (${res.status})`)
-  const ct = res.headers.get('content-type') || ''
-  if (!ct.includes('image')) throw new Error('Not an image')
-  return res.arrayBuffer()
-}
-
-// Pick up to 3 images covering F/L/R directions relative to the scan point.
-// Uses each image's compass_angle to find the best match per direction.
-function selectDirectionImages(images, scanLat, scanLng) {
-  if (!images.length) return []
-
-  // Annotate with distance and bearing from image toward scan point.
-  // Filter out images missing geometry or compass_angle (would break selection math).
-  const annotated = images
-    .filter(img => img.geometry?.coordinates && img.compass_angle != null)
-    .map(img => {
-      const [imgLng, imgLat] = img.geometry.coordinates
-      const dist = distMeters(imgLat, imgLng, scanLat, scanLng)
-      const towardProperty = bearingTo(imgLat, imgLng, scanLat, scanLng)
-      return { ...img, imgLat, imgLng, dist, towardProperty }
-    })
-    .sort((a, b) => a.dist - b.dist)
-
-  // Reference "toward property" bearing from the closest image
-  const refBearing = annotated[0].towardProperty
-
-  const targets = [
-    { label: 'F', targetAngle: refBearing },
-    { label: 'L', targetAngle: (refBearing + 90) % 360 },
-    { label: 'R', targetAngle: (refBearing - 90 + 360) % 360 },
-  ]
-
-  const selected = []
-  const usedIds  = new Set()
-
-  for (const { label, targetAngle } of targets) {
-    let best     = null
-    let bestDiff = Infinity
-
-    for (const img of annotated) {
-      if (usedIds.has(img.id)) continue
-      const diff = angleDiff(img.compass_angle, targetAngle)
-      if (diff < bestDiff) { bestDiff = diff; best = img }
+// Returns pano metadata or null if no coverage.
+async function getPanoInfo(lat, lng) {
+  try {
+    const url  = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
+    const res  = await fetch(url)
+    const data = await res.json()
+    if (data.status !== 'OK') return null
+    return {
+      heading: data.heading ?? 0,
+      panoLat: data.location?.lat ?? lat,
+      panoLng: data.location?.lng ?? lng,
     }
-
-    // Skip if no image is within 90° of the target direction
-    if (best && bestDiff <= 90) {
-      selected.push({ label, image: best })
-      usedIds.add(best.id)
-    }
+  } catch {
+    return null
   }
+}
 
-  return selected
+async function downloadImage(lat, lng, heading) {
+  // fov=72 (narrower than 90) frames building facades without too much sky/road.
+  // pitch=15 tilts upward to capture the facade above the curb line.
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=72&return_error_code=true&key=${GOOGLE_KEY}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Street View ${res.status}`)
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('image')) throw new Error('Not an image (no coverage?)')
+  const buffer = await res.arrayBuffer()
+  return buffer
 }
 
 export const handler = async (event) => {
@@ -102,7 +58,7 @@ export const handler = async (event) => {
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
 
-  if (!MAPILLARY_TOKEN) return err('MAPILLARY_ACCESS_TOKEN not configured', 503)
+  if (!GOOGLE_KEY) return err('GOOGLE_MAPS_KEY not configured', 503)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
   if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
@@ -112,7 +68,7 @@ export const handler = async (event) => {
   const supabase = adminSupabase()
   const results  = []
 
-  for (const pointId of pointIds.slice(0, 5)) {
+  for (const pointId of pointIds.slice(0, 10)) {  // cap per call
     let pointStatus = 'failed'
     let errorMsg    = null
     let imageRows   = []
@@ -126,53 +82,59 @@ export const handler = async (event) => {
 
       if (!pt) { results.push({ pointId, status: 'not_found' }); continue }
 
-      const images = await getMapillaryImages(pt.lat, pt.lng)
-      if (!images.length) {
+      // Coverage check — also returns road heading for perpendicular shots
+      const pano = await getPanoInfo(pt.lat, pt.lng)
+      if (!pano) {
         await supabase.from('scan_points').update({ status: 'no_coverage', updated_at: new Date().toISOString() }).eq('id', pointId)
         results.push({ pointId, status: 'no_coverage' }); continue
       }
 
       await supabase.from('scan_points').update({ status: 'downloading', updated_at: new Date().toISOString() }).eq('id', pointId)
 
-      const selected = selectDirectionImages(images, pt.lat, pt.lng)
-      if (!selected.length) {
-        await supabase.from('scan_points').update({ status: 'no_coverage', updated_at: new Date().toISOString() }).eq('id', pointId)
-        results.push({ pointId, status: 'no_coverage' }); continue
-      }
+      // When the panorama is more than 8 m from the scan point, the scan point
+      // is off the road (on a lot / setback) — aim the camera directly from
+      // the pano toward the scan point so it faces the property.
+      // Otherwise the pano is on the road itself: shoot perpendicular to the
+      // travel direction to capture houses on both sides of the street.
+      // Always capture all 3 directions: toward property + both sides of road
+      const dist           = distMeters(pt.lat, pt.lng, pano.panoLat, pano.panoLng)
+      const towardProperty = dist > 8
+        ? bearingTo(pano.panoLat, pano.panoLng, pt.lat, pt.lng)
+        : pano.heading  // fallback: use road heading when pano is on the scan point
+      const directions = [
+        { label: 'F', heading: towardProperty },
+        { label: 'L', heading: (pano.heading + 90) % 360 },
+        { label: 'R', heading: (pano.heading - 90 + 360) % 360 },
+      ]
 
-      // Download + upload all directions in parallel to avoid sequential timeout
-      const dirResults = await Promise.allSettled(
-        selected.map(async ({ label, image }) => {
-          const thumbUrl = image.thumb_1024_url || image.thumb_256_url
-          if (!thumbUrl) throw new Error('No thumbnail URL available')
-
-          const buffer      = await downloadImage(thumbUrl)
-          const storagePath = `${projectId}/${pointId}/${label}.jpg`
+      imageRows = []
+      for (const dir of directions) {
+        try {
+          const buffer      = await downloadImage(pt.lat, pt.lng, dir.heading)
+          const storagePath = `${projectId}/${pointId}/${dir.label}.jpg`
 
           const { error: upErr } = await supabase.storage
             .from('street-view-images')
             .upload(storagePath, buffer, { contentType: 'image/jpeg', upsert: true })
 
-          if (upErr) throw new Error(`Upload failed: ${upErr.message}`)
+          if (upErr) { console.warn(`Upload failed ${dir.label}:`, upErr.message); continue }
 
           const { data: { publicUrl } } = supabase.storage
             .from('street-view-images')
             .getPublicUrl(storagePath)
 
-          return {
+          imageRows.push({
             scan_point_id: pointId,
-            direction:     label,
-            heading:       Math.round(image.compass_angle),
+            direction:     dir.label,
+            heading:       dir.heading,
             storage_path:  storagePath,
             storage_url:   publicUrl,
             size_bytes:    buffer.byteLength,
-          }
-        })
-      )
-
-      imageRows = dirResults
-        .filter(r => { if (r.status === 'rejected') console.warn(`Dir failed ${pointId}:`, r.reason?.message); return r.status === 'fulfilled' })
-        .map(r => r.value)
+          })
+        } catch (dirErr) {
+          console.warn(`Dir ${dir.label} failed for ${pointId}:`, dirErr.message)
+        }
+      }
 
       if (imageRows.length > 0) {
         await supabase.from('images').insert(imageRows)
@@ -190,15 +152,16 @@ export const handler = async (event) => {
       updated_at: new Date().toISOString(),
     }).eq('id', pointId)
 
-    // Mapillary is free — log count with $0 cost
+    // Log usage
     if (pointStatus === 'downloaded') {
+      const imgCount = imageRows.length || 1
       await supabase.from('usage_logs').insert({
-        user_id:  user.id,
-        service:  'street_view',
-        action:   'image_download',
-        count:    imageRows.length,
-        cost_usd: 0,
-        metadata: { projectId, pointId, provider: 'mapillary' },
+        user_id: user.id,
+        service: 'street_view',
+        action:  'image_download',
+        count:   imgCount,
+        cost_usd: imgCount * 0.007,
+        metadata: { projectId, pointId },
       })
     }
 
@@ -214,8 +177,8 @@ export const handler = async (event) => {
 
   await supabase.from('projects').update({
     completed_points: completed || 0,
-    status:           'collecting',
-    updated_at:       new Date().toISOString(),
+    status: 'collecting',
+    updated_at: new Date().toISOString(),
   }).eq('id', projectId)
 
   return ok({ results })

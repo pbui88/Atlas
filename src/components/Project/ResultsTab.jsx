@@ -5,7 +5,7 @@ import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
 
-const BATCH_SIZE = 4
+const BATCH_SIZE = 8
 const AI_BATCH   = 5
 
 const PHASE_LABEL = {
