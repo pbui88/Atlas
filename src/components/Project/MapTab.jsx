@@ -19,9 +19,10 @@ const MAP_STYLE = [
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
+  const SPACING = 30
+
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
-  const [spacing,        setSpacing]        = useState(project.point_spacing_meters || 50)
   const [preview,        setPreview]        = useState([])
   const [cost,           setCost]           = useState(null)
   const [generating,     setGenerating]     = useState(false)
@@ -149,27 +150,18 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     poly.setMap(null)
     setPolygon(geoJson)
     setDrawingMode(null)
-    const pts = generateGridPoints(geoJson, spacing)
+    const pts = generateGridPoints(geoJson, SPACING)
     setPreview(pts)
     setCost(estimateCost(pts.length, 1))
     fetchPropertyCount(geoJson)
-  }, [spacing, fetchPropertyCount])
-
-  const handleSpacingChange = (val) => {
-    setSpacing(val)
-    if (polygon) {
-      const pts = generateGridPoints(polygon, val)
-      setPreview(pts)
-      setCost(estimateCost(pts.length, 1))
-    }
-  }
+  }, [fetchPropertyCount])
 
   const handleGenerate = async () => {
     if (!polygon) return
     setGenerating(true)
     setError(null)
     try {
-      const result = await generatePoints(project.id, { geojson: polygon, spacingMeters: spacing })
+      const result = await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING })
       onPointsGenerated(result)
       setPreview([])
     } catch (err) {
@@ -403,20 +395,10 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* Point spacing */}
-          <div>
-            <label className="label">Point Spacing</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={20} max={200} step={10}
-                value={spacing}
-                onChange={e => handleSpacingChange(+e.target.value)}
-                className="flex-1 accent-brand-500"
-              />
-              <span className="text-sm font-mono text-slate-700 w-14 text-right">{spacing}m</span>
-            </div>
-            <p className="text-xs text-slate-600 mt-1">Smaller = more points, higher cost</p>
+          {/* Point spacing (fixed) */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">Point spacing</span>
+            <span className="text-xs font-semibold text-slate-700">30 m</span>
           </div>
 
           {/* Cost estimate */}
