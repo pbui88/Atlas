@@ -28,9 +28,9 @@ function angleDiff(a, b) {
   return d > 180 ? 360 - d : d
 }
 
-// Search Mapillary for images near a point. closeto uses lng,lat (GeoJSON order).
+// Search Mapillary for images near a point.
 async function getMapillaryImages(lat, lng, radius = 50) {
-  const url = `https://graph.mapillary.com/images?fields=id,geometry,thumb_1024_url,compass_angle,captured_at&closeto=${lng},${lat}&radius=${radius}&limit=20&access_token=${MAPILLARY_TOKEN}`
+  const url = `https://graph.mapillary.com/images?fields=id,geometry,thumb_1024_url,compass_angle,captured_at&lat=${lat}&lng=${lng}&radius=${radius}&limit=20&access_token=${MAPILLARY_TOKEN}`
   const res  = await fetch(url)
   const data = await res.json()
   if (data.error) throw new Error(data.error.message || 'Mapillary API error')
