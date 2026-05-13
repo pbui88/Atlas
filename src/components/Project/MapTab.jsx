@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { GoogleMap, DrawingManager, Polygon, Marker, Autocomplete } from '@react-google-maps/api'
+import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost } from '../../lib/geo'
 import { scoreColor } from '../../lib/geo'
@@ -29,11 +29,32 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [searchPin,   setSearchPin]   = useState(null)  // { lat, lng, address }
   const [showSV,      setShowSV]      = useState(false)
 
-  const mapRef          = useRef(null)
-  const drawingMgrRef   = useRef(null)
-  const autocompleteRef = useRef(null)
-  const svContainerRef  = useRef(null)
-  const svPanoRef       = useRef(null)
+  const mapRef         = useRef(null)
+  const drawingMgrRef  = useRef(null)
+  const searchInputRef = useRef(null)
+  const svContainerRef = useRef(null)
+  const svPanoRef      = useRef(null)
+
+  // Attach Google Places Autocomplete directly to the input element
+  useEffect(() => {
+    if (!isLoaded || !searchInputRef.current) return
+    const ac = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+      componentRestrictions: { country: 'us' },
+      fields: ['geometry', 'formatted_address'],
+    })
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace()
+      if (!place.geometry?.location) return
+      const lat = place.geometry.location.lat()
+      const lng = place.geometry.location.lng()
+      mapRef.current?.panTo({ lat, lng })
+      mapRef.current?.setZoom(15)
+      svPanoRef.current = null
+      setSearchPin({ lat, lng, address: place.formatted_address })
+      setShowSV(true)
+    })
+    return () => window.google.maps.event.clearInstanceListeners(ac)
+  }, [isLoaded])
 
   // Create / update the native Street View panorama imperatively
   useEffect(() => {
@@ -109,19 +130,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPolygon(null)
     setPreview([])
     setCost(null)
-  }
-
-  const onPlaceChanged = () => {
-    if (!autocompleteRef.current) return
-    const place = autocompleteRef.current.getPlace()
-    if (!place.geometry?.location) return
-    const lat = place.geometry.location.lat()
-    const lng = place.geometry.location.lng()
-    mapRef.current?.panTo({ lat, lng })
-    mapRef.current?.setZoom(15)
-    svPanoRef.current = null  // reset so useEffect recreates for new location
-    setSearchPin({ lat, lng, address: place.formatted_address })
-    setShowSV(true)
   }
 
   const closeSV = () => {
@@ -231,17 +239,12 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <Autocomplete
-                onLoad={ac => { autocompleteRef.current = ac }}
-                onPlaceChanged={onPlaceChanged}
-                options={{ componentRestrictions: { country: 'us' } }}
-              >
-                <input
-                  type="text"
-                  placeholder="Search city, state or ZIP…"
-                  className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none w-64"
-                />
-              </Autocomplete>
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search city, state or ZIP…"
+                className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none"
+              />
             </div>
           </div>
 
