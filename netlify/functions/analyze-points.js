@@ -59,8 +59,9 @@ async function callGemini(imageUrls) {
       }],
       generationConfig: {
         responseMimeType: 'application/json',
-        maxOutputTokens: 512,
+        maxOutputTokens: 1024,
         temperature: 0.1,
+        thinkingConfig: { thinkingBudget: 0 },  // disable thinking tokens to avoid truncation
       },
     }),
   })
@@ -68,10 +69,12 @@ async function callGemini(imageUrls) {
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || `Gemini ${res.status}`)
 
-  const text   = data.candidates?.[0]?.content?.parts?.[0]?.text
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
   if (!text) throw new Error('Empty Gemini response')
 
-  const parsed       = JSON.parse(text)
+  // Strip markdown code fences if present
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  const parsed  = JSON.parse(cleaned)
   const inputTokens  = data.usageMetadata?.promptTokenCount     || 0
   const outputTokens = data.usageMetadata?.candidatesTokenCount || 0
 
