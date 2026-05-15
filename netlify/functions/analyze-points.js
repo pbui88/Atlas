@@ -1,7 +1,8 @@
+import crypto from 'crypto'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 
 const GEMINI_KEY   = process.env.GEMINI_API_KEY
-const GEMINI_MODEL = 'gemini-2.5-flash'
+const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
 const CAP          = 8   // points analyzed in parallel per function call
 
@@ -71,11 +72,17 @@ async function callGemini(imageUrls) {
   return { result: parsed, inputTokens, outputTokens, costUsd }
 }
 
+// Combine all per-image hashes into a single cache key for the analysis call
+function buildCacheKey(hashes) {
+  const joined = [...hashes].sort().join('|')
+  return crypto.createHash('sha256').update(joined).digest('hex')
+}
+
 async function analyzePoint(pointId, projectId, userId, supabase) {
   try {
     const { data: images } = await supabase
       .from('images')
-      .select('storage_url, direction')
+      .select('storage_url, direction, image_hash')
       .eq('scan_point_id', pointId)
       .not('storage_url', 'is', null)
 
@@ -85,7 +92,46 @@ async function analyzePoint(pointId, projectId, userId, supabase) {
       .update({ status: 'analyzing', updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    const { result, inputTokens, outputTokens, costUsd } = await callGemini(images.map(i => i.storage_url))
+    // ── Cache lookup: same images + same model = same answer ─────────
+    const hashes   = images.map(i => i.image_hash).filter(Boolean)
+    const cacheKey = hashes.length === images.length ? buildCacheKey(hashes) : null
+
+    let result, inputTokens = 0, outputTokens = 0, costUsd = 0, cacheHit = false
+
+    if (cacheKey) {
+      const { data: cached } = await supabase
+        .from('analysis_cache')
+        .select('result, hit_count')
+        .eq('image_hash', cacheKey)
+        .eq('model', GEMINI_MODEL)
+        .maybeSingle()
+
+      if (cached?.result) {
+        result   = cached.result
+        cacheHit = true
+        await supabase.from('analysis_cache')
+          .update({ hit_count: (cached.hit_count || 0) + 1, last_used_at: new Date().toISOString() })
+          .eq('image_hash', cacheKey)
+      }
+    }
+
+    // ── Cache miss: call Gemini, then write through ──────────────────
+    if (!cacheHit) {
+      const out = await callGemini(images.map(i => i.storage_url))
+      result       = out.result
+      inputTokens  = out.inputTokens
+      outputTokens = out.outputTokens
+      costUsd      = out.costUsd
+
+      if (cacheKey) {
+        await supabase.from('analysis_cache').upsert({
+          image_hash:   cacheKey,
+          model:        GEMINI_MODEL,
+          result,
+          last_used_at: new Date().toISOString(),
+        }, { onConflict: 'image_hash' })
+      }
+    }
 
     await supabase.from('ai_analyses').upsert({
       scan_point_id:      pointId,
@@ -108,13 +154,13 @@ async function analyzePoint(pointId, projectId, userId, supabase) {
     await supabase.from('usage_logs').insert({
       user_id:  userId,
       service:  'gemini_vision',
-      action:   'analyze_point',
+      action:   cacheHit ? 'analyze_point_cached' : 'analyze_point',
       count:    1,
       cost_usd: costUsd,
-      metadata: { projectId, pointId, model: GEMINI_MODEL, inputTokens, outputTokens },
+      metadata: { projectId, pointId, model: GEMINI_MODEL, inputTokens, outputTokens, cacheHit },
     })
 
-    return { pointId, status: 'complete', score: result.overallScore }
+    return { pointId, status: 'complete', score: result.overallScore, cacheHit }
   } catch (e) {
     console.error(`Gemini analysis failed ${pointId}:`, e.message)
     await supabase.from('scan_points')

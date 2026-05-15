@@ -26,12 +26,15 @@ export function generateGridPoints(polygonGeoJson, spacingMeters = 50) {
 
 /**
  * Estimate API cost for a scan project.
+ * Accounts for Mapillary (free) hits, Google fallback, and Gemini cache hits.
  */
 export function estimateCost(pointCount, directionCount = 2) {
-  const images        = pointCount * directionCount
-  const streetView    = (images / 1000) * API_COSTS.streetViewPer1k
-  const geocoding     = (pointCount / 1000) * API_COSTS.geocodingPer1k
-  const ai            = pointCount * API_COSTS.aiPerPoint
+  const images       = pointCount * directionCount
+  const googleShare  = 1 - API_COSTS.mapillaryHitRate
+  const streetView   = (images / 1000) * API_COSTS.streetViewPer1k * googleShare
+  const geocoding    = (pointCount / 1000) * API_COSTS.geocodingPer1k
+  const aiShare      = 1 - API_COSTS.analysisCacheHitRate
+  const ai           = pointCount * API_COSTS.aiPerPoint * aiShare
   return {
     streetView: +streetView.toFixed(2),
     geocoding:  +geocoding.toFixed(2),

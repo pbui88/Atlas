@@ -466,8 +466,19 @@ export default function ResultsTab({ project, onProjectUpdate }) {
                 ) : (
                   <div className="p-4 space-y-3">
                     {selImages.filter(i => i.storage_url).map(img => (
-                      <div key={img.id} className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
+                      <div key={img.id} className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 relative">
                         <img src={img.storage_url} alt={img.direction} className="w-full object-cover" loading="lazy" />
+                        {img.image_source && (
+                          <span
+                            title={img.image_source === 'mapillary' ? 'Mapillary (free)' : 'Google Street View'}
+                            className={`absolute top-2 right-2 px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider
+                              ${img.image_source === 'mapillary'
+                                ? 'bg-emerald-500/90 text-white'
+                                : 'bg-blue-500/90 text-white'}`}
+                          >
+                            {img.image_source === 'mapillary' ? 'M' : 'G'}
+                          </span>
+                        )}
                         <div className="px-3 py-1.5">
                           <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
                             {img.direction === 'F' ? 'Facing' : img.direction}

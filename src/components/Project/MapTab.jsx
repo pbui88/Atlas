@@ -19,7 +19,7 @@ const MAP_STYLE = [
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const SPACING = 30
+  const SPACING = 50
 
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
@@ -318,7 +318,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Point spacing (fixed) */}
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-500">Point spacing</span>
-            <span className="text-xs font-semibold text-slate-700">30 m</span>
+            <span className="text-xs font-semibold text-slate-700">50 m</span>
           </div>
 
           {/* Cost estimate */}

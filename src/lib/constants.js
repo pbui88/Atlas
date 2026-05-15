@@ -62,9 +62,13 @@ export const DIRECTIONS = [
   { label: 'W', heading: 270 },
 ]
 
-// $7 per 1,000 Street View images; geocoding free (Positionstack); ~$0.001 per AI call (Gemini 2.5-flash)
+// Image cost depends on provider: Mapillary is free, Google Street View is $7/1k.
+// We try Mapillary first; assume ~70% hit rate in urban areas → blended ~$2.10/1k.
+// AI cost is ~$0.00025/point on Gemini 2.5-flash-lite, further reduced by hash cache.
 export const API_COSTS = {
-  streetViewPer1k: 7.00,
-  geocodingPer1k:  0,
-  aiPerPoint:      0.001,
+  streetViewPer1k:     7.00,   // worst case: all Google
+  mapillaryHitRate:    0.70,   // share of points served free by Mapillary
+  geocodingPer1k:      0,
+  aiPerPoint:          0.00025,
+  analysisCacheHitRate: 0.20,  // share of analyses served from hash cache
 }
