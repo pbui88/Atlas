@@ -8,38 +8,55 @@ function looksLikeLatLng(str) {
   return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test((str || '').trim())
 }
 
-// Returns a property-level address (must have a house number) or null.
-// Street-only matches ("North Tom Green Avenue") and raw lat/lng strings are
-// rejected so the caller can retry the point instead of locking in a bad value.
-async function reverseGeocode(lat, lng) {
-  const url = `http://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&limit=10&output=json`
-  const res  = await fetch(url)
-  const data = await res.json()
-
-  if (data.error) throw new Error(data.error.message || `Positionstack error (${data.error.code})`)
-
-  const results = data.data || []
-  if (!results.length) return null
-
-  // Prefer property-level: has a numeric house number, or PositionStack
-  // labels the type 'address'. Reject street-only / locality-only hits.
+// Attempts to extract a property-level address from a PositionStack response.
+// Returns a valid address string, or null if none found.
+function extractAddress(results) {
   const property = results.find(r => (r.number != null && String(r.number).trim() !== '') || r.type === 'address')
   if (!property) return null
 
   const parts = [property.name, property.locality, property.region_code, property.postal_code].filter(Boolean)
   const address = parts.length > 0 ? parts.join(', ') : property.label || null
 
-  // Reject if the result is just a coordinate string
-  if (!address || looksLikeLatLng(address)) {
-    console.warn(`[geocode] coordinate-only result at ${lat},${lng}: "${address}" — rejecting`)
-    return null
-  }
-
+  if (!address || looksLikeLatLng(address)) return null
   return address
 }
 
+// Returns a property-level address or null.
+// Retries once with a wider candidate pool if the first pass yields nothing.
+async function reverseGeocode(lat, lng) {
+  const base = `http://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&output=json`
+
+  // First attempt — tight limit
+  const res1  = await fetch(`${base}&limit=10`)
+  const data1 = await res1.json()
+  if (data1.error) throw new Error(data1.error.message || `Positionstack error (${data1.error.code})`)
+
+  const address1 = extractAddress(data1.data || [])
+  if (address1) return address1
+
+  // Retry with wider candidate pool to find a property-level hit
+  console.warn(`[geocode] first pass found no property address at ${lat},${lng} — retrying with limit=25`)
+  const res2  = await fetch(`${base}&limit=25`)
+  const data2 = await res2.json()
+  if (data2.error) throw new Error(data2.error.message || `Positionstack error (${data2.error.code})`)
+
+  const address2 = extractAddress(data2.data || [])
+  if (!address2) {
+    console.warn(`[geocode] retry also failed at ${lat},${lng} — no property address found`)
+  }
+  return address2
+}
+
 async function geocodePoint(pt, supabase) {
-  if (pt.address) return { pointId: pt.id, status: 'skipped' }
+  // Skip only if address exists AND is not a raw coordinate string
+  if (pt.address && !looksLikeLatLng(pt.address)) {
+    return { pointId: pt.id, status: 'skipped' }
+  }
+
+  if (pt.address) {
+    console.warn(`[geocode] re-geocoding ${pt.id} — existing address is a coordinate: "${pt.address}"`)
+  }
+
   try {
     const address = await reverseGeocode(pt.lat, pt.lng)
     if (address) {
@@ -70,22 +87,38 @@ export const handler = async (event) => {
   }
 
   const supabase = adminSupabase()
-  const ids      = pointIds.slice(0, CAP)
 
-  // Batch-fetch all point data
-  const { data: pts } = await supabase
+  // Fetch the requested points
+  const { data: requested } = await supabase
     .from('scan_points')
     .select('id, lat, lng, address')
-    .in('id', ids)
+    .in('id', pointIds.slice(0, CAP))
 
-  if (!pts?.length) return ok({ results: [] })
+  // Also find any points in this project that have a lat/lng-looking address
+  // so they get cleaned up even if not in the current batch
+  const { data: badAddressed } = await supabase
+    .from('scan_points')
+    .select('id, lat, lng, address')
+    .eq('project_id', projectId)
+    .not('address', 'is', null)
 
-  // Process all points in parallel
+  const latLngPts = (badAddressed || []).filter(p => looksLikeLatLng(p.address))
+
+  // Merge, deduplicate by id, cap total
+  const seen = new Set()
+  const pts  = []
+  for (const pt of [...(requested || []), ...latLngPts]) {
+    if (!seen.has(pt.id)) { seen.add(pt.id); pts.push(pt) }
+    if (pts.length >= CAP) break
+  }
+
+  if (!pts.length) return ok({ results: [] })
+
   const settled = await Promise.allSettled(
     pts.map(pt => geocodePoint(pt, supabase))
   )
 
-  const results      = settled.map(s => s.status === 'fulfilled' ? s.value : { status: 'error' })
+  const results       = settled.map(s => s.status === 'fulfilled' ? s.value : { status: 'error' })
   const geocodedCount = results.filter(r => r.status === 'geocoded').length
 
   if (geocodedCount > 0) {
