@@ -9,7 +9,10 @@ const MAPILLARY_RADIUS_M = 50 // search radius for Mapillary imagery
 // ── Mapillary (primary, free) ────────────────────────────────────────────────
 
 async function fetchMapillaryImage(lat, lng) {
-  if (!MAPILLARY_KEY) return null
+  if (!MAPILLARY_KEY) {
+    console.warn('[mapillary] MAPILLARY_ACCESS_TOKEN not set — skipping')
+    return null
+  }
 
   // Build a small bbox (~50m) around the point
   const d = MAPILLARY_RADIUS_M / 111320
@@ -19,9 +22,16 @@ async function fetchMapillaryImage(lat, lng) {
   const metaRes = await fetch(metaUrl, {
     headers: { Authorization: `OAuth ${MAPILLARY_KEY}` },
   })
-  if (!metaRes.ok) return null
+  if (!metaRes.ok) {
+    const body = await metaRes.text().catch(() => '')
+    console.warn(`[mapillary] meta ${metaRes.status} at ${lat},${lng}: ${body.slice(0, 200)}`)
+    return null
+  }
   const meta = await metaRes.json()
-  if (!meta.data?.length) return null
+  if (!meta.data?.length) {
+    console.info(`[mapillary] no images near ${lat},${lng}`)
+    return null
+  }
 
   // Pick the closest image to our target point
   const best = meta.data
@@ -81,9 +91,17 @@ async function processPoint(pt, projectId, userId, supabase) {
   try {
     // 1. Try Mapillary first, fall back to Google
     let img = null
-    try { img = await fetchMapillaryImage(lat, lng) } catch { /* fall through */ }
+    try {
+      img = await fetchMapillaryImage(lat, lng)
+    } catch (e) {
+      console.warn(`[mapillary] threw at ${lat},${lng}: ${e.message}`)
+    }
     if (!img) {
-      try { img = await fetchGoogleImage(lat, lng) } catch { /* fall through */ }
+      try {
+        img = await fetchGoogleImage(lat, lng)
+      } catch (e) {
+        console.warn(`[google] threw at ${lat},${lng}: ${e.message}`)
+      }
     }
 
     if (!img) {
