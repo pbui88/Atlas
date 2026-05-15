@@ -77,14 +77,17 @@ export default function ScanTab({ project, onProjectUpdate }) {
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
     // Phase 2: reverse geocode
+    // Pick up ANY point missing an address (any status), so retries can fill
+    // gaps left from prior runs where the point already progressed.
     setPhase('geocoding')
     try {
       const { data: dloaded } = await supabase
         .from('scan_points')
         .select('id')
         .eq('project_id', project.id)
-        .eq('status', 'downloaded')
         .is('address', null)
+        .not('lat', 'is', null)
+        .not('lng', 'is', null)
 
       if (dloaded?.length) {
         const batches = chunkArray(dloaded.map(p => p.id), 20)

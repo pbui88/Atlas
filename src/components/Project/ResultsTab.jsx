@@ -173,10 +173,13 @@ export default function ResultsTab({ project, onProjectUpdate }) {
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
     // ── Phase 2: Reverse geocode addresses ─────────────────────
+    // Pick up ANY point missing an address (any status), so retries fill
+    // in gaps left from previous runs where the point already progressed.
     setPhase('geocoding')
     try {
       const { data: dloaded } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).eq('status', 'downloaded').is('address', null)
+        .eq('project_id', project.id).is('address', null)
+        .not('lat', 'is', null).not('lng', 'is', null)
       if (dloaded?.length) {
         const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
         for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
