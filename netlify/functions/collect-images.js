@@ -5,7 +5,7 @@ const GOOGLE_KEY     = process.env.GOOGLE_MAPS_KEY
 const MAPILLARY_KEY  = process.env.MAPILLARY_ACCESS_TOKEN
 const CAP            = 20    // points processed in parallel per function call
 const MAPILLARY_RADIUS_M    = 50  // search radius for Mapillary imagery
-const PERPENDICULAR_TOL_DEG = 45  // accept Mapillary image if within this of perpendicular
+const PERPENDICULAR_TOL_DEG = 65  // accept Mapillary image if within this of perpendicular
 
 // Smallest angle between two compass bearings (0-360)
 function angularDiff(a, b) {
