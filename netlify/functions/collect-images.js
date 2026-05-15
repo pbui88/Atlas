@@ -17,7 +17,7 @@ function estimateRoadBearing(angles) {
   return sorted[Math.floor(sorted.length / 2)]
 }
 
-// ── Google Street View (primary) ─────────────────────────────────────────────
+// ── Google Street View (fallback, paid) ──────────────────────────────────────
 
 async function fetchGoogleImage(lat, lng, roadBearing = null) {
   if (!GOOGLE_KEY) return { image: null, roadBearing: null }
@@ -47,7 +47,7 @@ async function fetchGoogleImage(lat, lng, roadBearing = null) {
   }
 }
 
-// ── Mapillary (fallback, free) ────────────────────────────────────────────────
+// ── Mapillary (primary, free) ─────────────────────────────────────────────────
 
 async function fetchMapillaryImage(lat, lng) {
   if (!MAPILLARY_KEY) {
@@ -121,24 +121,24 @@ async function processPoint(pt, projectId, userId, supabase) {
   const { id: pointId, lat, lng } = pt
 
   try {
-    // 1. Google Street View (primary)
+    // 1. Mapillary (primary, free)
     let img = null
     let roadBearing = null
     try {
-      const gsvRes = await fetchGoogleImage(lat, lng)
-      img         = gsvRes.image
-      roadBearing = gsvRes.roadBearing
+      const mapRes = await fetchMapillaryImage(lat, lng)
+      img         = mapRes.image
+      roadBearing = mapRes.roadBearing
     } catch (e) {
-      console.warn(`[google] threw at ${lat},${lng}: ${e.message}`)
+      console.warn(`[mapillary] threw at ${lat},${lng}: ${e.message}`)
     }
 
-    // 2. Mapillary (fallback)
+    // 2. Google Street View (fallback)
     if (!img) {
       try {
-        const mapRes = await fetchMapillaryImage(lat, lng)
-        img = mapRes.image
+        const gsvRes = await fetchGoogleImage(lat, lng, roadBearing)
+        img = gsvRes.image
       } catch (e) {
-        console.warn(`[mapillary] threw at ${lat},${lng}: ${e.message}`)
+        console.warn(`[google] threw at ${lat},${lng}: ${e.message}`)
       }
     }
 
