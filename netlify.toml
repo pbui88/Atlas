@@ -11,6 +11,9 @@
 [functions]
   node_bundler = "esbuild"
 
+[functions."collect-images"]
+  runtime = "python3.9"
+
 
 [[headers]]
   for = "/*"

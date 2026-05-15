@@ -338,7 +338,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Street View ({ptCount} imgs)</span>
-                  <span className="text-slate-700">${cost.streetView}</span>
+                  <span className="text-emerald-600">Free</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Geocoding</span>
@@ -355,7 +355,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
               </div>
               <p className="text-xs text-slate-400 pt-1">
-                ≤ {ptCount.toLocaleString()} pts × 1 img — road points may be fewer
+                Images via Mapillary + streetlevel (no API key needed)
               </p>
             </div>
           )}
