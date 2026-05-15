@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { collectImages, analyzePoints, geocodePoints, exportProject } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
@@ -52,17 +52,23 @@ function ProgressBar({ label, value, max, color = 'bg-brand-600' }) {
   )
 }
 
-function PropertyRow({ point, isSelected, onClick }) {
+function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
   const score   = point.ai_analyses?.[0]?.overall_score
   const signals = point.ai_analyses?.[0]?.signals || []
   return (
     <div
-      onClick={onClick}
-      className={`px-4 py-3 cursor-pointer border-b border-slate-100 transition-colors ${
+      className={`px-3 py-3 border-b border-slate-100 transition-colors flex items-start gap-2 ${
         isSelected ? 'bg-brand-50 border-l-2 border-l-brand-500' : 'hover:bg-slate-50'
       }`}
     >
-      <div className="flex items-start gap-3">
+      <input
+        type="checkbox"
+        checked={isChecked}
+        onChange={e => { e.stopPropagation(); onCheck(point.id) }}
+        onClick={e => e.stopPropagation()}
+        className="mt-1 shrink-0 accent-brand-600 cursor-pointer"
+      />
+      <div className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer" onClick={onClick}>
         <span className={`text-base font-bold tabular-nums shrink-0 leading-tight mt-0.5 ${scoreTextColor(score)}`}>
           {scoreLabel(score)}
         </span>
@@ -99,6 +105,8 @@ export default function ResultsTab({ project, onProjectUpdate }) {
   const [exporting,  setExporting]  = useState(false)
   const [selImages,  setSelImages]  = useState([])
   const [imgLoading, setImgLoading] = useState(false)
+  const [checkedIds, setCheckedIds] = useState(new Set())
+  const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
   const [stats,    setStats]   = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
@@ -224,7 +232,14 @@ export default function ResultsTab({ project, onProjectUpdate }) {
 
   const pause = () => { abortRef.current = true }
 
-  // ── Filter / sort ──────────────────────────────────────────
+  // ── Checkbox selection ─────────────────────────────────────
+  const toggleCheck = (id) => setCheckedIds(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+
+  // Filter / sort ──────────────────────────────────────────
   const toggleSignal = (id) => setSigFilter(f => f.includes(id) ? f.filter(s => s !== id) : [...f, id])
 
   const filtered = points.filter(pt => {
@@ -241,8 +256,86 @@ export default function ResultsTab({ project, onProjectUpdate }) {
     (b.ai_analyses?.[0]?.overall_score ?? 0) - (a.ai_analyses?.[0]?.overall_score ?? 0)
   )
 
+  const allChecked  = sorted.length > 0 && sorted.every(pt => checkedIds.has(pt.id))
+  const someChecked = sorted.some(pt => checkedIds.has(pt.id))
+  const checkedCount = sorted.filter(pt => checkedIds.has(pt.id)).length
+
+  // Sync indeterminate state on the select-all checkbox
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someChecked && !allChecked
+    }
+  }, [someChecked, allChecked])
+
+  const toggleAll = () => {
+    if (allChecked) {
+      setCheckedIds(new Set())
+    } else {
+      setCheckedIds(new Set(sorted.map(pt => pt.id)))
+    }
+  }
+
+  // Build export payload from local data (used for selected-only exports)
+  const buildLocalExport = (pts, format) => {
+    if (format === 'CSV') {
+      const header = 'id,lat,lng,address,distress_score,confidence,signals,notes'
+      const rows = pts.map(pt => {
+        const a = pt.ai_analyses?.[0] || {}
+        return [
+          pt.id, pt.lat, pt.lng,
+          `"${(pt.address || '').replace(/"/g, '""')}"`,
+          a.overall_score ?? '', a.confidence ?? '',
+          `"${(a.signals || []).join('; ')}"`,
+          `"${(a.notes || '').replace(/"/g, '""')}"`,
+        ].join(',')
+      })
+      return { data: [header, ...rows].join('\n'), type: 'text/csv', ext: 'csv' }
+    }
+    if (format === 'JSON') {
+      const data = pts.map(pt => ({
+        id: pt.id, lat: pt.lat, lng: pt.lng, address: pt.address,
+        distressScore: pt.ai_analyses?.[0]?.overall_score,
+        confidence:    pt.ai_analyses?.[0]?.confidence,
+        signals:       pt.ai_analyses?.[0]?.signals || [],
+        notes:         pt.ai_analyses?.[0]?.notes,
+      }))
+      return { data: JSON.stringify(data, null, 2), type: 'application/json', ext: 'json' }
+    }
+    const geojson = {
+      type: 'FeatureCollection',
+      features: pts.map(pt => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [pt.lng, pt.lat] },
+        properties: {
+          id: pt.id, address: pt.address,
+          distressScore: pt.ai_analyses?.[0]?.overall_score,
+          confidence:    pt.ai_analyses?.[0]?.confidence,
+          signals:       pt.ai_analyses?.[0]?.signals || [],
+          notes:         pt.ai_analyses?.[0]?.notes,
+        },
+      })),
+    }
+    return { data: JSON.stringify(geojson, null, 2), type: 'application/json', ext: 'json' }
+  }
+
   // ── Export ─────────────────────────────────────────────────
   const handleExport = async (format) => {
+    const selectedPts = checkedCount > 0 ? sorted.filter(pt => checkedIds.has(pt.id)) : null
+
+    // Client-side export for selected rows
+    if (selectedPts) {
+      const { data, type, ext } = buildLocalExport(selectedPts, format)
+      const blob = new Blob([data], { type })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${project.name.replace(/\s+/g, '_')}_${checkedCount}_selected.${format === 'CSV' ? 'csv' : 'json'}`
+      a.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    // Server-side export for all filtered results
     setExporting(true)
     try {
       const result = await exportProject(project.id, format, {
@@ -356,11 +449,24 @@ export default function ResultsTab({ project, onProjectUpdate }) {
           </div>
         )}
 
-        {/* Count + refresh */}
-        <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            {resLoading ? 'Loading…' : `${sorted.length} properties`}
-            {hasFilters && !resLoading && points.length !== sorted.length && (
+        {/* Count + select-all + refresh */}
+        <div className="px-3 py-2 border-b border-slate-200 flex items-center gap-2">
+          {sorted.length > 0 && (
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allChecked}
+              onChange={toggleAll}
+              className="shrink-0 accent-brand-600 cursor-pointer"
+              title={allChecked ? 'Deselect all' : 'Select all'}
+            />
+          )}
+          <span className="text-xs text-slate-500 flex-1">
+            {resLoading ? 'Loading…' : checkedCount > 0
+              ? <span className="font-medium text-brand-600">{checkedCount} selected</span>
+              : `${sorted.length} properties`
+            }
+            {!resLoading && checkedCount === 0 && hasFilters && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
             )}
           </span>
@@ -397,24 +503,40 @@ export default function ResultsTab({ project, onProjectUpdate }) {
             </div>
           ) : (
             sorted.map(pt => (
-              <PropertyRow key={pt.id} point={pt} isSelected={selected?.id === pt.id}
-                onClick={() => setSelected(prev => prev?.id === pt.id ? null : pt)} />
+              <PropertyRow
+                key={pt.id}
+                point={pt}
+                isSelected={selected?.id === pt.id}
+                isChecked={checkedIds.has(pt.id)}
+                onCheck={toggleCheck}
+                onClick={() => setSelected(prev => prev?.id === pt.id ? null : pt)}
+              />
             ))
           )}
         </div>
 
         {/* Export */}
         <div className="p-4 border-t border-slate-200">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">Export</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Export</p>
+            {checkedCount > 0 && (
+              <span className="text-[10px] text-brand-600 font-medium">{checkedCount} selected</span>
+            )}
+          </div>
           <div className="flex gap-2">
             {exporting ? (
               <span className="text-xs text-slate-400">Exporting…</span>
             ) : (
               ['CSV', 'JSON', 'GEOJSON'].map(fmt => (
-                <button key={fmt} onClick={() => handleExport(fmt)} className="flex-1 btn-outline py-1.5 text-xs">{fmt}</button>
+                <button key={fmt} onClick={() => handleExport(fmt)} className="flex-1 btn-outline py-1.5 text-xs">
+                  {fmt}
+                </button>
               ))
             )}
           </div>
+          {checkedCount === 0 && sorted.length > 0 && (
+            <p className="text-[10px] text-slate-400 mt-1.5">Check rows to export a subset</p>
+          )}
         </div>
       </div>
 
