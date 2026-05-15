@@ -5,15 +5,47 @@ import { generateGridPoints, estimateCost } from '../../lib/geo'
 import { scoreColor } from '../../lib/geo'
 
 const MAP_STYLE = [
-  { elementType: 'geometry',           stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.fill',   stylers: [{ color: '#8892a4' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
-  { featureType: 'road',               elementType: 'geometry',         stylers: [{ color: '#2d2d44' }] },
-  { featureType: 'road',               elementType: 'labels.text.fill', stylers: [{ color: '#8892a4' }] },
-  { featureType: 'water',              elementType: 'geometry',         stylers: [{ color: '#0f1a2e' }] },
-  { featureType: 'poi',                stylers: [{ visibility: 'off' }] },
-  { featureType: 'administrative',     elementType: 'geometry',         stylers: [{ color: '#314158' }] },
-  { featureType: 'transit',            stylers: [{ visibility: 'off' }] },
+  // Base
+  { elementType: 'geometry',                                                   stylers: [{ color: '#f8f9fa' }] },
+  { elementType: 'labels.text.fill',                                           stylers: [{ color: '#3c4043' }] },
+  { elementType: 'labels.text.stroke',                                         stylers: [{ color: '#ffffff' }, { weight: 2 }] },
+
+  // Land
+  { featureType: 'landscape',           elementType: 'geometry',               stylers: [{ color: '#f1f3f4' }] },
+  { featureType: 'landscape.man_made',  elementType: 'geometry',               stylers: [{ color: '#e8eaed' }] },
+
+  // Parks & nature
+  { featureType: 'poi.park',            elementType: 'geometry',               stylers: [{ color: '#d5e9c9' }] },
+  { featureType: 'poi.park',            elementType: 'labels.text.fill',       stylers: [{ color: '#4a7c59' }] },
+  { featureType: 'poi',                 elementType: 'labels',                 stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.business',                                               stylers: [{ visibility: 'off' }] },
+
+  // Water
+  { featureType: 'water',               elementType: 'geometry',               stylers: [{ color: '#aecbfa' }] },
+  { featureType: 'water',               elementType: 'labels.text.fill',       stylers: [{ color: '#4a90d9' }] },
+
+  // Highways
+  { featureType: 'road.highway',        elementType: 'geometry.fill',          stylers: [{ color: '#f6b93b' }] },
+  { featureType: 'road.highway',        elementType: 'geometry.stroke',        stylers: [{ color: '#e08e10' }, { weight: 0.8 }] },
+  { featureType: 'road.highway',        elementType: 'labels.text.fill',       stylers: [{ color: '#5c3a00' }] },
+
+  // Arterial roads
+  { featureType: 'road.arterial',       elementType: 'geometry.fill',          stylers: [{ color: '#ffffff' }] },
+  { featureType: 'road.arterial',       elementType: 'geometry.stroke',        stylers: [{ color: '#d0d4db' }, { weight: 0.6 }] },
+  { featureType: 'road.arterial',       elementType: 'labels.text.fill',       stylers: [{ color: '#5a5f66' }] },
+
+  // Local roads
+  { featureType: 'road.local',          elementType: 'geometry.fill',          stylers: [{ color: '#ffffff' }] },
+  { featureType: 'road.local',          elementType: 'geometry.stroke',        stylers: [{ color: '#e0e3e8' }, { weight: 0.5 }] },
+  { featureType: 'road.local',          elementType: 'labels.text.fill',       stylers: [{ color: '#7a7f88' }] },
+
+  // Administrative boundaries
+  { featureType: 'administrative',      elementType: 'geometry.stroke',        stylers: [{ color: '#b0b8c4' }, { weight: 1 }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill',   stylers: [{ color: '#3c4043' }] },
+  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#6b7280' }] },
+
+  // Transit — hide clutter
+  { featureType: 'transit',                                                    stylers: [{ visibility: 'off' }] },
 ]
 
 const US_CENTER = { lat: 39.5, lng: -98.35 }
