@@ -21,7 +21,8 @@ export const handler = async (event) => {
     .single()
   if (!project) return err('Project not found', 404)
 
-  // Fetch all points that have been analyzed (any status with an ai_analyses record)
+  // Fetch all points with their analysis.
+  // ai_analyses has UNIQUE on scan_point_id so Supabase returns it as an object, not array.
   const { data: points, error: fetchErr } = await supabase
     .from('scan_points')
     .select('id, lat, lng, address, status, ai_analyses(overall_score, confidence, signals, notes)')
@@ -29,16 +30,17 @@ export const handler = async (event) => {
 
   if (fetchErr) return err(fetchErr.message)
 
-  // Only export points that have an analysis result
-  const analyzed = (points || []).filter(pt => pt.ai_analyses?.length > 0)
+  // Only export points that have an analysis result (ai_analyses is an object, not array)
+  const analyzed = (points || []).filter(pt => pt.ai_analyses != null)
   if (!analyzed.length) return err('No analyzed points found — run AI analysis first')
 
   const minScore = filters.minScore ?? 0
   const filtered = analyzed.filter(pt => {
-    const score = pt.ai_analyses[0].overall_score ?? 0
+    const a = pt.ai_analyses
+    const score = a.overall_score ?? 0
     if (score < minScore) return false
     if (filters.signals?.length) {
-      const sigs = pt.ai_analyses[0].signals || []
+      const sigs = a.signals || []
       if (!filters.signals.some(s => sigs.includes(s))) return false
     }
     return true
@@ -49,7 +51,7 @@ export const handler = async (event) => {
   if (format === 'CSV') {
     const header = 'id,lat,lng,address,distress_score,confidence,signals,notes'
     const rows = filtered.map(pt => {
-      const a = pt.ai_analyses?.[0] || {}
+      const a = pt.ai_analyses
       return [
         pt.id,
         pt.lat,
@@ -70,10 +72,10 @@ export const handler = async (event) => {
       lat:           pt.lat,
       lng:           pt.lng,
       address:       pt.address,
-      distressScore: pt.ai_analyses?.[0]?.overall_score,
-      confidence:    pt.ai_analyses?.[0]?.confidence,
-      signals:       pt.ai_analyses?.[0]?.signals || [],
-      notes:         pt.ai_analyses?.[0]?.notes,
+      distressScore: pt.ai_analyses.overall_score,
+      confidence:    pt.ai_analyses.confidence,
+      signals:       pt.ai_analyses.signals || [],
+      notes:         pt.ai_analyses.notes,
     }))
     return ok({ data, count: data.length, format: 'JSON' })
   }
@@ -87,10 +89,10 @@ export const handler = async (event) => {
       properties: {
         id:            pt.id,
         address:       pt.address,
-        distressScore: pt.ai_analyses?.[0]?.overall_score,
-        confidence:    pt.ai_analyses?.[0]?.confidence,
-        signals:       pt.ai_analyses?.[0]?.signals || [],
-        notes:         pt.ai_analyses?.[0]?.notes,
+        distressScore: pt.ai_analyses.overall_score,
+        confidence:    pt.ai_analyses.confidence,
+        signals:       pt.ai_analyses.signals || [],
+        notes:         pt.ai_analyses.notes,
       },
     })),
   }
