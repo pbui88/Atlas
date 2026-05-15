@@ -96,8 +96,18 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setDrawingMode(null)
     const pts = generateGridPoints(geoJson, SPACING)
     setPreview(pts)
-    setCost(estimateCost(pts.length, 1))
   }, [])
+
+  // Keep cost in sync with whatever polygon/points are currently shown.
+  // Recalculates on polygon load (returning project), preview generation,
+  // and after points are generated server-side.
+  useEffect(() => {
+    if (!polygon) { setCost(null); return }
+    const count = scanPoints?.length > 0
+      ? scanPoints.length
+      : (preview.length || generateGridPoints(polygon, SPACING).length)
+    setCost(estimateCost(count, 1))
+  }, [polygon, preview, scanPoints])
 
   const handleGenerate = async () => {
     if (!polygon) return
