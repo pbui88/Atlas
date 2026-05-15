@@ -3,9 +3,14 @@ import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.j
 const POSITIONSTACK_KEY = process.env.POSITIONSTACK_API_KEY
 const CAP               = 50   // points geocoded in parallel per function call
 
+// Rejects strings that look like raw coordinates, e.g. "37.123, -122.456"
+function looksLikeLatLng(str) {
+  return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test((str || '').trim())
+}
+
 // Returns a property-level address (must have a house number) or null.
-// Street-only matches ("North Tom Green Avenue") are rejected so the caller
-// can retry the point on the next scan run instead of locking in a bad value.
+// Street-only matches ("North Tom Green Avenue") and raw lat/lng strings are
+// rejected so the caller can retry the point instead of locking in a bad value.
 async function reverseGeocode(lat, lng) {
   const url = `http://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&limit=10&output=json`
   const res  = await fetch(url)
@@ -22,7 +27,15 @@ async function reverseGeocode(lat, lng) {
   if (!property) return null
 
   const parts = [property.name, property.locality, property.region_code, property.postal_code].filter(Boolean)
-  return parts.length > 0 ? parts.join(', ') : property.label || null
+  const address = parts.length > 0 ? parts.join(', ') : property.label || null
+
+  // Reject if the result is just a coordinate string
+  if (!address || looksLikeLatLng(address)) {
+    console.warn(`[geocode] coordinate-only result at ${lat},${lng}: "${address}" — rejecting`)
+    return null
+  }
+
+  return address
 }
 
 async function geocodePoint(pt, supabase) {
