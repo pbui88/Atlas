@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { getUserUsage } from './utils/usage.js'
 
 const GOOGLE_KEY     = process.env.GOOGLE_MAPS_KEY
 const MAPILLARY_KEY  = process.env.MAPILLARY_ACCESS_TOKEN
@@ -17,34 +18,23 @@ function estimateRoadBearing(angles) {
   return sorted[Math.floor(sorted.length / 2)]
 }
 
-// ── Google Street View (fallback, paid) ──────────────────────────────────────
+// ── Google Street View ───────────────────────────────────────────────────────
 
-async function fetchGoogleImage(lat, lng, roadBearing = null) {
-  if (!GOOGLE_KEY) return { image: null, roadBearing: null }
+async function fetchGoogleMetadata(lat, lng) {
+  if (!GOOGLE_KEY) return null
+  const res  = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`)
+  const meta = await res.json()
+  if (meta.status !== 'OK') return null
+  return { panoId: meta.pano_id || null, roadHeading: meta.heading ?? 0 }
+}
 
-  const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
-  const metaRes = await fetch(metaUrl)
-  const meta    = await metaRes.json()
-  if (meta.status !== 'OK') return { image: null, roadBearing: null }
-
-  const baseHeading = roadBearing != null ? roadBearing : (meta.heading ?? 0)
-  const heading     = (baseHeading + 90) % 360
-
-  const imgUrl = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${GOOGLE_KEY}`
-  const imgRes = await fetch(imgUrl)
-  if (!imgRes.ok) return { image: null, roadBearing: null }
-  const ct = imgRes.headers.get('content-type') || ''
-  if (!ct.includes('image')) return { image: null, roadBearing: null }
-
-  return {
-    image: {
-      buffer:  await imgRes.arrayBuffer(),
-      heading,
-      source:  'google',
-      panoId:  meta.pano_id || null,
-    },
-    roadBearing: meta.heading ?? null,
-  }
+async function downloadGoogleImage(lat, lng, heading) {
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${GOOGLE_KEY}`
+  const res = await fetch(url)
+  if (!res.ok) return null
+  const ct = res.headers.get('content-type') || ''
+  if (!ct.includes('image')) return null
+  return res.arrayBuffer()
 }
 
 // ── Mapillary (primary, free) ─────────────────────────────────────────────────
@@ -117,32 +107,96 @@ async function fetchMapillaryImage(lat, lng) {
 
 // ── Per-point pipeline ───────────────────────────────────────────────────────
 
+// Look up a previously stored image by panorama ID (shared across all projects/users)
+async function getCachedImage(panoId, source, supabase) {
+  if (!panoId) return null
+  const { data } = await supabase
+    .from('images')
+    .select('storage_url, storage_path, image_hash, size_bytes, heading')
+    .eq('panorama_id', panoId)
+    .eq('image_source', source)
+    .limit(1)
+    .maybeSingle()
+  return data || null
+}
+
 async function processPoint(pt, projectId, userId, supabase) {
   const { id: pointId, lat, lng } = pt
 
   try {
-    // 1. Mapillary (primary, free)
-    let img = null
+    let imageRow   = null   // final fields to insert into images table
+    let costUsd    = 0
+    let cacheHit   = false
+    let imgSource  = null
+
+    // ── 1. Google Street View (primary) ──────────────────────────────────────
     let roadBearing = null
     try {
-      const mapRes = await fetchMapillaryImage(lat, lng)
-      img         = mapRes.image
-      roadBearing = mapRes.roadBearing
+      const meta = await fetchGoogleMetadata(lat, lng)  // $0.007
+      if (meta) {
+        roadBearing = meta.roadHeading
+        const heading = (meta.roadHeading + 90) % 360
+
+        // Check shared pano cache — skips the $0.007 image download on hit
+        const cached = meta.panoId ? await getCachedImage(meta.panoId, 'google', supabase) : null
+
+        if (cached) {
+          imageRow  = { ...cached, panorama_id: meta.panoId, image_source: 'google' }
+          costUsd   = 0.007   // metadata only
+          cacheHit  = true
+          imgSource = 'google'
+        } else {
+          const buffer = await downloadGoogleImage(lat, lng, heading)  // $0.007
+          if (buffer) {
+            imageRow = {
+              heading,
+              panorama_id:  meta.panoId,
+              image_source: 'google',
+              image_hash:   crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
+              size_bytes:   buffer.byteLength,
+              _buffer:      buffer,
+            }
+            costUsd   = 0.014
+            imgSource = 'google'
+          }
+        }
+      }
     } catch (e) {
-      console.warn(`[mapillary] threw at ${lat},${lng}: ${e.message}`)
+      console.warn(`[google] threw at ${lat},${lng}: ${e.message}`)
     }
 
-    // 2. Google Street View (fallback)
-    if (!img) {
+    // ── 2. Mapillary fallback (free) ──────────────────────────────────────────
+    if (!imageRow) {
       try {
-        const gsvRes = await fetchGoogleImage(lat, lng, roadBearing)
-        img = gsvRes.image
+        const mapRes = await fetchMapillaryImage(lat, lng)
+        if (mapRes.image) {
+          const { image: img } = mapRes
+          if (!roadBearing) roadBearing = mapRes.roadBearing
+
+          const cached = img.panoId ? await getCachedImage(img.panoId, 'mapillary', supabase) : null
+
+          if (cached) {
+            imageRow  = { ...cached, panorama_id: img.panoId, image_source: 'mapillary' }
+            cacheHit  = true
+            imgSource = 'mapillary'
+          } else {
+            imageRow = {
+              heading:      img.heading,
+              panorama_id:  img.panoId,
+              image_source: 'mapillary',
+              image_hash:   crypto.createHash('sha256').update(Buffer.from(img.buffer)).digest('hex'),
+              size_bytes:   img.buffer.byteLength,
+              _buffer:      img.buffer,
+            }
+            imgSource = 'mapillary'
+          }
+        }
       } catch (e) {
-        console.warn(`[google] threw at ${lat},${lng}: ${e.message}`)
+        console.warn(`[mapillary] threw at ${lat},${lng}: ${e.message}`)
       }
     }
 
-    if (!img) {
+    if (!imageRow) {
       await supabase.from('scan_points')
         .update({ status: 'no_coverage', updated_at: new Date().toISOString() })
         .eq('id', pointId)
@@ -153,52 +207,55 @@ async function processPoint(pt, projectId, userId, supabase) {
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    const buffer      = img.buffer
-    const imageHash   = crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex')
-    const storagePath = `${projectId}/${pointId}/F.jpg`
+    // Upload to storage only on cache miss
+    let storagePath = imageRow.storage_path
+    let storageUrl  = imageRow.storage_url
 
-    const { error: upErr } = await supabase.storage
-      .from('street-view-images')
-      .upload(storagePath, buffer, { contentType: 'image/jpeg', upsert: true })
+    if (!cacheHit && imageRow._buffer) {
+      // Store under shared/panoId so future users can reuse
+      const folder = imageRow.panorama_id || pointId
+      storagePath  = `shared/${folder}/F.jpg`
 
-    if (upErr) {
-      await supabase.from('scan_points')
-        .update({ status: 'failed', error_msg: upErr.message, updated_at: new Date().toISOString() })
-        .eq('id', pointId)
-      return { pointId, status: 'failed' }
+      const { error: upErr } = await supabase.storage
+        .from('street-view-images')
+        .upload(storagePath, imageRow._buffer, { contentType: 'image/jpeg', upsert: true })
+
+      if (upErr) {
+        await supabase.from('scan_points')
+          .update({ status: 'failed', error_msg: upErr.message, updated_at: new Date().toISOString() })
+          .eq('id', pointId)
+        return { pointId, status: 'failed' }
+      }
+
+      storageUrl = supabase.storage.from('street-view-images').getPublicUrl(storagePath).data.publicUrl
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('street-view-images')
-      .getPublicUrl(storagePath)
 
     await supabase.from('images').insert({
       scan_point_id: pointId,
       direction:     'F',
-      heading:       img.heading,
+      heading:       imageRow.heading,
       storage_path:  storagePath,
-      storage_url:   publicUrl,
-      panorama_id:   img.panoId,
-      image_hash:    imageHash,
-      image_source:  img.source,
-      size_bytes:    buffer.byteLength,
+      storage_url:   storageUrl,
+      panorama_id:   imageRow.panorama_id,
+      image_hash:    imageRow.image_hash,
+      image_source:  imageRow.image_source,
+      size_bytes:    imageRow.size_bytes,
     })
 
     await supabase.from('scan_points')
       .update({ status: 'downloaded', error_msg: null, updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    const costUsd = img.source === 'google' ? 0.007 : 0
     await supabase.from('usage_logs').insert({
       user_id:  userId,
-      service:  img.source === 'google' ? 'street_view' : 'mapillary',
-      action:   'image_download',
+      service:  imgSource === 'google' ? 'street_view' : 'mapillary',
+      action:   cacheHit ? 'image_cache_hit' : 'image_download',
       count:    1,
       cost_usd: costUsd,
-      metadata: { projectId, pointId, source: img.source },
+      metadata: { projectId, pointId, source: imgSource, cacheHit },
     })
 
-    return { pointId, status: 'downloaded', source: img.source }
+    return { pointId, status: 'downloaded', source: imgSource, cacheHit }
   } catch (e) {
     await supabase.from('scan_points')
       .update({ status: 'failed', error_msg: e.message, updated_at: new Date().toISOString() })
@@ -226,7 +283,14 @@ export const handler = async (event) => {
   }
 
   const supabase = adminSupabase()
-  const ids      = pointIds.slice(0, CAP)
+
+  // Quota check — cap batch to whatever the user has remaining this cycle
+  const { remaining, used, limit } = await getUserUsage(user.id, supabase)
+  if (remaining <= 0) {
+    return err(`Monthly limit reached — ${used.toLocaleString()} / ${limit.toLocaleString()} points used this cycle.`, 429)
+  }
+
+  const ids = pointIds.slice(0, Math.min(CAP, remaining))
 
   const { data: pts } = await supabase
     .from('scan_points')

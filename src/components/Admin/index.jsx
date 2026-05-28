@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
-import { adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage } from '../../lib/api'
+import {
+  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage,
+  adminSetUserLimit, adminResetUserCycle,
+} from '../../lib/api'
 
 function StatCard({ label, value, sub }) {
   return (
@@ -15,6 +18,77 @@ function RoleBadge({ role }) {
   return role === 'admin'
     ? <span className="badge-orange">Admin</span>
     : <span className="badge-slate">User</span>
+}
+
+function UsageBar({ used, limit }) {
+  const pct  = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+  const over = pct >= 90
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-1">
+        <span className={`text-xs font-medium ${over ? 'text-red-500' : 'text-slate-600'}`}>
+          {used.toLocaleString()} / {limit.toLocaleString()}
+        </span>
+        <span className="text-xs text-slate-400">{pct}%</span>
+      </div>
+      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${over ? 'bg-red-400' : 'bg-brand-500'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function LimitEditor({ user, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [value,   setValue]   = useState(String(user.points_limit ?? 10000))
+  const [saving,  setSaving]  = useState(false)
+
+  const save = async () => {
+    const num = parseInt(value, 10)
+    if (isNaN(num) || num < 0) return
+    setSaving(true)
+    try {
+      await onSave(user.id, num)
+      setEditing(false)
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="text-xs text-slate-400 hover:text-brand-600 transition underline underline-offset-2"
+        title="Edit limit"
+      >
+        {(user.points_limit ?? 10000).toLocaleString()} pts
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        className="w-20 px-1.5 py-0.5 text-xs border border-brand-400 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
+        autoFocus
+      />
+      <button
+        onClick={save}
+        disabled={saving}
+        className="text-xs text-brand-600 hover:text-brand-800 font-medium disabled:opacity-50"
+      >
+        {saving ? '…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+  )
 }
 
 export default function AdminPanel() {
@@ -61,6 +135,19 @@ export default function AdminPanel() {
     try {
       await adminDeleteUser(user.id)
       setUsers(u => u.filter(x => x.id !== user.id))
+    } catch (err) { alert(err.message) }
+  }
+
+  const updateLimit = async (userId, points_limit) => {
+    await adminSetUserLimit(userId, points_limit)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, points_limit } : x))
+  }
+
+  const resetCycle = async (user) => {
+    if (!confirm(`Reset ${user.email}'s usage cycle to today?`)) return
+    try {
+      await adminResetUserCycle(user.id)
+      setUsers(u => u.map(x => x.id === user.id ? { ...x, points_used_cycle: 0 } : x))
     } catch (err) { alert(err.message) }
   }
 
@@ -121,6 +208,8 @@ export default function AdminPanel() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">User</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Role</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Usage (cycle)</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Limit</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Joined</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -142,6 +231,15 @@ export default function AdminPanel() {
                       ? <span className="badge-green">Active</span>
                       : <span className="badge-red">Suspended</span>}
                   </td>
+                  <td className="px-4 py-3 min-w-[140px]">
+                    <UsageBar
+                      used={user.points_used_cycle || 0}
+                      limit={user.points_limit ?? 10000}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <LimitEditor user={user} onSave={updateLimit} />
+                  </td>
                   <td className="px-4 py-3 text-xs text-slate-500">{fmt(user.created_at)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-3">
@@ -150,6 +248,9 @@ export default function AdminPanel() {
                       </button>
                       <button onClick={() => toggleActive(user)} className="text-xs text-slate-500 hover:text-amber-600 transition font-medium">
                         {user.is_active ? 'Suspend' : 'Activate'}
+                      </button>
+                      <button onClick={() => resetCycle(user)} className="text-xs text-slate-500 hover:text-brand-600 transition font-medium">
+                        Reset cycle
                       </button>
                       <button onClick={() => deleteUser(user)} className="text-xs text-slate-500 hover:text-red-500 transition font-medium">
                         Delete

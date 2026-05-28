@@ -1,5 +1,6 @@
 import * as turf from '@turf/turf'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { getUserUsage } from './utils/usage.js'
 
 // ── OSM road fetching ────────────────────────────────────────────────────────
 
@@ -120,6 +121,15 @@ export const handler = async (event) => {
 
   if (points.length === 0) return err('No points generated — polygon may be too small')
   if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
+
+  // Quota check: ensure the user has enough remaining points this cycle
+  const { used, limit, remaining } = await getUserUsage(user.id, supabase)
+  if (remaining <= 0) {
+    return err(`Monthly limit reached — you have used ${used.toLocaleString()} of ${limit.toLocaleString()} points this cycle.`, 429)
+  }
+  if (points.length > remaining) {
+    return err(`This scan needs ${points.length.toLocaleString()} points but you only have ${remaining.toLocaleString()} remaining this cycle (${used.toLocaleString()} / ${limit.toLocaleString()} used).`, 429)
+  }
 
   // Delete existing pending points (allow re-generation)
   await supabase.from('scan_points').delete().eq('project_id', projectId).eq('status', 'pending')

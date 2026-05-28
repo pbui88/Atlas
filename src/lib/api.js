@@ -56,7 +56,10 @@ export const exportProject    = (projectId, format, filters = {}) =>
   call('export-project', 'POST', { projectId, format, filters })
 
 // ── Admin ────────────────────────────────────────────────────
-export const adminGetUsers    = ()                => call('admin?action=users')
-export const adminUpdateUser  = (userId, updates) => call('admin', 'PATCH', { userId, ...updates })
-export const adminGetUsage    = ()                => call('admin?action=usage')
-export const adminDeleteUser  = (userId)          => call('admin', 'DELETE', { userId })
+export const adminGetUsers       = ()                      => call('admin?action=users')
+export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })
+export const adminGetUsage       = ()                      => call('admin?action=usage')
+export const adminDeleteUser     = (userId)                => call('admin', 'DELETE', { userId })
+export const adminGetUserUsage   = (userId)                => call(`admin?action=user-usage&userId=${userId}`)
+export const adminSetUserLimit   = (userId, points_limit)  => call('admin', 'PATCH', { userId, points_limit })
+export const adminResetUserCycle = (userId)                => call('admin', 'PATCH', { userId, cycle_anchor_date: new Date().toISOString().slice(0, 10) })
