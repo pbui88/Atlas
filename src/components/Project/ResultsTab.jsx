@@ -278,11 +278,10 @@ export default function ResultsTab({ project, onProjectUpdate }) {
   // Build export payload from local data (used for selected-only exports)
   const buildLocalExport = (pts, format) => {
     if (format === 'CSV') {
-      const header = 'id,lat,lng,address,distress_score,confidence,signals,notes'
+      const header = 'address,distress_score,confidence,signals,notes'
       const rows = pts.map(pt => {
         const a = pt.ai_analyses?.[0] || {}
         return [
-          pt.id, pt.lat, pt.lng,
           `"${(pt.address || '').replace(/"/g, '""')}"`,
           a.overall_score ?? '', a.confidence ?? '',
           `"${(a.signals || []).join('; ')}"`,
