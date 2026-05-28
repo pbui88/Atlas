@@ -4,6 +4,7 @@ import { collectImages, analyzePoints, geocodePoints, exportProject } from '../.
 import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
+import { useAuth } from '../../context/AuthContext'
 
 const COLLECT_BATCH     = 20   // must match CAP in collect-images.js
 const COLLECT_CONCUR    = 3    // parallel function calls during image collection
@@ -96,6 +97,10 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
 }
 
 export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
+  const { usage, refreshUsage } = useAuth()
+  // usage===null means still loading; treat as blocked to avoid false-positive
+  const noKeyBlocked = usage === null || !usage.has_own_key
+
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
   const [resLoading, setResLoading] = useState(true)
@@ -153,6 +158,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   useEffect(() => {
     if (!autoStart) return
     onAutoStartConsumed?.()          // reset parent flag so re-visits don't re-trigger
+    if (noKeyBlocked) return         // don't auto-start if no key configured yet
     const t = setTimeout(runScan, 500)  // give DB 500ms to commit new points
     return () => clearTimeout(t)    // cancel only on unmount
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,11 +193,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             chunks.slice(i, i + COLLECT_CONCUR).map(batch => collectImages(project.id, batch))
           )
           for (const r of results) {
-            if (r.status === 'rejected' && r.reason?.status === 429) {
-              setScanError(r.reason.message)
-              abortRef.current = true
-              quotaHit = true
-              break
+            if (r.status === 'rejected') {
+              const status = r.reason?.status
+              if (status === 429 || status === 503) {
+                setScanError(r.reason.message)
+                abortRef.current = true
+                quotaHit = true
+                if (status === 429) refreshUsage()
+                break
+              }
             }
           }
           await fetchStats()
@@ -377,7 +387,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   const hasFilters  = minScore > 0 || sigFilter.length > 0
-  const canStart    = stats.total > 0 && !running
+  const canStart    = stats.total > 0 && !running && !noKeyBlocked
   const analysis    = selected?.ai_analyses?.[0]
   const score       = analysis?.overall_score
   const signals     = analysis?.signals || []
@@ -396,8 +406,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             {running && phase && (
               <p className="text-[11px] text-brand-600 mt-0.5 truncate">{PHASE_LABEL[phase]}</p>
             )}
+            {noKeyBlocked && !running && (
+              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — contact admin</p>
+            )}
             {scanError && !running && (
-              <p className="text-[11px] text-red-500 mt-0.5 truncate">Quota reached — scan stopped</p>
+              <p className="text-[11px] text-red-500 mt-0.5 truncate">Scan stopped — {scanError.includes('key') ? 'no API key' : 'quota reached'}</p>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">

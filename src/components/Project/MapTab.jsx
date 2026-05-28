@@ -54,7 +54,7 @@ const US_CENTER = { lat: 39.5, lng: -98.35 }
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const SPACING = 40
   const { usage } = useAuth()
-  const noKeyBlocked = usage !== null && !usage?.has_own_key
+  const noKeyBlocked = usage === null || !usage.has_own_key
 
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
