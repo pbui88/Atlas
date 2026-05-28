@@ -121,14 +121,15 @@ async function fetchMapillaryImage(lat, lng) {
 
 // ── Per-point pipeline ───────────────────────────────────────────────────────
 
-// Look up a previously stored image by panorama ID (shared across all projects/users)
-async function getCachedImage(panoId, source, supabase) {
+// Cache lookup by panorama ID + direction (R/L/F) so each side is stored once
+async function getCachedImage(panoId, source, direction, supabase) {
   if (!panoId) return null
   const { data } = await supabase
     .from('images')
     .select('storage_url, storage_path, image_hash, size_bytes, heading')
     .eq('panorama_id', panoId)
     .eq('image_source', source)
+    .eq('direction', direction)
     .limit(1)
     .maybeSingle()
   return data || null
@@ -138,48 +139,59 @@ async function processPoint(pt, projectId, userId, supabase) {
   const { id: pointId, lat, lng } = pt
 
   try {
-    let imageRow   = null   // final fields to insert into images table
-    let costUsd    = 0
-    let cacheHit   = false
-    let imgSource  = null
+    const imagesToStore = []   // all images collected for this point
+    let   totalCost     = 0
+    let   imgSource     = null
+    let   roadBearing   = null
 
     // ── 1. Google Street View (primary) ──────────────────────────────────────
-    let roadBearing = null
     try {
-      const meta = await fetchGoogleMetadata(lat, lng)  // $0.007
+      const meta = await fetchGoogleMetadata(lat, lng)   // $0.007
       if (meta) {
         roadBearing = meta.roadHeading
 
-        // Compute the exact road direction from the panorama's actual position
-        // toward the scan point (both are on the road centerline). Fall back to
-        // meta.roadHeading if the panorama is essentially co-located with the scan point.
+        // Exact road direction from the panorama's actual position toward the scan point
         const dist    = Math.hypot((meta.panoLat - lat) * 111320, (meta.panoLng - lng) * 111320)
         const roadDir = dist > 3 ? bearingTo(meta.panoLat, meta.panoLng, lat, lng) : meta.roadHeading
 
-        // Rotate exactly 90° perpendicular to the road — facing directly at the property
-        const heading = (roadDir + 90) % 360
+        totalCost += 0.007   // metadata call
+        imgSource  = 'google'
 
-        // Check shared pano cache — skips the $0.007 image download on hit
-        const cached = meta.panoId ? await getCachedImage(meta.panoId, 'google', supabase) : null
+        // Capture BOTH perpendicular sides so every property facing the road is covered
+        const sides = [
+          { dir: 'R', heading: (roadDir + 90)  % 360 },  // right side of road
+          { dir: 'L', heading: (roadDir + 270) % 360 },  // left side of road
+        ]
 
-        if (cached) {
-          imageRow  = { ...cached, panorama_id: meta.panoId, image_source: 'google' }
-          costUsd   = 0.007   // metadata only
-          cacheHit  = true
-          imgSource = 'google'
-        } else {
-          const buffer = await downloadGoogleImage(lat, lng, heading)  // $0.007
-          if (buffer) {
-            imageRow = {
-              heading,
+        for (const side of sides) {
+          const cached = await getCachedImage(meta.panoId, 'google', side.dir, supabase)
+          if (cached) {
+            imagesToStore.push({
+              direction:    side.dir,
+              heading:      side.heading,
               panorama_id:  meta.panoId,
               image_source: 'google',
-              image_hash:   crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
-              size_bytes:   buffer.byteLength,
-              _buffer:      buffer,
+              storage_path: cached.storage_path,
+              storage_url:  cached.storage_url,
+              image_hash:   cached.image_hash,
+              size_bytes:   cached.size_bytes,
+              cacheHit:     true,
+            })
+          } else {
+            const buffer = await downloadGoogleImage(lat, lng, side.heading)   // $0.007
+            if (buffer) {
+              totalCost += 0.007
+              imagesToStore.push({
+                direction:    side.dir,
+                heading:      side.heading,
+                panorama_id:  meta.panoId,
+                image_source: 'google',
+                image_hash:   crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
+                size_bytes:   buffer.byteLength,
+                _buffer:      buffer,
+                cacheHit:     false,
+              })
             }
-            costUsd   = 0.014
-            imgSource = 'google'
           }
         }
       }
@@ -188,29 +200,31 @@ async function processPoint(pt, projectId, userId, supabase) {
     }
 
     // ── 2. Mapillary fallback (free) ──────────────────────────────────────────
-    if (!imageRow) {
+    if (imagesToStore.length === 0) {
       try {
         const mapRes = await fetchMapillaryImage(lat, lng)
         if (mapRes.image) {
           const { image: img } = mapRes
           if (!roadBearing) roadBearing = mapRes.roadBearing
+          imgSource = 'mapillary'
 
-          const cached = img.panoId ? await getCachedImage(img.panoId, 'mapillary', supabase) : null
-
+          const cached = await getCachedImage(img.panoId, 'mapillary', 'F', supabase)
           if (cached) {
-            imageRow  = { ...cached, panorama_id: img.panoId, image_source: 'mapillary' }
-            cacheHit  = true
-            imgSource = 'mapillary'
+            imagesToStore.push({
+              direction: 'F', heading: img.heading, panorama_id: img.panoId,
+              image_source: 'mapillary', ...cached, cacheHit: true,
+            })
           } else {
-            imageRow = {
+            imagesToStore.push({
+              direction:    'F',
               heading:      img.heading,
               panorama_id:  img.panoId,
               image_source: 'mapillary',
               image_hash:   crypto.createHash('sha256').update(Buffer.from(img.buffer)).digest('hex'),
               size_bytes:   img.buffer.byteLength,
               _buffer:      img.buffer,
-            }
-            imgSource = 'mapillary'
+              cacheHit:     false,
+            })
           }
         }
       } catch (e) {
@@ -218,7 +232,7 @@ async function processPoint(pt, projectId, userId, supabase) {
       }
     }
 
-    if (!imageRow) {
+    if (imagesToStore.length === 0) {
       await supabase.from('scan_points')
         .update({ status: 'no_coverage', updated_at: new Date().toISOString() })
         .eq('id', pointId)
@@ -229,40 +243,43 @@ async function processPoint(pt, projectId, userId, supabase) {
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    // Upload to storage only on cache miss
-    let storagePath = imageRow.storage_path
-    let storageUrl  = imageRow.storage_url
-
-    if (!cacheHit && imageRow._buffer) {
-      // Store under shared/panoId so future users can reuse
-      const folder = imageRow.panorama_id || pointId
-      storagePath  = `shared/${folder}/F.jpg`
-
+    // Upload cache-miss images to shared storage keyed by panoId + direction
+    for (const img of imagesToStore) {
+      if (img.cacheHit || !img._buffer) continue
+      const folder      = img.panorama_id || pointId
+      img.storage_path  = `shared/${folder}/${img.direction}.jpg`
       const { error: upErr } = await supabase.storage
         .from('street-view-images')
-        .upload(storagePath, imageRow._buffer, { contentType: 'image/jpeg', upsert: true })
-
+        .upload(img.storage_path, img._buffer, { contentType: 'image/jpeg', upsert: true })
       if (upErr) {
-        await supabase.from('scan_points')
-          .update({ status: 'failed', error_msg: upErr.message, updated_at: new Date().toISOString() })
-          .eq('id', pointId)
-        return { pointId, status: 'failed' }
+        console.warn(`[upload] ${img.direction} failed: ${upErr.message}`)
+        img._failed = true
+        continue
       }
-
-      storageUrl = supabase.storage.from('street-view-images').getPublicUrl(storagePath).data.publicUrl
+      img.storage_url = supabase.storage.from('street-view-images').getPublicUrl(img.storage_path).data.publicUrl
     }
 
-    await supabase.from('images').insert({
-      scan_point_id: pointId,
-      direction:     'F',
-      heading:       imageRow.heading,
-      storage_path:  storagePath,
-      storage_url:   storageUrl,
-      panorama_id:   imageRow.panorama_id,
-      image_hash:    imageRow.image_hash,
-      image_source:  imageRow.image_source,
-      size_bytes:    imageRow.size_bytes,
-    })
+    const ready = imagesToStore.filter(img => !img._failed && img.storage_url)
+    if (ready.length === 0) {
+      await supabase.from('scan_points')
+        .update({ status: 'failed', error_msg: 'All uploads failed', updated_at: new Date().toISOString() })
+        .eq('id', pointId)
+      return { pointId, status: 'failed' }
+    }
+
+    await supabase.from('images').insert(
+      ready.map(img => ({
+        scan_point_id: pointId,
+        direction:     img.direction,
+        heading:       img.heading,
+        storage_path:  img.storage_path,
+        storage_url:   img.storage_url,
+        panorama_id:   img.panorama_id,
+        image_hash:    img.image_hash,
+        image_source:  img.image_source,
+        size_bytes:    img.size_bytes,
+      }))
+    )
 
     await supabase.from('scan_points')
       .update({ status: 'downloaded', error_msg: null, updated_at: new Date().toISOString() })
@@ -271,13 +288,13 @@ async function processPoint(pt, projectId, userId, supabase) {
     await supabase.from('usage_logs').insert({
       user_id:  userId,
       service:  imgSource === 'google' ? 'street_view' : 'mapillary',
-      action:   cacheHit ? 'image_cache_hit' : 'image_download',
+      action:   ready.every(i => i.cacheHit) ? 'image_cache_hit' : 'image_download',
       count:    1,
-      cost_usd: costUsd,
-      metadata: { projectId, pointId, source: imgSource, cacheHit },
+      cost_usd: totalCost,
+      metadata: { projectId, pointId, source: imgSource, imageCount: ready.length },
     })
 
-    return { pointId, status: 'downloaded', source: imgSource, cacheHit }
+    return { pointId, status: 'downloaded', source: imgSource, imageCount: ready.length }
   } catch (e) {
     await supabase.from('scan_points')
       .update({ status: 'failed', error_msg: e.message, updated_at: new Date().toISOString() })
