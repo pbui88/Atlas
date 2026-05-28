@@ -72,16 +72,26 @@ export default function LoginPage() {
             then AI scores each property for distress signals — automatically.
           </p>
 
-          <button
-            onClick={signInWithGoogle}
-            className="inline-flex items-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-semibold px-8 py-4 rounded-xl transition text-base shadow-xl shadow-black/20"
-          >
-            <GoogleIcon className="w-5 h-5" />
-            Continue with Google
-          </button>
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={signInWithGoogle}
+              className="inline-flex items-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-semibold px-8 py-4 rounded-xl transition text-base shadow-xl shadow-black/20"
+            >
+              <GoogleIcon className="w-5 h-5" />
+              Sign in with Google
+            </button>
 
-          <p className="mt-4 text-xs text-slate-600">
-            Access by invitation only
+            <button
+              onClick={signInWithGoogle}
+              className="inline-flex items-center gap-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-8 py-4 rounded-xl transition text-base shadow-xl shadow-brand-600/30"
+            >
+              <GoogleIcon className="w-5 h-5" />
+              Create an account
+            </button>
+          </div>
+
+          <p className="mt-4 text-xs text-slate-500">
+            New accounts are reviewed and activated by an admin before access is granted.
           </p>
         </div>
 
