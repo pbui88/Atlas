@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
@@ -15,125 +15,246 @@ function GoogleIcon({ className = '' }) {
 
 function AtlasLogo() {
   return (
-    <div className="flex items-center gap-3">
-      <div className="relative w-10 h-10">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-600/30">
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-          </svg>
-        </div>
+    <div className="flex items-center gap-2.5 justify-center mb-8">
+      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-600/30">
+        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
+        </svg>
       </div>
       <span className="text-xl font-bold text-white tracking-tight">Atlas</span>
     </div>
   )
 }
 
+// ── Reusable input ────────────────────────────────────────────
+function Field({ label, type = 'text', value, onChange, placeholder, autoComplete }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-400 mb-1.5">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        required
+        className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
+      />
+    </div>
+  )
+}
+
+// ── Check email screen (after sign up) ───────────────────────
+function CheckEmailScreen({ email, onBack }) {
+  return (
+    <div className="text-center">
+      <div className="w-14 h-14 rounded-2xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center mx-auto mb-5">
+        <svg className="w-7 h-7 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+        </svg>
+      </div>
+      <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
+      <p className="text-sm text-slate-400 mb-1">We sent a confirmation link to</p>
+      <p className="text-sm font-semibold text-slate-200 mb-6">{email}</p>
+      <p className="text-xs text-slate-500 mb-8 leading-relaxed">
+        Click the link in the email to verify your address. After confirming, your account will be reviewed by an admin before access is granted.
+      </p>
+      <button onClick={onBack} className="text-sm text-brand-400 hover:text-brand-300 transition underline underline-offset-2">
+        Back to sign in
+      </button>
+    </div>
+  )
+}
+
+// ── Forgot password screen ────────────────────────────────────
+function ForgotPasswordScreen({ onBack, resetPassword }) {
+  const [email,   setEmail]   = useState('')
+  const [sent,    setSent]    = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
+
+  const handle = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    const { error } = await resetPassword(email)
+    setLoading(false)
+    if (error) return setError(error.message)
+    setSent(true)
+  }
+
+  if (sent) return (
+    <div className="text-center">
+      <div className="w-14 h-14 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center mx-auto mb-5">
+        <svg className="w-7 h-7 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </div>
+      <h2 className="text-xl font-bold text-white mb-2">Email sent</h2>
+      <p className="text-sm text-slate-400 mb-8">Check your inbox for a password reset link.</p>
+      <button onClick={onBack} className="text-sm text-brand-400 hover:text-brand-300 transition underline underline-offset-2">Back to sign in</button>
+    </div>
+  )
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition mb-6">
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
+        Back
+      </button>
+      <h2 className="text-xl font-bold text-white mb-1">Reset password</h2>
+      <p className="text-sm text-slate-400 mb-6">Enter your email and we'll send a reset link.</p>
+      <form onSubmit={handle} className="space-y-4">
+        <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" autoComplete="email" />
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        <button type="submit" disabled={loading} className="w-full py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-semibold rounded-lg transition text-sm">
+          {loading ? 'Sending…' : 'Send reset link'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────
 export default function LoginPage() {
-  const { user, signInWithGoogle } = useAuth()
+  const { user, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth()
   const navigate = useNavigate()
+
+  const [tab,      setTab]      = useState('signin')   // 'signin' | 'signup'
+  const [screen,   setScreen]   = useState('form')     // 'form' | 'verify' | 'forgot'
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm,  setConfirm]  = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
 
   useEffect(() => {
     if (user) navigate('/')
   }, [user, navigate])
 
+  const switchTab = (t) => { setTab(t); setError(''); setPassword(''); setConfirm('') }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (tab === 'signup' && password !== confirm) {
+      return setError('Passwords do not match.')
+    }
+    if (tab === 'signup' && password.length < 8) {
+      return setError('Password must be at least 8 characters.')
+    }
+
+    setLoading(true)
+    if (tab === 'signin') {
+      const { error } = await signInWithEmail(email, password)
+      setLoading(false)
+      if (error) setError(error.message)
+    } else {
+      const { error } = await signUpWithEmail(email, password)
+      setLoading(false)
+      if (error) return setError(error.message)
+      setScreen('verify')
+    }
+  }
+
+  if (screen === 'verify') return (
+    <PageShell>
+      <CheckEmailScreen email={email} onBack={() => { setScreen('form'); setTab('signin') }} />
+    </PageShell>
+  )
+
+  if (screen === 'forgot') return (
+    <PageShell>
+      <ForgotPasswordScreen onBack={() => setScreen('form')} resetPassword={resetPassword} />
+    </PageShell>
+  )
+
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
-      {/* Subtle grid background */}
+    <PageShell>
+      <AtlasLogo />
+
+      {/* Tabs */}
+      <div className="flex bg-slate-800 border border-slate-700 rounded-lg p-1 mb-6">
+        {[['signin', 'Sign In'], ['signup', 'Create Account']].map(([t, label]) => (
+          <button
+            key={t}
+            onClick={() => switchTab(t)}
+            className={`flex-1 py-2 text-sm font-medium rounded-md transition ${
+              tab === t ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Google button */}
+      <button
+        onClick={signInWithGoogle}
+        className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-semibold px-4 py-2.5 rounded-lg transition text-sm mb-5"
+      >
+        <GoogleIcon className="w-4 h-4" />
+        {tab === 'signin' ? 'Sign in with Google' : 'Sign up with Google'}
+      </button>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3 mb-5">
+        <div className="flex-1 h-px bg-slate-700" />
+        <span className="text-xs text-slate-500">or with email</span>
+        <div className="flex-1 h-px bg-slate-700" />
+      </div>
+
+      {/* Email form */}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@example.com" autoComplete="email" />
+        <Field
+          label="Password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          placeholder={tab === 'signup' ? 'Min. 8 characters' : '••••••••'}
+          autoComplete={tab === 'signin' ? 'current-password' : 'new-password'}
+        />
+        {tab === 'signup' && (
+          <Field label="Confirm password" type="password" value={confirm} onChange={setConfirm} placeholder="••••••••" autoComplete="new-password" />
+        )}
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        {tab === 'signin' && (
+          <div className="flex justify-end">
+            <button type="button" onClick={() => setScreen('forgot')} className="text-xs text-slate-500 hover:text-brand-400 transition">
+              Forgot password?
+            </button>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-semibold rounded-lg transition text-sm"
+        >
+          {loading ? '…' : tab === 'signin' ? 'Sign In' : 'Create Account'}
+        </button>
+      </form>
+
+      {tab === 'signup' && (
+        <p className="text-xs text-slate-500 text-center mt-4 leading-relaxed">
+          New accounts require admin approval before access is granted.
+        </p>
+      )}
+    </PageShell>
+  )
+}
+
+function PageShell({ children }) {
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMyMjIiIG9wYWNpdHk9IjAuNCI+PHBhdGggZD0iTTM2IDM0di00aC0ydjRoLTR2MmgwdjJoNHYtMmgydi0yaDR2LTJoLTR6bTAtMzBWMGgtMnY0aC00djJoNHYyaDJ2LTJoNFY0aC00ek02IDM0di00SDR2NGgwdjJoNHYtMmgydi0yaDR2LTJINnpNNiA0VjBoLTJ2NEgwdjJoNHYyaDJWNmg0VjRINnoiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-[0.03] pointer-events-none" />
-
-      {/* Nav */}
-      <nav className="relative z-10 px-6 py-5 flex items-center justify-between max-w-6xl mx-auto w-full">
-        <AtlasLogo />
-        <div className="text-slate-400 text-sm">
-          Distressed Property Scanner
-        </div>
-      </nav>
-
-      {/* Hero */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 py-20 text-center">
-        {/* Glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-brand-600/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative">
-          <div className="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-full px-4 py-1.5 text-sm text-slate-400 mb-8">
-            <span className="w-2 h-2 bg-brand-500 rounded-full animate-pulse" />
-            AI-powered neighborhood scanning
-          </div>
-
-          <h1 className="text-5xl md:text-6xl font-bold text-white mb-6 leading-tight tracking-tight">
-            Find Distressed<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-500 to-brand-300">
-              Properties at Scale
-            </span>
-          </h1>
-
-          <p className="text-lg text-slate-400 max-w-xl mx-auto mb-12 leading-relaxed">
-            Draw a neighborhood on the map. Atlas scans every street with Google Street View,
-            then AI scores each property for distress signals — automatically.
-          </p>
-
-          <div className="flex flex-col items-center gap-3">
-            <button
-              onClick={signInWithGoogle}
-              className="inline-flex items-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-semibold px-8 py-4 rounded-xl transition text-base shadow-xl shadow-black/20"
-            >
-              <GoogleIcon className="w-5 h-5" />
-              Sign in with Google
-            </button>
-
-            <button
-              onClick={signInWithGoogle}
-              className="inline-flex items-center gap-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-8 py-4 rounded-xl transition text-base shadow-xl shadow-brand-600/30"
-            >
-              <GoogleIcon className="w-5 h-5" />
-              Create an account
-            </button>
-          </div>
-
-          <p className="mt-4 text-xs text-slate-500">
-            New accounts are reviewed and activated by an admin before access is granted.
-          </p>
-        </div>
-
-        {/* Feature tiles */}
-        <div className="relative mt-24 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl w-full">
-          {[
-            {
-              icon: (
-                <svg className="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-                </svg>
-              ),
-              title: 'Draw Any Area',
-              desc: 'Select a neighborhood polygon. Atlas generates hundreds of scan points along roads.',
-            },
-            {
-              icon: (
-                <svg className="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                </svg>
-              ),
-              title: 'Street View Capture',
-              desc: 'Downloads N/S/E/W imagery at every point via Google Street View API.',
-            },
-            {
-              icon: (
-                <svg className="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-              ),
-              title: 'AI Distress Scoring',
-              desc: 'GPT-4o Vision analyzes each property and scores 12 distress signals 0–100.',
-            },
-          ].map(f => (
-            <div key={f.title} className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 text-left backdrop-blur-sm">
-              <div className="w-9 h-9 bg-brand-600/10 rounded-lg flex items-center justify-center mb-3">
-                {f.icon}
-              </div>
-              <h3 className="text-sm font-semibold text-slate-200 mb-1">{f.title}</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">{f.desc}</p>
-            </div>
-          ))}
+      <div className="relative z-10 w-full max-w-sm">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl shadow-black/40">
+          {children}
         </div>
       </div>
     </div>

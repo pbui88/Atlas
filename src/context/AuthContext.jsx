@@ -59,15 +59,21 @@ export function AuthProvider({ children }) {
     })
   }, [user?.id, profile?.id])
 
-  const signInWithGoogle = () => {
-    const redirectTo = import.meta.env.DEV
-      ? 'http://localhost:3000'
-      : (import.meta.env.VITE_SITE_URL || window.location.origin)
-    return supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
-    })
-  }
+  const redirectTo = import.meta.env.DEV
+    ? 'http://localhost:3000'
+    : (import.meta.env.VITE_SITE_URL || window.location.origin)
+
+  const signInWithGoogle = () =>
+    supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
+
+  const signInWithEmail = (email, password) =>
+    supabase.auth.signInWithPassword({ email, password })
+
+  const signUpWithEmail = (email, password) =>
+    supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } })
+
+  const resetPassword = (email) =>
+    supabase.auth.resetPasswordForEmail(email, { redirectTo: `${redirectTo}/reset-password` })
 
   const signOut = () => supabase.auth.signOut()
 
@@ -75,7 +81,7 @@ export function AuthProvider({ children }) {
   const isPending = !!user && !!profile && !profile.is_active
 
   return (
-    <AuthContext.Provider value={{ user, profile, profileLoaded, loading, isAdmin, isPending, signInWithGoogle, signOut, fetchProfile }}>
+    <AuthContext.Provider value={{ user, profile, profileLoaded, loading, isAdmin, isPending, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signOut, fetchProfile }}>
       {children}
     </AuthContext.Provider>
   )
