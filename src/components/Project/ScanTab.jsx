@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { collectImages, analyzePoints, geocodePoints } from '../../lib/api'
+import { collectImages, analyzePoints, geocodePoints, getMyUsage } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 
 const BATCH_SIZE = 8
@@ -26,6 +26,7 @@ export default function ScanTab({ project, onProjectUpdate }) {
   const [running,  setRunning] = useState(false)
   const [phase,    setPhase]   = useState('')
   const [error,    setError]   = useState(null)
+  const [quota,    setQuota]   = useState(null)
   const [abortRef] = useState({ current: false })
 
   const PHASE_LABEL = {
@@ -51,7 +52,10 @@ export default function ScanTab({ project, onProjectUpdate }) {
     })
   }
 
-  useEffect(() => { fetchStats() }, [project.id])
+  useEffect(() => {
+    fetchStats()
+    getMyUsage().then(setQuota).catch(() => {})
+  }, [project.id])
 
   const runScan = async () => {
     abortRef.current = false
@@ -137,7 +141,8 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
   const pause = () => { abortRef.current = true }
 
-  const canStart = stats.total > 0 && !running
+  const quotaBlocked = quota !== null && quota.remaining <= 0
+  const canStart     = stats.total > 0 && !running && !quotaBlocked
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -162,12 +167,19 @@ export default function ScanTab({ project, onProjectUpdate }) {
               </svg>
               Pause
             </button>
+          ) : quotaBlocked ? (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+              <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              <span className="text-xs font-medium text-red-600">Quota reached</span>
+            </div>
           ) : (
             <button onClick={runScan} disabled={!canStart} className="btn-primary">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
               </svg>
-              AI Driving
+              Run Scan
             </button>
           )}
         </div>
@@ -185,7 +197,23 @@ export default function ScanTab({ project, onProjectUpdate }) {
         ) : (
           <div className="max-w-2xl mx-auto space-y-5">
 
-            {/* Quota error banner */}
+            {/* Quota blocked banner */}
+            {quotaBlocked && !error && (
+              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-red-700">Monthly quota reached</p>
+                  <p className="text-xs text-red-500 mt-0.5">
+                    {quota.used.toLocaleString()} / {quota.limit.toLocaleString()} points used this cycle.
+                    Scans are blocked until your quota resets in {Math.max(0, 30 - Math.floor((Date.now() - new Date(quota.cycleStart).getTime()) / (1000 * 60 * 60 * 24)))} days.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Mid-scan quota error banner */}
             {error && (
               <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
                 <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
