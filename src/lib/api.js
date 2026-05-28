@@ -75,3 +75,4 @@ export const adminDeleteUser     = (userId)                => call('admin', 'DEL
 export const adminGetUserUsage   = (userId)                => call(`admin?action=user-usage&userId=${userId}`)
 export const adminSetUserLimit   = (userId, points_limit)  => call('admin', 'PATCH', { userId, points_limit })
 export const adminResetUserCycle = (userId)                => call('admin', 'PATCH', { userId, cycle_anchor_date: new Date().toISOString().slice(0, 10) })
+export const adminSetUserKey     = (userId, key)           => call('admin', 'PATCH', { userId, googleMapsKey: key || null })

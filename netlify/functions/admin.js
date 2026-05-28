@@ -93,10 +93,24 @@ export const handler = async (event) => {
     return ok(usage)
   }
 
-  // ── PATCH: update user role / status / limit ──────────────────
+  // ── PATCH: update user role / status / limit / API key ──────────────────
   if (event.httpMethod === 'PATCH') {
-    const { userId, role, is_active, points_limit, cycle_anchor_date } = JSON.parse(event.body || '{}')
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey } = JSON.parse(event.body || '{}')
     if (!userId) return err('userId required')
+
+    // Handle Google Maps key separately (stored in user_keys, not profiles)
+    if (googleMapsKey !== undefined) {
+      if (googleMapsKey) {
+        const { error: keyErr } = await supabase
+          .from('user_keys')
+          .upsert({ user_id: userId, google_maps_key: googleMapsKey, updated_at: new Date().toISOString() })
+        if (keyErr) return err(keyErr.message)
+        return ok({ has_own_key: true })
+      } else {
+        await supabase.from('user_keys').delete().eq('user_id', userId)
+        return ok({ has_own_key: false })
+      }
+    }
 
     const updates = {}
     if (role               !== undefined) updates.role               = role

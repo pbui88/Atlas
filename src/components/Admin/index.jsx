@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage,
-  adminSetUserLimit, adminResetUserCycle,
+  adminSetUserLimit, adminResetUserCycle, adminSetUserKey,
 } from '../../lib/api'
 
 function StatCard({ label, value, sub }) {
@@ -92,6 +92,78 @@ function LimitEditor({ user, onSave }) {
   )
 }
 
+function KeyEditor({ user, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [value,   setValue]   = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await onSave(user.id, value.trim() || null)
+      setEditing(false)
+      setValue('')
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  const clear = async () => {
+    if (!confirm(`Remove Google Maps key for ${user.email}?`)) return
+    setSaving(true)
+    try {
+      await onSave(user.id, null)
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  if (!editing) {
+    return user.has_own_key ? (
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+          <span className="w-1.5 h-1.5 bg-green-500 rounded-full" /> Own key
+        </span>
+        <button
+          onClick={clear}
+          disabled={saving}
+          className="text-xs text-slate-400 hover:text-red-500 transition disabled:opacity-50"
+          title="Remove key"
+        >
+          ✕
+        </button>
+      </div>
+    ) : (
+      <button
+        onClick={() => setEditing(true)}
+        className="text-xs text-slate-400 hover:text-brand-600 transition underline underline-offset-2"
+      >
+        + Set key
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="password"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        placeholder="AIzaSy…"
+        className="w-32 px-1.5 py-0.5 text-xs font-mono border border-brand-400 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
+        autoFocus
+      />
+      <button
+        onClick={save}
+        disabled={saving || !value.trim()}
+        className="text-xs text-brand-600 hover:text-brand-800 font-medium disabled:opacity-50"
+      >
+        {saving ? '…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const [users,   setUsers]   = useState([])
   const [usage,   setUsage]   = useState(null)
@@ -142,6 +214,11 @@ export default function AdminPanel() {
   const updateLimit = async (userId, points_limit) => {
     await adminSetUserLimit(userId, points_limit)
     setUsers(u => u.map(x => x.id === userId ? { ...x, points_limit } : x))
+  }
+
+  const updateKey = async (userId, key) => {
+    await adminSetUserKey(userId, key)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, has_own_key: !!key } : x))
   }
 
   const resetCycle = async (user) => {
@@ -259,11 +336,7 @@ export default function AdminPanel() {
                     <LimitEditor user={user} onSave={updateLimit} />
                   </td>
                   <td className="px-4 py-3">
-                    {user.has_own_key
-                      ? <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full" /> Own key
-                        </span>
-                      : <span className="text-xs text-slate-400">Platform</span>}
+                    <KeyEditor user={user} onSave={updateKey} />
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">{fmt(user.created_at)}</td>
                   <td className="px-4 py-3">
