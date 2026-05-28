@@ -57,6 +57,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
   const [cost,           setCost]           = useState(null)
+  const [propCount,      setPropCount]      = useState(null)
+  const [propLoading,    setPropLoading]    = useState(false)
   const [generating,     setGenerating]     = useState(false)
   const [error,          setError]          = useState(null)
   const [searchPin,      setSearchPin]      = useState(null)
@@ -130,9 +132,26 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPreview(pts)
   }, [])
 
+  // Count residential properties inside the polygon using Overpass API
+  useEffect(() => {
+    if (!polygon) { setPropCount(null); return }
+    setPropLoading(true)
+    setPropCount(null)
+    const coords  = polygon.coordinates[0]
+    const polyStr = coords.map(([lng, lat]) => `${lat} ${lng}`).join(' ')
+    const query   = `[out:json][timeout:20];(way[building](poly:"${polyStr}");node["addr:housenumber"](poly:"${polyStr}"););out count;`
+    fetch('https://overpass-api.de/api/interpreter', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    `data=${encodeURIComponent(query)}`,
+    })
+      .then(r => r.json())
+      .then(d => setPropCount(Number(d.elements?.[0]?.tags?.total ?? 0)))
+      .catch(() => setPropCount(null))
+      .finally(() => setPropLoading(false))
+  }, [polygon])
+
   // Keep cost in sync with whatever polygon/points are currently shown.
-  // Recalculates on polygon load (returning project), preview generation,
-  // and after points are generated server-side.
   useEffect(() => {
     if (!polygon) { setCost(null); return }
     const count = scanPoints?.length > 0
@@ -362,6 +381,21 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             <span className="text-xs text-slate-500">Point spacing</span>
             <span className="text-xs font-semibold text-slate-700">40 m</span>
           </div>
+
+          {/* Property count */}
+          {polygon && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-500">Properties in area</span>
+              <span className="text-xs font-semibold text-slate-700">
+                {propLoading
+                  ? <span className="text-slate-400">Counting…</span>
+                  : propCount != null
+                    ? propCount.toLocaleString()
+                    : <span className="text-slate-400">—</span>
+                }
+              </span>
+            </div>
+          )}
 
           {/* Cost estimate */}
           {cost && (
