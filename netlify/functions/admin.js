@@ -17,22 +17,24 @@ export const handler = async (event) => {
       .select('*')
       .order('created_at', { ascending: false })
 
-    // Fetch 30-day usage for all users in one query (approximate window for admin view)
+    // Sum completed_points from projects per user (last 30 days).
+    // More reliable than usage_logs which may be sparse on older scans.
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const { data: logs } = await supabase
-      .from('usage_logs')
-      .select('user_id, count')
-      .in('service', ['street_view', 'mapillary'])
+    const { data: projects } = await supabase
+      .from('projects')
+      .select('user_id, completed_points')
       .gte('created_at', since)
 
     const usageByUser = {}
-    for (const row of logs || []) {
-      usageByUser[row.user_id] = (usageByUser[row.user_id] || 0) + (row.count || 0)
+    for (const proj of projects || []) {
+      usageByUser[proj.user_id] = (usageByUser[proj.user_id] || 0) + (proj.completed_points || 0)
     }
 
     const users = (profiles || []).map(p => ({
       ...p,
-      points_used_cycle: usageByUser[p.id] || 0,
+      points_limit:      p.points_limit      ?? 10000,
+      cycle_anchor_date: p.cycle_anchor_date  ?? p.created_at?.slice(0, 10),
+      points_used_cycle: usageByUser[p.id]   || 0,
     }))
 
     return ok(users)

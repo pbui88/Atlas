@@ -21,15 +21,16 @@ function RoleBadge({ role }) {
 }
 
 function UsageBar({ used, limit }) {
-  const pct  = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+  const safeLimit = limit || 10000
+  const pct  = Math.min(100, Math.round((used / safeLimit) * 100))
   const over = pct >= 90
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-1">
-        <span className={`text-xs font-medium ${over ? 'text-red-500' : 'text-slate-600'}`}>
-          {used.toLocaleString()} / {limit.toLocaleString()}
+        <span className={`text-xs font-medium ${over ? 'text-red-500' : used > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
+          {used.toLocaleString()} <span className="font-normal text-slate-400">/ {safeLimit.toLocaleString()}</span>
         </span>
-        <span className="text-xs text-slate-400">{pct}%</span>
+        {used > 0 && <span className="text-xs text-slate-400">{pct}%</span>}
       </div>
       <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
         <div
