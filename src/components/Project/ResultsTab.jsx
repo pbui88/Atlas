@@ -153,7 +153,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     autoStarted.current = true
     onAutoStartConsumed?.()
     // Small delay to let fetchStats complete first
-    const t = setTimeout(() => runScan(), 300)
+    const t = setTimeout(() => runScan(), 500)
     return () => clearTimeout(t)
   }, [autoStart])
 

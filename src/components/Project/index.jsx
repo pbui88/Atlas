@@ -119,7 +119,10 @@ export default function ProjectPage() {
             project={project}
             scanPoints={scanPoints}
             onPointsGenerated={({ autoStart } = {}) => {
-              if (autoStart) setAutoStartScan(true)
+              if (autoStart) {
+                setAutoStartScan(true)
+                setActiveTab('results')  // switch immediately — don't wait for loadProject
+              }
               loadProject()
             }}
             isLoaded={isLoaded}
