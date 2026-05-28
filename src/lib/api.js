@@ -62,6 +62,11 @@ export const exportProject    = (projectId, format, filters = {}) =>
 // ── Usage (current user) ─────────────────────────────────────
 export const getMyUsage = () => call('my-usage')
 
+// ── API Keys (BYOK) ──────────────────────────────────────────
+export const getKeyStatus  = ()      => call('user-keys')
+export const saveGoogleKey = (key)   => call('user-keys', 'POST', { googleMapsKey: key })
+export const deleteGoogleKey = ()    => call('user-keys', 'DELETE')
+
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })

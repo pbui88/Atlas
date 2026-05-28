@@ -37,11 +37,20 @@ export const handler = async (event) => {
       usageByUser[p.id] = count ?? 0
     }
 
+    // Fetch which users have their own Google Maps key configured
+    const { data: keyRows } = await supabase
+      .from('user_keys')
+      .select('user_id')
+      .not('google_maps_key', 'is', null)
+
+    const usersWithKey = new Set((keyRows || []).map(r => r.user_id))
+
     const users = (profiles || []).map(p => ({
       ...p,
       points_limit:      p.points_limit      ?? 10000,
       cycle_anchor_date: p.cycle_anchor_date  ?? p.created_at?.slice(0, 10),
       points_used_cycle: usageByUser[p.id]   || 0,
+      has_own_key:       usersWithKey.has(p.id),
     }))
 
     return ok(users)

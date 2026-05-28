@@ -224,6 +224,7 @@ export default function AdminPanel() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Usage (cycle)</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Limit</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">API Key</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Joined</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -256,6 +257,13 @@ export default function AdminPanel() {
                   </td>
                   <td className="px-4 py-3">
                     <LimitEditor user={user} onSave={updateLimit} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.has_own_key
+                      ? <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full" /> Own key
+                        </span>
+                      : <span className="text-xs text-slate-400">Platform</span>}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">{fmt(user.created_at)}</td>
                   <td className="px-4 py-3">

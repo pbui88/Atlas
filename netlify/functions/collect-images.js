@@ -2,22 +2,32 @@ import crypto from 'crypto'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
-const GOOGLE_KEY = process.env.GOOGLE_MAPS_KEY
-const CAP        = 20
+const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
+const CAP          = 20
 
-async function downloadGoogleImage(lat, lng, heading) {
-  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${GOOGLE_KEY}`
+// Fetch the user's own Google Maps key (BYOK), fall back to platform key
+async function resolveApiKey(userId, supabase) {
+  const { data } = await supabase
+    .from('user_keys')
+    .select('google_maps_key')
+    .eq('user_id', userId)
+    .maybeSingle()
+  return data?.google_maps_key || PLATFORM_KEY
+}
+
+async function downloadGoogleImage(lat, lng, heading, apiKey) {
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${apiKey}`
   const res = await fetch(url)
   if (!res.ok) return null
   if (!(res.headers.get('content-type') || '').includes('image')) return null
   return res.arrayBuffer()
 }
 
-async function processPoint(pt, projectId, userId, supabase) {
+async function processPoint(pt, projectId, userId, apiKey, supabase) {
   const { id: pointId, lat, lng, road_bearing } = pt
 
   try {
-    if (!GOOGLE_KEY) return { pointId, status: 'error', error: 'GOOGLE_MAPS_KEY not configured' }
+    if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
     // Road bearing stored at generation time from OSM geometry.
     // Rotate 90° perpendicular to face properties across the street.
@@ -28,7 +38,7 @@ async function processPoint(pt, projectId, userId, supabase) {
       .eq('id', pointId)
 
     // Single API call: image download only ($0.007)
-    const buffer = await downloadGoogleImage(lat, lng, heading)
+    const buffer = await downloadGoogleImage(lat, lng, heading, apiKey)
     if (!buffer) {
       await supabase.from('scan_points')
         .update({ status: 'no_coverage', updated_at: new Date().toISOString() })
@@ -91,14 +101,16 @@ export const handler = async (event) => {
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
 
-  if (!GOOGLE_KEY) return err('GOOGLE_MAPS_KEY not configured', 503)
-
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
   if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
     return err('projectId and pointIds required')
   }
 
   const supabase = adminSupabase()
+
+  // Resolve API key: user's own key (BYOK) or platform key
+  const apiKey = await resolveApiKey(user.id, supabase)
+  if (!apiKey) return err('No Google Maps API key configured. Add your key in Settings.', 503)
 
   const { remaining, used, limit } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {
@@ -115,7 +127,7 @@ export const handler = async (event) => {
   if (!pts?.length) return ok({ results: [] })
 
   const settled = await Promise.allSettled(
-    pts.map(pt => processPoint(pt, projectId, user.id, supabase))
+    pts.map(pt => processPoint(pt, projectId, user.id, apiKey, supabase))
   )
 
   const results = settled.map(s =>
