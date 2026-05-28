@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import LandingPage         from './components/Auth/LandingPage'
 import LoginPage           from './components/Auth/LoginPage'
 import PendingApprovalPage from './components/Auth/PendingApprovalPage'
 import AppLayout           from './components/Layout/AppLayout'
@@ -15,13 +16,20 @@ function Spinner() {
   )
 }
 
+// Public index: show landing page, but redirect logged-in users to the app
+function IndexRoute() {
+  const { user, profileLoaded, loading } = useAuth()
+  if (loading || (user && !profileLoaded)) return <Spinner />
+  if (user) return <Navigate to="/dashboard" replace />
+  return <LandingPage />
+}
+
 function PrivateRoute({ children, adminOnly = false }) {
   const { user, profileLoaded, loading, isAdmin, isPending } = useAuth()
-
   if (loading || (user && !profileLoaded)) return <Spinner />
   if (!user) return <Navigate to="/login" replace />
   if (isPending) return <PendingApprovalPage />
-  if (adminOnly && !isAdmin) return <Navigate to="/" replace />
+  if (adminOnly && !isAdmin) return <Navigate to="/dashboard" replace />
   return children
 }
 
@@ -30,12 +38,21 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Public */}
+          <Route path="/"      element={<IndexRoute />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+
+          {/* App (authenticated) */}
+          <Route path="/dashboard" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
             <Route index element={<Dashboard />} />
-            <Route path="projects/:id" element={<ProjectPage />} />
-            <Route path="admin" element={<PrivateRoute adminOnly><AdminPanel /></PrivateRoute>} />
           </Route>
+          <Route path="/projects/:id" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+            <Route index element={<ProjectPage />} />
+          </Route>
+          <Route path="/admin" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
+            <Route index element={<AdminPanel />} />
+          </Route>
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

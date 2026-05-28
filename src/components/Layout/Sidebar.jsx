@@ -46,7 +46,7 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 p-3 space-y-1">
         <NavItem
-          to="/"
+          to="/dashboard"
           label="Projects"
           icon={
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

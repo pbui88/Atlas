@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
 function GoogleIcon({ className = '' }) {
@@ -119,8 +119,9 @@ function ForgotPasswordScreen({ onBack, resetPassword }) {
 export default function LoginPage() {
   const { user, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
-  const [tab,      setTab]      = useState('signin')   // 'signin' | 'signup'
+  const [tab,      setTab]      = useState(location.state?.tab === 'signup' ? 'signup' : 'signin')
   const [screen,   setScreen]   = useState('form')     // 'form' | 'verify' | 'forgot'
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -129,7 +130,7 @@ export default function LoginPage() {
   const [error,    setError]    = useState('')
 
   useEffect(() => {
-    if (user) navigate('/')
+    if (user) navigate('/dashboard')
   }, [user, navigate])
 
   const switchTab = (t) => { setTab(t); setError(''); setPassword(''); setConfirm('') }

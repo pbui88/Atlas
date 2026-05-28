@@ -44,7 +44,7 @@ export default function ProjectPage() {
 
   const loadProject = async () => {
     const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
-    if (!proj) { navigate('/'); return }
+    if (!proj) { navigate('/dashboard'); return }
     setProject(proj)
 
     const { data: pts } = await supabase
@@ -74,7 +74,7 @@ export default function ProjectPage() {
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
       <header className="flex items-center gap-4 px-5 py-3 border-b border-slate-200 shrink-0 bg-white">
-        <Link to="/" className="text-slate-400 hover:text-slate-700 transition">
+        <Link to="/dashboard" className="text-slate-400 hover:text-slate-700 transition">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
