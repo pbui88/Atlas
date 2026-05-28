@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { getMyUsage } from '../lib/api'
 
 const AuthContext = createContext(null)
 
@@ -19,6 +20,7 @@ export function AuthProvider({ children }) {
   const [profile,       setProfile]       = useState(null)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [loading,       setLoading]       = useState(true)
+  const [usage,         setUsage]         = useState(null)
 
   const fetchProfile = async (userId) => {
     try {
@@ -34,9 +36,14 @@ export function AuthProvider({ children }) {
     }
   }
 
+  const refreshUsage = useCallback(async () => {
+    try {
+      const data = await getMyUsage()
+      setUsage(data)
+    } catch {}
+  }, [])
+
   useEffect(() => {
-    // Keep callback synchronous — fire fetchProfile without await so Supabase
-    // doesn't swallow the promise and setLoading(false) fires on time.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
@@ -44,14 +51,22 @@ export function AuthProvider({ children }) {
       } else {
         setProfile(null)
         setProfileLoaded(true)
+        setUsage(null)
       }
       if (event === 'INITIAL_SESSION') setLoading(false)
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
-  // Trigger admin notification on first login (when admin_notified is false)
+  // Load usage once the profile is confirmed active, then poll every 30s
+  useEffect(() => {
+    if (!user || !profile?.is_active) return
+    refreshUsage()
+    const interval = setInterval(refreshUsage, 30000)
+    return () => clearInterval(interval)
+  }, [user?.id, profile?.is_active, refreshUsage])
+
+  // Trigger admin notification on first login
   useEffect(() => {
     if (!user || !profile || profile.admin_notified) return
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -81,7 +96,11 @@ export function AuthProvider({ children }) {
   const isPending = !!user && !!profile && !profile.is_active
 
   return (
-    <AuthContext.Provider value={{ user, profile, profileLoaded, loading, isAdmin, isPending, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signOut, fetchProfile }}>
+    <AuthContext.Provider value={{
+      user, profile, profileLoaded, loading, isAdmin, isPending, usage,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword,
+      signOut, fetchProfile, refreshUsage,
+    }}>
       {children}
     </AuthContext.Provider>
   )

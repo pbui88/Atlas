@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { getMyUsage } from '../../lib/api'
 
 function NavItem({ to, icon, label }) {
   return (
@@ -23,11 +21,7 @@ function NavItem({ to, icon, label }) {
 }
 
 function UsageWidget() {
-  const [usage, setUsage] = useState(null)
-
-  useEffect(() => {
-    getMyUsage().then(setUsage).catch(() => {})
-  }, [])
+  const { usage } = useAuth()
 
   if (!usage) return null
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { collectImages, analyzePoints, geocodePoints, getMyUsage } from '../../lib/api'
+import { collectImages, analyzePoints, geocodePoints } from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
 import { chunkArray } from '../../lib/geo'
 
 const BATCH_SIZE = 8
@@ -22,11 +23,11 @@ function ProgressBar({ label, value, max, color = 'bg-brand-600' }) {
 }
 
 export default function ScanTab({ project, onProjectUpdate }) {
+  const { usage: quota, refreshUsage } = useAuth()
   const [stats,    setStats]   = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
   const [running,  setRunning] = useState(false)
   const [phase,    setPhase]   = useState('')
   const [error,    setError]   = useState(null)
-  const [quota,    setQuota]   = useState(null)
   const [abortRef] = useState({ current: false })
 
   const PHASE_LABEL = {
@@ -52,10 +53,7 @@ export default function ScanTab({ project, onProjectUpdate }) {
     })
   }
 
-  useEffect(() => {
-    fetchStats()
-    getMyUsage().then(setQuota).catch(() => {})
-  }, [project.id])
+  useEffect(() => { fetchStats() }, [project.id])
 
   const runScan = async () => {
     abortRef.current = false
@@ -77,11 +75,12 @@ export default function ScanTab({ project, onProjectUpdate }) {
           if (abortRef.current) break
           try {
             await collectImages(project.id, batches[i])
-            await fetchStats()
+            await Promise.all([fetchStats(), refreshUsage()])
           } catch (e) {
             if (e.status === 429) {
               setError(e.message)
               abortRef.current = true
+              refreshUsage()
               break
             }
           }
