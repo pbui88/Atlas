@@ -157,41 +157,36 @@ async function processPoint(pt, projectId, userId, supabase) {
         totalCost += 0.007   // metadata call
         imgSource  = 'google'
 
-        // Capture BOTH perpendicular sides so every property facing the road is covered
-        const sides = [
-          { dir: 'R', heading: (roadDir + 90)  % 360 },  // right side of road
-          { dir: 'L', heading: (roadDir + 270) % 360 },  // left side of road
-        ]
+        // Single perpendicular facing the front of properties (+90° from road direction)
+        const heading = (roadDir + 90) % 360
 
-        for (const side of sides) {
-          const cached = await getCachedImage(meta.panoId, 'google', side.dir, supabase)
-          if (cached) {
+        const cached = await getCachedImage(meta.panoId, 'google', 'F', supabase)
+        if (cached) {
+          imagesToStore.push({
+            direction:    'F',
+            heading,
+            panorama_id:  meta.panoId,
+            image_source: 'google',
+            storage_path: cached.storage_path,
+            storage_url:  cached.storage_url,
+            image_hash:   cached.image_hash,
+            size_bytes:   cached.size_bytes,
+            cacheHit:     true,
+          })
+        } else {
+          const buffer = await downloadGoogleImage(lat, lng, heading)   // $0.007
+          if (buffer) {
+            totalCost += 0.007
             imagesToStore.push({
-              direction:    side.dir,
-              heading:      side.heading,
+              direction:    'F',
+              heading,
               panorama_id:  meta.panoId,
               image_source: 'google',
-              storage_path: cached.storage_path,
-              storage_url:  cached.storage_url,
-              image_hash:   cached.image_hash,
-              size_bytes:   cached.size_bytes,
-              cacheHit:     true,
+              image_hash:   crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
+              size_bytes:   buffer.byteLength,
+              _buffer:      buffer,
+              cacheHit:     false,
             })
-          } else {
-            const buffer = await downloadGoogleImage(lat, lng, side.heading)   // $0.007
-            if (buffer) {
-              totalCost += 0.007
-              imagesToStore.push({
-                direction:    side.dir,
-                heading:      side.heading,
-                panorama_id:  meta.panoId,
-                image_source: 'google',
-                image_hash:   crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
-                size_bytes:   buffer.byteLength,
-                _buffer:      buffer,
-                cacheHit:     false,
-              })
-            }
           }
         }
       }
