@@ -7,7 +7,6 @@ import AppLayout           from './components/Layout/AppLayout'
 import Dashboard           from './components/Dashboard/index'
 import ProjectPage         from './components/Project/index'
 import AdminPanel          from './components/Admin/index'
-import SettingsPage        from './components/Settings/index'
 
 function Spinner() {
   return (
@@ -53,10 +52,6 @@ export default function App() {
           <Route path="/admin" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
             <Route index element={<AdminPanel />} />
           </Route>
-          <Route path="/settings" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
-            <Route index element={<SettingsPage />} />
-          </Route>
-
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

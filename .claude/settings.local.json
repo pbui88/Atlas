@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(fullstack-dev-skills:test-master)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:streetlevel.readthedocs.io)"
+    ]
+  }
+}
