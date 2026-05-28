@@ -32,29 +32,66 @@ function UsageWidget() {
   if (!usage) return null
 
   const { used, limit, remaining, cycleStart } = usage
-  const pct       = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
-  const over       = pct >= 90
-  const daysLeft   = Math.max(0, 30 - Math.floor((Date.now() - new Date(cycleStart).getTime()) / (1000 * 60 * 60 * 24)))
+  const pct      = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+  const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(cycleStart).getTime()) / (1000 * 60 * 60 * 24)))
+  const blocked  = remaining <= 0
+  const critical = !blocked && pct >= 90
+  const warning  = !blocked && !critical && pct >= 75
+
+  const barColor   = blocked || critical ? 'bg-red-500' : warning ? 'bg-amber-400' : 'bg-brand-500'
+  const labelColor = blocked ? 'text-red-400' : critical ? 'text-red-400' : warning ? 'text-amber-400' : 'text-slate-300'
+  const borderColor = blocked ? 'border-red-500/30' : critical ? 'border-red-500/20' : warning ? 'border-amber-500/20' : 'border-slate-800'
+  const bgColor     = blocked ? 'bg-red-500/5' : 'bg-slate-900'
 
   return (
     <div className="px-3 pb-3">
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+      <div className={`${bgColor} border ${borderColor} rounded-lg p-3`}>
+
+        {/* Header */}
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-slate-400">Points used</span>
-          <span className={`text-xs font-semibold ${over ? 'text-red-400' : 'text-slate-300'}`}>
-            {used.toLocaleString()} / {limit.toLocaleString()}
+          <span className="text-xs font-medium text-slate-400">Monthly quota</span>
+          <span className={`text-xs font-bold ${labelColor}`}>
+            {pct}%
           </span>
         </div>
+
+        {/* Bar */}
         <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden mb-2">
           <div
-            className={`h-full rounded-full transition-all ${over ? 'bg-red-500' : 'bg-brand-500'}`}
+            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-600">{remaining.toLocaleString()} remaining</span>
-          <span className="text-xs text-slate-600">Resets in {daysLeft}d</span>
+
+        {/* Stats row */}
+        <div className="flex items-center justify-between mb-2">
+          <span className={`text-xs font-semibold ${labelColor}`}>
+            {used.toLocaleString()} <span className="font-normal text-slate-600">/ {limit.toLocaleString()}</span>
+          </span>
+          <span className="text-xs text-slate-600">↺ {daysLeft}d</span>
         </div>
+
+        {/* Enforcement status */}
+        {blocked ? (
+          <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
+            <span className="w-1.5 h-1.5 bg-red-400 rounded-full shrink-0" />
+            <span className="text-xs text-red-400 font-medium">Quota reached — scans blocked</span>
+          </div>
+        ) : critical ? (
+          <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
+            <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse shrink-0" />
+            <span className="text-xs text-red-400 font-medium">{remaining.toLocaleString()} pts remaining</span>
+          </div>
+        ) : warning ? (
+          <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse shrink-0" />
+            <span className="text-xs text-amber-400 font-medium">{remaining.toLocaleString()} pts remaining</span>
+          </div>
+        ) : (
+          <div className="text-xs text-slate-600">
+            {remaining.toLocaleString()} pts remaining
+          </div>
+        )}
       </div>
     </div>
   )
