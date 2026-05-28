@@ -2,17 +2,16 @@ import crypto from 'crypto'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
-const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
-const CAP          = 20
+const CAP = 20
 
-// Fetch the user's own Google Maps key (BYOK), fall back to platform key
+// Fetch the user's own Google Maps key — no platform fallback
 async function resolveApiKey(userId, supabase) {
   const { data } = await supabase
     .from('user_keys')
     .select('google_maps_key')
     .eq('user_id', userId)
     .maybeSingle()
-  return data?.google_maps_key || PLATFORM_KEY
+  return data?.google_maps_key || null
 }
 
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
@@ -108,9 +107,9 @@ export const handler = async (event) => {
 
   const supabase = adminSupabase()
 
-  // Resolve API key: user's own key (BYOK) or platform key
+  // Require user's own Google Maps key — no platform fallback
   const apiKey = await resolveApiKey(user.id, supabase)
-  if (!apiKey) return err('No Google Maps API key configured. Add your key in Settings.', 503)
+  if (!apiKey) return err('No Google Maps API key configured. Contact your admin to set up your key.', 503)
 
   const { remaining, used, limit } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {

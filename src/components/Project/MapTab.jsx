@@ -3,6 +3,7 @@ import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/a
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost } from '../../lib/geo'
 import { scoreColor } from '../../lib/geo'
+import { useAuth } from '../../context/AuthContext'
 
 const MAP_STYLE = [
   // Base
@@ -52,6 +53,8 @@ const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const SPACING = 40
+  const { usage } = useAuth()
+  const noKeyBlocked = usage !== null && !usage?.has_own_key
 
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
@@ -435,14 +438,19 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
         {/* Run button */}
         <div className="p-4 border-t border-slate-200 space-y-2">
-          {scanPoints?.length > 0 && !generating && (
+          {noKeyBlocked && (
+            <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+              No Google Maps API key — contact admin
+            </p>
+          )}
+          {scanPoints?.length > 0 && !generating && !noKeyBlocked && (
             <p className="text-xs text-center text-slate-400">
               {scanPoints.length.toLocaleString()} points from previous scan — re-draw to run again
             </p>
           )}
           <button
             onClick={handleGenerate}
-            disabled={!polygon || generating}
+            disabled={!polygon || generating || noKeyBlocked}
             className="btn-primary w-full"
           >
             {generating ? (

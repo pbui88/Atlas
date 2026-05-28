@@ -140,8 +140,9 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
   const pause = () => { abortRef.current = true }
 
-  const quotaBlocked = quota !== null && quota.remaining <= 0
-  const canStart     = stats.total > 0 && !running && !quotaBlocked
+  const quotaBlocked  = quota !== null && quota.remaining <= 0
+  const noKeyBlocked  = quota !== null && !quota.has_own_key
+  const canStart      = stats.total > 0 && !running && !quotaBlocked && !noKeyBlocked
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -166,6 +167,13 @@ export default function ScanTab({ project, onProjectUpdate }) {
               </svg>
               Pause
             </button>
+          ) : noKeyBlocked ? (
+            <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+              <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+              </svg>
+              <span className="text-xs font-medium text-amber-700">No API key</span>
+            </div>
           ) : quotaBlocked ? (
             <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
               <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -195,6 +203,21 @@ export default function ScanTab({ project, onProjectUpdate }) {
           </div>
         ) : (
           <div className="max-w-2xl mx-auto space-y-5">
+
+            {/* No API key banner */}
+            {noKeyBlocked && (
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Google Maps API key required</p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Contact your admin to set up a Google Maps API key for your account before running scans.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Quota blocked banner */}
             {quotaBlocked && !error && (

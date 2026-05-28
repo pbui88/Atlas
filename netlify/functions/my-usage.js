@@ -9,6 +9,9 @@ export const handler = async (event) => {
   if (error) return err(error, 401)
 
   const supabase = adminSupabase()
-  const usage    = await getUserUsage(user.id, supabase)
-  return ok(usage)
+  const [usage, keyRow] = await Promise.all([
+    getUserUsage(user.id, supabase),
+    supabase.from('user_keys').select('user_id').eq('user_id', user.id).not('google_maps_key', 'is', null).maybeSingle(),
+  ])
+  return ok({ ...usage, has_own_key: !!keyRow.data })
 }
