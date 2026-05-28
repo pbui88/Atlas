@@ -16,10 +16,9 @@ function Spinner() {
 }
 
 function PrivateRoute({ children, adminOnly = false }) {
-  const { user, profile, loading, isAdmin, isPending } = useAuth()
+  const { user, profileLoaded, loading, isAdmin, isPending } = useAuth()
 
-  // Wait for both auth session and profile to resolve
-  if (loading || (user && profile === null)) return <Spinner />
+  if (loading || (user && !profileLoaded)) return <Spinner />
   if (!user) return <Navigate to="/login" replace />
   if (isPending) return <PendingApprovalPage />
   if (adminOnly && !isAdmin) return <Navigate to="/" replace />
