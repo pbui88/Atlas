@@ -165,9 +165,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setGenerating(true)
     setError(null)
     try {
-      const result = await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING })
-      onPointsGenerated(result)
+      await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING })
       setPreview([])
+      onPointsGenerated({ autoStart: true })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -433,28 +433,29 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           )}
         </div>
 
-        {/* Generate button */}
-        <div className="p-4 border-t border-slate-200">
-          {scanPoints?.length > 0 ? (
-            <div className="text-center">
-              <p className="text-xs text-green-600 font-medium mb-2">
-                {scanPoints.length.toLocaleString()} points generated
-              </p>
-              <p className="text-xs text-slate-500">Select points above, then go to Results to scan.</p>
-            </div>
-          ) : (
-            <button
-              onClick={handleGenerate}
-              disabled={!polygon || generating}
-              className="btn-primary w-full"
-            >
-              {generating ? (
-                <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating…</>
-              ) : (
-                <>Generate {ptCount > 0 ? `${ptCount.toLocaleString()} ` : ''}Points</>
-              )}
-            </button>
+        {/* Run button */}
+        <div className="p-4 border-t border-slate-200 space-y-2">
+          {scanPoints?.length > 0 && !generating && (
+            <p className="text-xs text-center text-slate-400">
+              {scanPoints.length.toLocaleString()} points from previous scan — re-draw to run again
+            </p>
           )}
+          <button
+            onClick={handleGenerate}
+            disabled={!polygon || generating}
+            className="btn-primary w-full"
+          >
+            {generating ? (
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating points…</>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+                </svg>
+                {scanPoints?.length > 0 ? 'Re-run Scan' : 'Run'}
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>

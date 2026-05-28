@@ -95,7 +95,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
   )
 }
 
-export default function ResultsTab({ project, onProjectUpdate }) {
+export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
   const [resLoading, setResLoading] = useState(true)
@@ -109,10 +109,12 @@ export default function ResultsTab({ project, onProjectUpdate }) {
   const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
-  const [stats,    setStats]   = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
-  const [running,  setRunning] = useState(false)
-  const [phase,    setPhase]   = useState('')
-  const [abortRef] = useState({ current: false })
+  const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
+  const [running,    setRunning]    = useState(false)
+  const [phase,      setPhase]      = useState('')
+  const [scanError,  setScanError]  = useState(null)
+  const [abortRef]   = useState({ current: false })
+  const autoStarted  = useRef(false)
 
   // ── Data fetching ──────────────────────────────────────────
   const fetchStats = async () => {
@@ -145,6 +147,16 @@ export default function ResultsTab({ project, onProjectUpdate }) {
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
+  // Auto-start scan when triggered from Map tab "Run" button
+  useEffect(() => {
+    if (!autoStart || autoStarted.current) return
+    autoStarted.current = true
+    onAutoStartConsumed?.()
+    // Small delay to let fetchStats complete first
+    const t = setTimeout(() => runScan(), 300)
+    return () => clearTimeout(t)
+  }, [autoStart])
+
   // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
     if (!selected) { setSelImages([]); return }
@@ -157,6 +169,7 @@ export default function ResultsTab({ project, onProjectUpdate }) {
   // ── Scan logic ─────────────────────────────────────────────
   const runScan = async () => {
     abortRef.current = false
+    setScanError(null)
     setRunning(true)
 
     // ── Phase 1: Collect Street View images ────────────────────
@@ -166,13 +179,20 @@ export default function ResultsTab({ project, onProjectUpdate }) {
         .eq('project_id', project.id).in('status', ['pending', 'failed'])
       if (pending?.length) {
         const chunks = chunkArray(pending.map(p => p.id), COLLECT_BATCH)
+        let quotaHit = false
         for (let i = 0; i < chunks.length; i += COLLECT_CONCUR) {
-          if (abortRef.current) break
-          await Promise.allSettled(
-            chunks.slice(i, i + COLLECT_CONCUR).map(batch =>
-              collectImages(project.id, batch).catch(() => {})
-            )
+          if (abortRef.current || quotaHit) break
+          const results = await Promise.allSettled(
+            chunks.slice(i, i + COLLECT_CONCUR).map(batch => collectImages(project.id, batch))
           )
+          for (const r of results) {
+            if (r.status === 'rejected' && r.reason?.status === 429) {
+              setScanError(r.reason.message)
+              abortRef.current = true
+              quotaHit = true
+              break
+            }
+          }
           await fetchStats()
         }
       }
@@ -375,6 +395,9 @@ export default function ResultsTab({ project, onProjectUpdate }) {
             {running && phase && (
               <p className="text-[11px] text-brand-600 mt-0.5 truncate">{PHASE_LABEL[phase]}</p>
             )}
+            {scanError && !running && (
+              <p className="text-[11px] text-red-500 mt-0.5 truncate">Quota reached — scan stopped</p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {running && <span className="w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />}
@@ -387,7 +410,7 @@ export default function ResultsTab({ project, onProjectUpdate }) {
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
                 </svg>
-                AI Driving
+                Run Scan
               </button>
             )}
           </div>
