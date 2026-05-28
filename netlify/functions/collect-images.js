@@ -5,26 +5,6 @@ import { getUserUsage } from './utils/usage.js'
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_KEY
 const CAP        = 20
 
-// Compass bearing (0–360°) from point A → point B
-function bearingTo(lat1, lng1, lat2, lng2) {
-  const R = Math.PI / 180
-  const y = Math.sin((lng2 - lng1) * R) * Math.cos(lat2 * R)
-  const x = Math.cos(lat1 * R) * Math.sin(lat2 * R)
-          - Math.sin(lat1 * R) * Math.cos(lat2 * R) * Math.cos((lng2 - lng1) * R)
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
-}
-
-async function fetchGoogleMetadata(lat, lng) {
-  const res  = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`)
-  const meta = await res.json()
-  if (meta.status !== 'OK') return null
-  return {
-    panoLat:     meta.location?.lat ?? lat,
-    panoLng:     meta.location?.lng ?? lng,
-    roadHeading: meta.heading ?? 0,
-  }
-}
-
 async function downloadGoogleImage(lat, lng, heading) {
   const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${GOOGLE_KEY}`
   const res = await fetch(url)
@@ -34,31 +14,20 @@ async function downloadGoogleImage(lat, lng, heading) {
 }
 
 async function processPoint(pt, projectId, userId, supabase) {
-  const { id: pointId, lat, lng } = pt
+  const { id: pointId, lat, lng, road_bearing } = pt
 
   try {
     if (!GOOGLE_KEY) return { pointId, status: 'error', error: 'GOOGLE_MAPS_KEY not configured' }
 
-    // Metadata — get panorama location for accurate road direction ($0.007)
-    const meta = await fetchGoogleMetadata(lat, lng)
-    if (!meta) {
-      await supabase.from('scan_points')
-        .update({ status: 'no_coverage', updated_at: new Date().toISOString() })
-        .eq('id', pointId)
-      return { pointId, status: 'no_coverage' }
-    }
-
-    // Exact road direction from panorama position → scan point, then rotate 90°
-    // perpendicular to face properties across the street.
-    const dist    = Math.hypot((meta.panoLat - lat) * 111320, (meta.panoLng - lng) * 111320)
-    const roadDir = dist > 3 ? bearingTo(meta.panoLat, meta.panoLng, lat, lng) : meta.roadHeading
-    const heading = (roadDir + 90) % 360
+    // Road bearing stored at generation time from OSM geometry.
+    // Rotate 90° perpendicular to face properties across the street.
+    const heading = ((road_bearing ?? 0) + 90) % 360
 
     await supabase.from('scan_points')
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    // Download image ($0.007)
+    // Single API call: image download only ($0.007)
     const buffer = await downloadGoogleImage(lat, lng, heading)
     if (!buffer) {
       await supabase.from('scan_points')
@@ -67,7 +36,6 @@ async function processPoint(pt, projectId, userId, supabase) {
       return { pointId, status: 'no_coverage' }
     }
 
-    // Upload to storage
     const storagePath = `${projectId}/${pointId}/F.jpg`
     const { error: upErr } = await supabase.storage
       .from('street-view-images')
@@ -102,7 +70,7 @@ async function processPoint(pt, projectId, userId, supabase) {
       service:  'street_view',
       action:   'image_download',
       count:    1,
-      cost_usd: 0.014,
+      cost_usd: 0.007,
       metadata: { projectId, pointId },
     })
 
@@ -141,7 +109,7 @@ export const handler = async (event) => {
 
   const { data: pts } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, project_id')
+    .select('id, lat, lng, road_bearing')
     .in('id', ids)
 
   if (!pts?.length) return ok({ results: [] })

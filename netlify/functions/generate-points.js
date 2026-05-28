@@ -2,6 +2,15 @@ import * as turf from '@turf/turf'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
+// Compass bearing (0–360°) from point A → point B
+function bearingBetween(lat1, lng1, lat2, lng2) {
+  const R = Math.PI / 180
+  const y = Math.sin((lng2 - lng1) * R) * Math.cos(lat2 * R)
+  const x = Math.cos(lat1 * R) * Math.sin(lat2 * R)
+          - Math.sin(lat1 * R) * Math.cos(lat2 * R) * Math.cos((lng2 - lng1) * R)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
 async function getRoadsFromOSM(polygonGeoJson) {
   const [west, south, east, north] = turf.bbox(polygonGeoJson)
   const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street|service|unclassified|road|trunk)$"](${south},${west},${north},${east});(._;>;);out body;`
@@ -32,17 +41,33 @@ function sampleRoadPoints(roads, polygon, spacingMeters) {
   const spacingKm = spacingMeters / 1000
   const seen      = new Set()
   const points    = []
+
   for (const road of roads) {
     if (!turf.booleanIntersects(road, polygon)) continue
+
     const len   = turf.length(road, { units: 'kilometers' })
     const steps = Math.max(1, Math.floor(len / spacingKm))
+
     for (let i = 0; i <= steps; i++) {
-      const pt = turf.along(road, (i / steps) * len, { units: 'kilometers' })
+      const pos = (i / steps) * len
+      const pt  = turf.along(road, pos, { units: 'kilometers' })
       if (!turf.booleanPointInPolygon(pt, polygon)) continue
+
       const key = `${pt.geometry.coordinates[0].toFixed(4)},${pt.geometry.coordinates[1].toFixed(4)}`
       if (seen.has(key)) continue
       seen.add(key)
-      points.push({ lat: +pt.geometry.coordinates[1].toFixed(7), lng: +pt.geometry.coordinates[0].toFixed(7) })
+
+      // Compute local road bearing from OSM geometry (5m tangent window)
+      const delta  = 0.005
+      const ptA    = turf.along(road, Math.min(pos + delta, len), { units: 'kilometers' }).geometry.coordinates
+      const ptB    = turf.along(road, Math.max(pos - delta, 0),   { units: 'kilometers' }).geometry.coordinates
+      const bearing = bearingBetween(ptB[1], ptB[0], ptA[1], ptA[0])
+
+      points.push({
+        lat:          +pt.geometry.coordinates[1].toFixed(7),
+        lng:          +pt.geometry.coordinates[0].toFixed(7),
+        road_bearing: +bearing.toFixed(2),
+      })
     }
   }
   return points
@@ -55,8 +80,9 @@ function generateGrid(polygonGeoJson, spacingMeters) {
   return grid.features
     .filter(pt => turf.booleanPointInPolygon(pt, polygonGeoJson))
     .map(pt => ({
-      lat: +pt.geometry.coordinates[1].toFixed(7),
-      lng: +pt.geometry.coordinates[0].toFixed(7),
+      lat:          +pt.geometry.coordinates[1].toFixed(7),
+      lng:          +pt.geometry.coordinates[0].toFixed(7),
+      road_bearing: null,
     }))
 }
 
@@ -113,10 +139,11 @@ export const handler = async (event) => {
   const BATCH = 500
   for (let i = 0; i < points.length; i += BATCH) {
     const batch = points.slice(i, i + BATCH).map(pt => ({
-      project_id: projectId,
-      lat:        pt.lat,
-      lng:        pt.lng,
-      status:     'pending',
+      project_id:   projectId,
+      lat:          pt.lat,
+      lng:          pt.lng,
+      road_bearing: pt.road_bearing,
+      status:       'pending',
     }))
     const { error: insErr } = await supabase.from('scan_points').insert(batch)
     if (insErr) return err(insErr.message)
