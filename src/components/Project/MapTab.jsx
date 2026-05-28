@@ -55,6 +55,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
+  const [scanMode,       setScanMode]       = useState('road')   // 'road' | 'property'
   const [preview,        setPreview]        = useState([])
   const [cost,           setCost]           = useState(null)
   const [propCount,      setPropCount]      = useState(null)
@@ -165,7 +166,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setGenerating(true)
     setError(null)
     try {
-      const result = await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING })
+      const result = await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING }, scanMode)
       onPointsGenerated(result)
       setPreview([])
     } catch (err) {
@@ -376,11 +377,39 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* Point spacing (fixed) */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500">Point spacing</span>
-            <span className="text-xs font-semibold text-slate-700">40 m</span>
+          {/* Scan mode toggle */}
+          <div>
+            <p className="text-xs text-slate-500 mb-1.5">Scan mode</p>
+            <div className="flex gap-1 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
+              {[
+                { value: 'road',     label: 'Road-based' },
+                { value: 'property', label: 'Per property' },
+              ].map(m => (
+                <button
+                  key={m.value}
+                  onClick={() => setScanMode(m.value)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition ${
+                    scanMode === m.value
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {scanMode === 'property' && (
+              <p className="text-xs text-slate-400 mt-1">One scan point per building from OSM data.</p>
+            )}
           </div>
+
+          {/* Point spacing (road mode only) */}
+          {scanMode === 'road' && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-500">Point spacing</span>
+              <span className="text-xs font-semibold text-slate-700">40 m</span>
+            </div>
+          )}
 
           {/* Property count */}
           {polygon && (

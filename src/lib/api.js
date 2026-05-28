@@ -36,8 +36,8 @@ export const updateProject    = (id, body) => call(`projects?id=${id}`, 'PATCH',
 export const deleteProject    = (id)       => call(`projects?id=${id}`, 'DELETE')
 
 // ── Point Generation ────────────────────────────────────────
-export const generatePoints   = (projectId, body) =>
-  call(`generate-points?projectId=${projectId}`, 'POST', body)
+export const generatePoints   = (projectId, body, scanMode = 'road') =>
+  call(`generate-points?projectId=${projectId}`, 'POST', { ...body, scanMode })
 
 // ── Image Collection (batch of point IDs) ───────────────────
 export const collectImages    = (projectId, pointIds) =>
