@@ -147,15 +147,16 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
-  // Auto-start scan when triggered from Map tab "Run" button
+  // Auto-start scan when triggered from Map tab "Run" button.
+  // Empty deps so this runs only on mount — avoids the useEffect cleanup
+  // cancelling the timer when onAutoStartConsumed() resets the prop.
   useEffect(() => {
-    if (!autoStart || autoStarted.current) return
-    autoStarted.current = true
-    onAutoStartConsumed?.()
-    // Small delay to let fetchStats complete first
-    const t = setTimeout(() => runScan(), 500)
-    return () => clearTimeout(t)
-  }, [autoStart])
+    if (!autoStart) return
+    onAutoStartConsumed?.()          // reset parent flag so re-visits don't re-trigger
+    const t = setTimeout(runScan, 500)  // give DB 500ms to commit new points
+    return () => clearTimeout(t)    // cancel only on unmount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
