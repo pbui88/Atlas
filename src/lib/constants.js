@@ -62,12 +62,11 @@ export const DIRECTIONS = [
   { label: 'W', heading: 270 },
 ]
 
-// Image sourcing: Mapillary (free, primary) → Google Street View Static API (fallback, $7/1k).
-// AI cost is ~$0.00025/point on Gemini 2.5-flash-lite, further reduced by hash cache.
+// Image sourcing: Google Street View Static API ($7/1k metadata + $7/1k image = $14/1k points).
+// AI cost is ~$0.0002/point on Gemini 2.5-flash-lite.
 export const API_COSTS = {
-  streetViewPer1k:     7,      // Google Street View Static API fallback ($7 per 1,000 images)
-  mapillaryHitRate:    0.70,   // share of points served by Mapillary (vs Google fallback)
-  geocodingPer1k:      0,
-  aiPerPoint:          0.00025,
-  analysisCacheHitRate: 0.20,  // share of analyses served from hash cache
+  streetViewPer1k:      14,     // $0.007 metadata + $0.007 image = $0.014/point
+  geocodingPer1k:       0,
+  aiPerPoint:           0.0002,
+  analysisCacheHitRate: 0.20,
 }

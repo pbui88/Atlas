@@ -138,7 +138,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const count = scanPoints?.length > 0
       ? scanPoints.length
       : (preview.length || generateGridPoints(polygon, SPACING).length)
-    setCost(estimateCost(count, 1))
+    setCost(estimateCost(count))
   }, [polygon, preview, scanPoints])
 
   const handleGenerate = async () => {
@@ -389,7 +389,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
               </div>
               <p className="text-xs text-slate-400 pt-1">
-                Images via Mapillary (free) with Google Street View fallback
+                Images via Google Street View ($0.014/point)
               </p>
             </div>
           )}
