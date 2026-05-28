@@ -17,17 +17,24 @@ export const handler = async (event) => {
       .select('*')
       .order('created_at', { ascending: false })
 
-    // Sum completed_points from projects per user (last 30 days).
-    // More reliable than usage_logs which may be sparse on older scans.
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const { data: projects } = await supabase
-      .from('projects')
-      .select('user_id, completed_points')
-      .gte('created_at', since)
-
+    // Count image download log entries per user using each user's cycle window —
+    // identical logic to getUserUsage() so admin matches the sidebar exactly.
     const usageByUser = {}
-    for (const proj of projects || []) {
-      usageByUser[proj.user_id] = (usageByUser[proj.user_id] || 0) + (proj.completed_points || 0)
+    for (const p of profiles || []) {
+      const anchor  = new Date(p.cycle_anchor_date ?? p.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10))
+      anchor.setUTCHours(0, 0, 0, 0)
+      const elapsed = Math.floor((Date.now() - anchor.getTime()) / (30 * 24 * 60 * 60 * 1000))
+      const cycleStart = new Date(anchor)
+      cycleStart.setUTCDate(cycleStart.getUTCDate() + elapsed * 30)
+
+      const { count } = await supabase
+        .from('usage_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', p.id)
+        .in('service', ['street_view', 'mapillary'])
+        .gte('created_at', cycleStart.toISOString())
+
+      usageByUser[p.id] = count ?? 0
     }
 
     const users = (profiles || []).map(p => ({
