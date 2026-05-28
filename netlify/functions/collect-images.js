@@ -49,14 +49,11 @@ async function processPoint(pt, projectId, userId, supabase) {
       return { pointId, status: 'no_coverage' }
     }
 
-    // Property mode (scan point is a building, off-road, dist > 8m):
-    //   direct bearing from pano → property already faces the front door.
-    // Road mode (scan point is on the road, dist ≤ 8m):
-    //   rotate 90° perpendicular to face properties across the street.
+    // Exact road direction from panorama position → scan point, then rotate 90°
+    // perpendicular to face properties across the street.
     const dist    = Math.hypot((meta.panoLat - lat) * 111320, (meta.panoLng - lng) * 111320)
-    const heading = dist > 8
-      ? bearingTo(meta.panoLat, meta.panoLng, lat, lng)
-      : ((dist > 3 ? bearingTo(meta.panoLat, meta.panoLng, lat, lng) : meta.roadHeading) + 90) % 360
+    const roadDir = dist > 3 ? bearingTo(meta.panoLat, meta.panoLng, lat, lng) : meta.roadHeading
+    const heading = (roadDir + 90) % 360
 
     await supabase.from('scan_points')
       .update({ status: 'downloading', updated_at: new Date().toISOString() })

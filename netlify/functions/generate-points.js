@@ -2,48 +2,6 @@ import * as turf from '@turf/turf'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
-// ── Property-based points (one per building / address) ───────────────────────
-
-async function getPropertyPoints(polygonGeoJson) {
-  const coords  = polygonGeoJson.coordinates[0]
-  const polyStr = coords.map(([lng, lat]) => `${lat} ${lng}`).join(' ')
-
-  // Query buildings and addressed nodes within the polygon
-  const query = `[out:json][timeout:25];(way[building](poly:"${polyStr}");node["addr:housenumber"](poly:"${polyStr}"););out center;`
-
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    `data=${encodeURIComponent(query)}`,
-  })
-  if (!res.ok) throw new Error(`Overpass API error: ${res.status}`)
-  const data = await res.json()
-
-  const seen   = new Set()
-  const points = []
-
-  for (const el of data.elements || []) {
-    // Ways return a center; nodes return lat/lng directly
-    const lat = el.center?.lat ?? el.lat
-    const lng = el.center?.lon ?? el.lon
-    if (!lat || !lng) continue
-
-    // Deduplicate by ~5m grid
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-
-    const pt = turf.point([lng, lat])
-    if (!turf.booleanPointInPolygon(pt, polygonGeoJson)) continue
-
-    points.push({ lat: +lat.toFixed(7), lng: +lng.toFixed(7) })
-  }
-
-  return points
-}
-
-// ── Road-based points (sampled along centerlines) ────────────────────────────
-
 async function getRoadsFromOSM(polygonGeoJson) {
   const [west, south, east, north] = turf.bbox(polygonGeoJson)
   const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street|service|unclassified|road|trunk)$"](${south},${west},${north},${east});(._;>;);out body;`
@@ -102,8 +60,6 @@ function generateGrid(polygonGeoJson, spacingMeters) {
     }))
 }
 
-// ── Handler ──────────────────────────────────────────────────────────────────
-
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
@@ -114,7 +70,7 @@ export const handler = async (event) => {
   const projectId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('projectId')
   if (!projectId) return err('projectId required')
 
-  const { geojson, spacingMeters = 50, scanMode = 'road' } = JSON.parse(event.body || '{}')
+  const { geojson, spacingMeters = 50 } = JSON.parse(event.body || '{}')
   if (!geojson?.coordinates) return err('geojson polygon required')
 
   const supabase       = adminSupabase()
@@ -128,35 +84,21 @@ export const handler = async (event) => {
     .single()
   if (!project) return err('Project not found', 404)
 
-  let points = []
-  let method = scanMode
-
-  if (scanMode === 'property') {
-    // One scan point per building / addressed property
-    try {
-      points = await getPropertyPoints(geojson)
-      if (points.length === 0) {
-        return err('No properties found in this area. OSM may not have building data here — try Road mode instead.')
-      }
-    } catch (e) {
-      return err(`Property scan failed: ${e.message}`)
-    }
-  } else {
-    // Road-centerline sampling with grid fallback
-    try {
-      const osm   = await getRoadsFromOSM(geojson)
-      const roads = buildRoadLines(osm)
-      points      = sampleRoadPoints(roads, geojson, clampedSpacing)
-      if (points.length === 0) throw new Error('No roads found inside polygon')
-    } catch (e) {
-      console.warn('Road-based generation failed, falling back to grid:', e.message)
-      points = generateGrid(geojson, clampedSpacing)
-      method = 'grid'
-    }
+  let points
+  let method = 'road'
+  try {
+    const osm   = await getRoadsFromOSM(geojson)
+    const roads = buildRoadLines(osm)
+    points      = sampleRoadPoints(roads, geojson, clampedSpacing)
+    if (points.length === 0) throw new Error('No roads found inside polygon')
+  } catch (e) {
+    console.warn('Road-based generation failed, falling back to grid:', e.message)
+    points = generateGrid(geojson, clampedSpacing)
+    method = 'grid'
   }
 
   if (points.length === 0) return err('No points generated — polygon may be too small')
-  if (points.length > 10000) return err(`Too many points (${points.length}). Reduce the area.`)
+  if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
 
   const { used, limit, remaining } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {
@@ -171,11 +113,10 @@ export const handler = async (event) => {
   const BATCH = 500
   for (let i = 0; i < points.length; i += BATCH) {
     const batch = points.slice(i, i + BATCH).map(pt => ({
-      project_id:  projectId,
-      lat:         pt.lat,
-      lng:         pt.lng,
-      road_snapped: scanMode !== 'property',
-      status:      'pending',
+      project_id: projectId,
+      lat:        pt.lat,
+      lng:        pt.lng,
+      status:     'pending',
     }))
     const { error: insErr } = await supabase.from('scan_points').insert(batch)
     if (insErr) return err(insErr.message)
