@@ -55,6 +55,9 @@ export const geocodePoints    = (projectId, pointIds) =>
 export const exportProject    = (projectId, format, filters = {}) =>
   call('export-project', 'POST', { projectId, format, filters })
 
+// ── Usage (current user) ─────────────────────────────────────
+export const getMyUsage = () => call('my-usage')
+
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })
