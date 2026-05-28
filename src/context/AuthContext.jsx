@@ -3,6 +3,17 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
+async function triggerAdminNotify(token) {
+  try {
+    await fetch('/.netlify/functions/notify-admin', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    // non-critical — ignore failures
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null)
   const [profile, setProfile] = useState(null)
@@ -15,15 +26,23 @@ export function AuthProvider({ children }) {
       .eq('id', userId)
       .maybeSingle()
     setProfile(data)
+    return data
   }
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      else setProfile(null)
-      // INITIAL_SESSION fires after Supabase processes the URL hash (OAuth tokens)
-      // Only clear loading after that, so React Router doesn't wipe the hash first
+
+      if (session?.user) {
+        const profile = await fetchProfile(session.user.id)
+        // First login: notify admin if not yet notified
+        if (profile && !profile.admin_notified) {
+          triggerAdminNotify(session.access_token)
+        }
+      } else {
+        setProfile(null)
+      }
+
       if (event === 'INITIAL_SESSION') setLoading(false)
     })
 
@@ -42,10 +61,11 @@ export function AuthProvider({ children }) {
 
   const signOut = () => supabase.auth.signOut()
 
-  const isAdmin = profile?.role === 'admin'
+  const isAdmin   = profile?.role === 'admin'
+  const isPending = !!user && !!profile && !profile.is_active
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isAdmin, signInWithGoogle, signOut, fetchProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, isAdmin, isPending, signInWithGoogle, signOut, fetchProfile }}>
       {children}
     </AuthContext.Provider>
   )

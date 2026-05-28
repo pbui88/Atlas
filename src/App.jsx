@@ -1,10 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import LoginPage   from './components/Auth/LoginPage'
-import AppLayout   from './components/Layout/AppLayout'
-import Dashboard   from './components/Dashboard/index'
-import ProjectPage from './components/Project/index'
-import AdminPanel  from './components/Admin/index'
+import LoginPage           from './components/Auth/LoginPage'
+import PendingApprovalPage from './components/Auth/PendingApprovalPage'
+import AppLayout           from './components/Layout/AppLayout'
+import Dashboard           from './components/Dashboard/index'
+import ProjectPage         from './components/Project/index'
+import AdminPanel          from './components/Admin/index'
 
 function Spinner() {
   return (
@@ -15,9 +16,12 @@ function Spinner() {
 }
 
 function PrivateRoute({ children, adminOnly = false }) {
-  const { user, loading, isAdmin } = useAuth()
-  if (loading) return <Spinner />
-  if (!user)   return <Navigate to="/login" replace />
+  const { user, profile, loading, isAdmin, isPending } = useAuth()
+
+  // Wait for both auth session and profile to resolve
+  if (loading || (user && profile === null)) return <Spinner />
+  if (!user) return <Navigate to="/login" replace />
+  if (isPending) return <PendingApprovalPage />
   if (adminOnly && !isAdmin) return <Navigate to="/" replace />
   return children
 }

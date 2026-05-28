@@ -169,6 +169,19 @@ export default function AdminPanel() {
         </button>
       </div>
 
+      {/* Pending activation banner */}
+      {users.filter(u => !u.is_active).length > 0 && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+          <span className="w-2.5 h-2.5 bg-amber-400 rounded-full animate-pulse shrink-0" />
+          <p className="text-sm text-amber-800 font-medium">
+            {users.filter(u => !u.is_active).length} user{users.filter(u => !u.is_active).length > 1 ? 's' : ''} waiting for activation
+          </p>
+          <button onClick={() => setTab('users')} className="ml-auto text-xs text-amber-700 underline underline-offset-2 hover:text-amber-900">
+            Review
+          </button>
+        </div>
+      )}
+
       {/* Stats */}
       {usage && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -216,7 +229,7 @@ export default function AdminPanel() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {users.map(user => (
-                <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                <tr key={user.id} className={`transition-colors ${!user.is_active ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-slate-50'}`}>
                   <td className="px-4 py-3">
                     <div>
                       <p className="font-semibold text-slate-900">{user.full_name || '—'}</p>
@@ -229,7 +242,10 @@ export default function AdminPanel() {
                   <td className="px-4 py-3">
                     {user.is_active
                       ? <span className="badge-green">Active</span>
-                      : <span className="badge-red">Suspended</span>}
+                      : <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                          <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+                          Pending
+                        </span>}
                   </td>
                   <td className="px-4 py-3 min-w-[140px]">
                     <UsageBar
