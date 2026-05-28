@@ -20,12 +20,26 @@ function estimateRoadBearing(angles) {
 
 // ── Google Street View ───────────────────────────────────────────────────────
 
+// Compass bearing (0–360°) from point A → point B
+function bearingTo(lat1, lng1, lat2, lng2) {
+  const R = Math.PI / 180
+  const y = Math.sin((lng2 - lng1) * R) * Math.cos(lat2 * R)
+  const x = Math.cos(lat1 * R) * Math.sin(lat2 * R)
+          - Math.sin(lat1 * R) * Math.cos(lat2 * R) * Math.cos((lng2 - lng1) * R)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
 async function fetchGoogleMetadata(lat, lng) {
   if (!GOOGLE_KEY) return null
   const res  = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`)
   const meta = await res.json()
   if (meta.status !== 'OK') return null
-  return { panoId: meta.pano_id || null, roadHeading: meta.heading ?? 0 }
+  return {
+    panoId:      meta.pano_id || null,
+    roadHeading: meta.heading ?? 0,
+    panoLat:     meta.location?.lat ?? lat,
+    panoLng:     meta.location?.lng ?? lng,
+  }
 }
 
 async function downloadGoogleImage(lat, lng, heading) {
@@ -135,7 +149,15 @@ async function processPoint(pt, projectId, userId, supabase) {
       const meta = await fetchGoogleMetadata(lat, lng)  // $0.007
       if (meta) {
         roadBearing = meta.roadHeading
-        const heading = (meta.roadHeading + 90) % 360
+
+        // Compute the exact road direction from the panorama's actual position
+        // toward the scan point (both are on the road centerline). Fall back to
+        // meta.roadHeading if the panorama is essentially co-located with the scan point.
+        const dist    = Math.hypot((meta.panoLat - lat) * 111320, (meta.panoLng - lng) * 111320)
+        const roadDir = dist > 3 ? bearingTo(meta.panoLat, meta.panoLng, lat, lng) : meta.roadHeading
+
+        // Rotate exactly 90° perpendicular to the road — facing directly at the property
+        const heading = (roadDir + 90) % 360
 
         // Check shared pano cache — skips the $0.007 image download on hit
         const cached = meta.panoId ? await getCachedImage(meta.panoId, 'google', supabase) : null
