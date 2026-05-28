@@ -19,9 +19,8 @@ async function fetchGoogleMetadata(lat, lng) {
   const meta = await res.json()
   if (meta.status !== 'OK') return null
   return {
-    panoId:   meta.pano_id || null,
-    panoLat:  meta.location?.lat ?? lat,
-    panoLng:  meta.location?.lng ?? lng,
+    panoLat:     meta.location?.lat ?? lat,
+    panoLng:     meta.location?.lng ?? lng,
     roadHeading: meta.heading ?? 0,
   }
 }
@@ -89,7 +88,6 @@ async function processPoint(pt, projectId, userId, supabase) {
       heading,
       storage_path:  storagePath,
       storage_url:   publicUrl,
-      panorama_id:   meta.panoId,
       image_hash:    crypto.createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
       image_source:  'google',
       size_bytes:    buffer.byteLength,
