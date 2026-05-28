@@ -25,7 +25,11 @@ async function call(fn, method = 'GET', body = null) {
     throw new Error('Session expired. Please sign in again.')
   }
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
+  if (!res.ok) {
+    const e = new Error(data.error || `Request failed (${res.status})`)
+    e.status = res.status
+    throw e
+  }
   return data
 }
 

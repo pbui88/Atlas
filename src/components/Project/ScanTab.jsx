@@ -25,6 +25,7 @@ export default function ScanTab({ project, onProjectUpdate }) {
   const [stats,    setStats]   = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
   const [running,  setRunning] = useState(false)
   const [phase,    setPhase]   = useState('')
+  const [error,    setError]   = useState(null)
   const [abortRef] = useState({ current: false })
 
   const PHASE_LABEL = {
@@ -54,6 +55,7 @@ export default function ScanTab({ project, onProjectUpdate }) {
 
   const runScan = async () => {
     abortRef.current = false
+    setError(null)
     setRunning(true)
 
     // Phase 1: collect images
@@ -69,7 +71,16 @@ export default function ScanTab({ project, onProjectUpdate }) {
         const batches = chunkArray(pendingPoints.map(p => p.id), BATCH_SIZE)
         for (let i = 0; i < batches.length; i++) {
           if (abortRef.current) break
-          try { await collectImages(project.id, batches[i]); await fetchStats() } catch { /* continue */ }
+          try {
+            await collectImages(project.id, batches[i])
+            await fetchStats()
+          } catch (e) {
+            if (e.status === 429) {
+              setError(e.message)
+              abortRef.current = true
+              break
+            }
+          }
         }
       }
     } catch { /* continue */ }
@@ -173,6 +184,20 @@ export default function ScanTab({ project, onProjectUpdate }) {
           </div>
         ) : (
           <div className="max-w-2xl mx-auto space-y-5">
+
+            {/* Quota error banner */}
+            {error && (
+              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <svg className="w-4 h-4 text-red-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-red-700">Monthly quota reached</p>
+                  <p className="text-xs text-red-500 mt-0.5">{error}</p>
+                  <p className="text-xs text-red-400 mt-1">Scan stopped. Your quota resets at the start of the next cycle.</p>
+                </div>
+              </div>
+            )}
 
             {/* Progress bars */}
             <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
