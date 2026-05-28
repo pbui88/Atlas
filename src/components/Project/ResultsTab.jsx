@@ -388,7 +388,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       {/* ── Left panel ── */}
       <div className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0">
 
-        {/* Scan controls header */}
+        {/* Results header */}
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-slate-900">Results</h3>
@@ -400,18 +400,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {running && <span className="w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />}
-            {running ? (
-              <button onClick={pause} className="btn border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white text-xs px-2.5 py-1.5">
-                Pause
-              </button>
-            ) : (
-              <button onClick={runScan} disabled={!canStart} className="btn-primary text-xs px-2.5 py-1.5">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
-                </svg>
-                Run Scan
-              </button>
+            {running && (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                <button onClick={pause} className="btn border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white text-xs px-2.5 py-1.5">
+                  Pause
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -519,7 +514,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               ) : (
                 <>
                   <p className="text-sm text-slate-400">No results yet.</p>
-                  <p className="text-xs text-slate-400 mt-1">Click AI Driving to start the scan.</p>
+                  <p className="text-xs text-slate-400 mt-1">Go to the Map tab, draw an area and click Run.</p>
                 </>
               )}
             </div>
