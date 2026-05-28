@@ -2,16 +2,17 @@ import crypto from 'crypto'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
-const CAP = 20
+const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
+const CAP          = 20
 
-// Fetch the user's own Google Maps key — no platform fallback
+// User's own key takes priority. Admins fall back to platform key.
+// Regular users with no key return null → 503.
 async function resolveApiKey(userId, supabase) {
-  const { data } = await supabase
-    .from('user_keys')
-    .select('google_maps_key')
-    .eq('user_id', userId)
-    .maybeSingle()
-  return data?.google_maps_key || null
+  const [{ data: keyRow }, { data: profile }] = await Promise.all([
+    supabase.from('user_keys').select('google_maps_key').eq('user_id', userId).maybeSingle(),
+    supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
+  ])
+  return keyRow?.google_maps_key || (profile?.role === 'admin' ? PLATFORM_KEY : null)
 }
 
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
