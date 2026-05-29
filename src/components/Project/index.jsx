@@ -89,7 +89,7 @@ export default function ProjectPage() {
             </span>
           </div>
           {scanPoints.length > 0 && (
-            <p className="text-xs text-slate-500">{scanPoints.length.toLocaleString()} scan points</p>
+            <p className="text-xs text-slate-500">{scanPoints.length.toLocaleString()} properties scan</p>
           )}
         </div>
 

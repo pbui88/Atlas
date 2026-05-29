@@ -113,7 +113,7 @@ export default function Dashboard() {
             sparkPoints="0,18 10,16 25,14 35,10 50,12 65,8 80,10"
           />
           <StatCard
-            label="Scan Points"
+            label="Properties Scan"
             value={totalPoints.toLocaleString()}
             sparkColor="#10b981"
             sparkPoints="0,22 10,18 25,16 35,12 50,10 65,6 80,4"

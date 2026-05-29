@@ -314,7 +314,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Point count badge */}
           {ptCount > 0 && (
             <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
-              {ptCount.toLocaleString()} scan points
+              {ptCount.toLocaleString()} properties scan
               {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
             </div>
           )}

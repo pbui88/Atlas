@@ -549,7 +549,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             <div className="text-center py-10 px-4">
               {stats.total === 0 ? (
                 <>
-                  <p className="text-sm text-slate-400">No scan points yet.</p>
+                  <p className="text-sm text-slate-400">No properties scan yet.</p>
                   <p className="text-xs text-slate-400 mt-1">Go to the Map tab to draw a polygon first.</p>
                 </>
               ) : running ? (
