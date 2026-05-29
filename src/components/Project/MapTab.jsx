@@ -60,8 +60,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
   const [cost,           setCost]           = useState(null)
-  const [propCount,      setPropCount]      = useState(null)
-  const [propLoading,    setPropLoading]    = useState(false)
   const [generating,     setGenerating]     = useState(false)
   const [error,          setError]          = useState(null)
   const [searchPin,      setSearchPin]      = useState(null)
@@ -142,47 +140,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPreview(pts)
   }, [])
 
-  // Count addressed properties inside the polygon using Overpass API
-  useEffect(() => {
-    if (!polygon) { setPropCount(null); return }
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 15000)
-    setPropLoading(true)
-    setPropCount(null)
-
-    const coords = polygon.coordinates[0]
-    // Drop the closing duplicate coordinate — Overpass poly filter closes automatically
-    const ring    = coords[0][0] === coords.at(-1)[0] && coords[0][1] === coords.at(-1)[1]
-      ? coords.slice(0, -1)
-      : coords
-    const polyStr = ring.map(([lng, lat]) => `${lat} ${lng}`).join(' ')
-    // Count building ways (footprints) + any standalone address nodes
-    const query = `[out:json][timeout:15];(way["building"](poly:"${polyStr}");node["addr:housenumber"](poly:"${polyStr}"););out count;`
-
-    fetch('https://overpass-api.de/api/interpreter', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:    `data=${encodeURIComponent(query)}`,
-      signal:  controller.signal,
-    })
-      .then(r => {
-        if (!r.ok) throw new Error(`Overpass ${r.status}`)
-        return r.json()
-      })
-      .then(d => {
-        const el    = d.elements?.[0]
-        const total = el?.tags?.total ?? el?.tags?.nodes
-        setPropCount(total != null ? Number(total) : null)
-      })
-      .catch(e => {
-        if (e.name !== 'AbortError') console.warn('Property count failed:', e.message)
-        setPropCount(null)
-      })
-      .finally(() => { clearTimeout(timer); setPropLoading(false) })
-
-    return () => { controller.abort(); clearTimeout(timer) }
-  }, [polygon])
 
   // Keep cost in sync with whatever polygon/points are currently shown.
   useEffect(() => {
@@ -415,17 +372,12 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             <span className="text-xs font-semibold text-slate-700">40 m</span>
           </div>
 
-          {/* Property count */}
-          {polygon && (
+          {/* Point / property count */}
+          {polygon && ptCount > 0 && (
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">Properties in area</span>
               <span className="text-xs font-semibold text-slate-700">
-                {propLoading
-                  ? <span className="text-slate-400">Counting…</span>
-                  : propCount != null
-                    ? propCount.toLocaleString()
-                    : <span className="text-slate-400">—</span>
-                }
+                ~{ptCount.toLocaleString()}
               </span>
             </div>
           )}
