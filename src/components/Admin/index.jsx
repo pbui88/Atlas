@@ -221,7 +221,7 @@ export default function AdminPanel() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <StatCard label="Total Users"     value={users.length}                           sparkColor="#3b82f6" sparkPoints="0,20 20,18 40,14 60,10 80,8" />
           <StatCard label="Active Users"    value={users.filter(u => u.is_active).length}  sparkColor="#10b981" sparkPoints="0,18 20,16 40,12 60,10 80,8" />
-          <StatCard label="Total Projects"  value={usage.totalProjects || 0}               sparkColor="#06b6d4" sparkPoints="0,22 20,18 40,14 60,10 80,6" />
+          <StatCard label="Total Records"   value={usage.totalProjects || 0}               sparkColor="#06b6d4" sparkPoints="0,22 20,18 40,14 60,10 80,6" />
           <StatCard label="API Calls (30d)" value={(usage.totalCalls30d || 0).toLocaleString()} sparkColor="#8b5cf6" sparkPoints="0,20 20,14 40,16 60,8 80,10" />
         </div>
       )}

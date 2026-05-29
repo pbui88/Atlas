@@ -42,7 +42,7 @@ function EmptyState({ onNew }) {
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        New Project
+        New List
       </button>
     </div>
   )
@@ -84,7 +84,7 @@ export default function Dashboard() {
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold font-display text-white">
-            {firstName ? `${firstName}'s Projects` : 'Projects'}
+            {firstName ? `${firstName}'s Records` : 'Records'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">Manage your neighborhood scan projects</p>
         </div>
@@ -92,7 +92,7 @@ export default function Dashboard() {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          New Project
+          New List
         </button>
       </div>
 
@@ -100,7 +100,7 @@ export default function Dashboard() {
       {projects.length > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-8">
           <StatCard
-            label="Total Projects"
+            label="Total Records"
             value={projects.length}
             sparkColor="#3b82f6"
             sparkPoints="0,20 15,18 25,15 40,12 55,10 65,8 80,6"
