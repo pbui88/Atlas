@@ -114,29 +114,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       const bounds = new window.google.maps.LatLngBounds()
       polygon.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
       map.fitBounds(bounds, 60)
-    } else {
-      // IP-based city lookup — no browser permission required.
-      // Try ipwho.is first, fall back to ipapi.co.
-      const locateByIp = async () => {
-        const services = [
-          { url: 'https://ipwho.is/',       lat: d => d.success && d.latitude,  lng: d => d.longitude },
-          { url: 'https://ipapi.co/json/',  lat: d => d.latitude,               lng: d => d.longitude },
-        ]
-        for (const svc of services) {
-          try {
-            const res  = await fetch(svc.url)
-            const data = await res.json()
-            const lat  = svc.lat(data)
-            const lng  = svc.lng(data)
-            if (lat && lng) {
-              map.panTo({ lat: Number(lat), lng: Number(lng) })
-              map.setZoom(13)
-              return
-            }
-          } catch { /* try next */ }
-        }
-      }
-      locateByIp()
     }
   }, [polygon])
 
