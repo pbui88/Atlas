@@ -43,7 +43,7 @@ function HeroVisual() {
 
       {/* Floating data points */}
       {[
-        { top: '20%', left: '15%', label: '273 pts', delay: '0s' },
+        { top: '20%', left: '15%', label: '273 properties', delay: '0s' },
         { top: '65%', left: '10%', label: '98 score', delay: '0.5s' },
         { top: '25%', right: '10%', label: 'AI ready', delay: '1s' },
         { top: '70%', right: '15%', label: '$0.007/pt', delay: '1.5s' },

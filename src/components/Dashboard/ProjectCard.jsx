@@ -34,7 +34,7 @@ export default function ProjectCard({ project, onDelete }) {
       <div className="flex items-end justify-between">
         <div className="space-y-0.5">
           <p className="text-xs text-slate-400">
-            <span className="text-slate-200 font-semibold">{project.total_points.toLocaleString()}</span> pts
+            <span className="text-slate-200 font-semibold">{project.total_points.toLocaleString()}</span> properties
             {project.failed_points > 0 && (
               <span className="text-red-400 ml-2">{project.failed_points} failed</span>
             )}
