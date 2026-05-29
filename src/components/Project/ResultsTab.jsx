@@ -38,15 +38,15 @@ function scoreBorderColor(score) {
   return 'border-emerald-300 bg-emerald-50'
 }
 
-function ProgressBar({ label, value, max, color = 'bg-brand-600' }) {
+function ProgressBar({ label, value, max, color = 'bg-brand-500' }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-[11px] text-slate-500">
         <span>{label}</span>
-        <span className="font-medium text-slate-700">{value} / {max}</span>
+        <span className="font-medium text-slate-300">{value} / {max}</span>
       </div>
-      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+      <div className="w-full bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
         <div className={`h-1.5 rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -58,8 +58,8 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
   const signals = point.ai_analyses?.[0]?.signals || []
   return (
     <div
-      className={`px-3 py-3 border-b border-slate-100 transition-colors flex items-start gap-2 ${
-        isSelected ? 'bg-brand-50 border-l-2 border-l-brand-500' : 'hover:bg-slate-50'
+      className={`px-3 py-3 border-b border-white/[0.04] transition-colors flex items-start gap-2 ${
+        isSelected ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : 'hover:bg-white/[0.03]'
       }`}
     >
       <input
@@ -74,7 +74,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
           {scoreLabel(score)}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-slate-900 font-medium truncate leading-snug">
+          <p className="text-xs text-slate-200 font-medium truncate leading-snug">
             {point.address || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`}
           </p>
           {signals.length > 0 && (
@@ -410,12 +410,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     <div className="flex h-full">
 
       {/* ── Left panel ── */}
-      <div className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0">
+      <div className="w-80 bg-navy-800 border-r border-white/[0.06] flex flex-col shrink-0">
 
         {/* Results header */}
-        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-slate-900">Results</h3>
+            <h3 className="text-sm font-semibold text-white">Results</h3>
             {running && phase && (
               <p className="text-[11px] text-brand-600 mt-0.5 truncate">{PHASE_LABEL[phase]}</p>
             )}
@@ -430,7 +430,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             {running && (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                <button onClick={pause} className="btn border border-amber-300 text-amber-600 hover:bg-amber-50 bg-white text-xs px-2.5 py-1.5">
+                <button onClick={pause} className="btn border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 text-xs px-2.5 py-1.5">
                   Pause
                 </button>
               </>
@@ -440,7 +440,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
         {/* Progress bars — shown while running or when scan has started */}
         {stats.total > 0 && (
-          <div className="px-4 py-3 border-b border-slate-200 space-y-2.5">
+          <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
             <ProgressBar label="Images" value={stats.downloaded + stats.complete} max={stats.total} />
             <ProgressBar label="AI analysis" value={stats.complete} max={stats.total} color="bg-green-500" />
           </div>
@@ -448,14 +448,14 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
         {/* Filters — only shown once there are results */}
         {points.length > 0 && (
-          <div className="px-4 py-3 border-b border-slate-200 space-y-3">
+          <div className="px-4 py-3 border-b border-white/[0.06] space-y-3">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Min Score</span>
-                <span className="text-xs font-bold text-slate-900 tabular-nums">{minScore}</span>
+                <span className="text-xs font-bold text-slate-200 tabular-nums">{minScore}</span>
               </div>
               <input type="range" min={0} max={90} step={5} value={minScore}
-                onChange={e => setMinScore(+e.target.value)} className="w-full accent-brand-600" />
+                onChange={e => setMinScore(+e.target.value)} className="w-full accent-brand-500" />
             </div>
             <div className="flex flex-wrap gap-1">
               {DISTRESS_SIGNALS.map(sig => (
@@ -463,7 +463,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                   className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
                     sigFilter.includes(sig.id)
                       ? 'bg-brand-600 border-brand-600 text-white'
-                      : 'bg-white border-slate-300 text-slate-600 hover:border-brand-400 hover:text-brand-600'
+                      : 'bg-white/[0.04] border-white/[0.10] text-slate-400 hover:border-brand-500/50 hover:text-brand-400'
                   }`}>
                   {sig.label}
                 </button>
@@ -474,27 +474,27 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
         {/* Active filter chips */}
         {hasFilters && (
-          <div className="px-4 py-2 bg-brand-50 border-b border-brand-100 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest shrink-0">Active:</span>
+          <div className="px-4 py-2 bg-brand-600/10 border-b border-brand-600/20 flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest shrink-0">Active:</span>
             {minScore > 0 && (
               <button onClick={() => setMinScore(0)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-brand-200 rounded-full text-[11px] text-brand-700 hover:bg-brand-50 transition">
-                Score ≥ {minScore}<span className="text-brand-400 font-bold ml-0.5">×</span>
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/[0.06] border border-brand-500/30 rounded-full text-[11px] text-brand-400 hover:bg-brand-600/20 transition">
+                Score ≥ {minScore}<span className="font-bold ml-0.5">×</span>
               </button>
             )}
             {sigFilter.map(sig => (
               <button key={sig} onClick={() => toggleSignal(sig)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-300 rounded-full text-[11px] text-slate-700 hover:bg-slate-50 transition">
-                {SIGNAL_MAP[sig]?.label}<span className="text-slate-400 font-bold ml-0.5">×</span>
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/[0.04] border border-white/[0.10] rounded-full text-[11px] text-slate-400 hover:bg-white/[0.08] transition">
+                {SIGNAL_MAP[sig]?.label}<span className="font-bold ml-0.5">×</span>
               </button>
             ))}
             <button onClick={() => { setMinScore(0); setSigFilter([]) }}
-              className="ml-auto text-[11px] text-brand-600 hover:underline font-medium">Clear all</button>
+              className="ml-auto text-[11px] text-brand-400 hover:underline font-medium">Clear all</button>
           </div>
         )}
 
         {/* Count + select-all + refresh */}
-        <div className="px-3 py-2 border-b border-slate-200 flex items-center gap-2">
+        <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2">
           {sorted.length > 0 && (
             <input
               ref={selectAllRef}
@@ -519,7 +519,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </span>
             )}
           </span>
-          <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-400 hover:text-slate-700 transition">Refresh</button>
+          <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
         </div>
 
         {/* Property list */}
@@ -565,7 +565,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         </div>
 
         {/* Export */}
-        <div className="p-4 border-t border-slate-200">
+        <div className="p-4 border-t border-white/[0.06]">
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Export</p>
             {checkedCount > 0 && (

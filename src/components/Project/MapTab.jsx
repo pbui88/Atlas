@@ -321,9 +321,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       </div>
 
       {/* ── Right panel ── */}
-      <div className="w-72 bg-white border-l border-slate-200 flex flex-col">
-        <div className="p-4 border-b border-slate-200">
-          <h3 className="text-sm font-semibold text-slate-900">Scan Area</h3>
+      <div className="w-72 bg-navy-800 border-l border-white/[0.06] flex flex-col">
+        <div className="p-4 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-white">Scan Area</h3>
           <p className="text-xs text-slate-500 mt-0.5">Draw your target neighborhood</p>
         </div>
 
@@ -360,14 +360,14 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Point spacing */}
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-500">Point spacing</span>
-            <span className="text-xs font-semibold text-slate-700">25 m</span>
+            <span className="text-xs font-semibold text-slate-300">25 m</span>
           </div>
 
           {/* Point / property count */}
           {polygon && ptCount > 0 && (
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">Properties in area</span>
-              <span className="text-xs font-semibold text-slate-700">
+              <span className="text-xs font-semibold text-slate-300">
                 ~{ptCount.toLocaleString()}
               </span>
             </div>
@@ -375,27 +375,27 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
           {/* Cost estimate */}
           {cost && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Estimated Cost</p>
+            <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Estimated Cost</p>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Street View ({ptCount} imgs)</span>
-                  <span className={cost.streetView === 0 ? 'text-emerald-600' : 'text-slate-700'}>
+                  <span className={cost.streetView === 0 ? 'text-emerald-400' : 'text-slate-300'}>
                     {cost.streetView === 0 ? 'Free' : `$${cost.streetView}`}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Geocoding</span>
-                  <span className="text-emerald-600">Free</span>
+                  <span className="text-emerald-400">Free</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">AI Analysis</span>
-                  <span className="text-slate-700">${cost.ai}</span>
+                  <span className="text-slate-300">${cost.ai}</span>
                 </div>
                 <div className="divider pt-1 mt-1" />
                 <div className="flex justify-between font-semibold">
-                  <span className="text-slate-700">Total</span>
-                  <span className="text-brand-600">${cost.total}</span>
+                  <span className="text-slate-300">Total</span>
+                  <span className="text-brand-400">${cost.total}</span>
                 </div>
               </div>
               <p className="text-xs text-slate-400 pt-1">
@@ -410,7 +410,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
         </div>
 
         {/* Run button */}
-        <div className="p-4 border-t border-slate-200 space-y-2">
+        <div className="p-4 border-t border-white/[0.06] space-y-2">
           {noKeyBlocked && (
             <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
               No Google Maps API key — contact admin

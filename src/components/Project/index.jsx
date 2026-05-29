@@ -63,7 +63,7 @@ export default function ProjectPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="flex h-screen items-center justify-center bg-navy-900">
         <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
@@ -72,10 +72,10 @@ export default function ProjectPage() {
   if (!project) return null
 
   return (
-    <div className="flex flex-col h-screen bg-white">
+    <div className="flex flex-col h-screen bg-navy-900">
       {/* Header */}
-      <header className="flex items-center gap-4 px-5 py-3 border-b border-slate-200 shrink-0 bg-white">
-        <Link to="/dashboard" className="text-slate-400 hover:text-slate-700 transition">
+      <header className="flex items-center gap-4 px-5 py-3 border-b border-white/[0.06] shrink-0 bg-navy-950">
+        <Link to="/dashboard" className="text-slate-500 hover:text-slate-200 transition">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
@@ -83,26 +83,26 @@ export default function ProjectPage() {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-slate-900 truncate">{project.name}</h1>
+            <h1 className="text-sm font-semibold text-white truncate">{project.name}</h1>
             <span className={`${STATUS_BADGE_CLASS[project.status] || 'badge-slate'} shrink-0`}>
               {STATUS_LABELS[project.status] || project.status}
             </span>
           </div>
           {scanPoints.length > 0 && (
-            <p className="text-xs text-slate-400">{scanPoints.length.toLocaleString()} scan points</p>
+            <p className="text-xs text-slate-500">{scanPoints.length.toLocaleString()} scan points</p>
           )}
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-0.5 gap-0.5">
+        <div className="flex items-center bg-navy-800 border border-white/[0.06] rounded-lg p-0.5 gap-0.5">
           {TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                 activeTab === tab.id
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-brand-600/20 text-brand-400 border border-brand-600/25'
+                  : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               {tab.icon}
