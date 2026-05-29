@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 
 const GEMINI_KEY   = process.env.GEMINI_API_KEY
 const GEMINI_MODEL = 'gemini-2.5-flash-lite'
@@ -64,7 +64,15 @@ async function callGemini(imageUrls) {
   if (!text) throw new Error('Empty Gemini response')
 
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-  const parsed  = JSON.parse(cleaned)
+  let parsed
+  try {
+    parsed = JSON.parse(cleaned)
+  } catch (e) {
+    throw new Error(`Gemini returned invalid JSON: ${e.message}. Raw: ${cleaned.slice(0, 200)}`)
+  }
+  if (typeof parsed.overallScore !== 'number' || parsed.overallScore < 0 || parsed.overallScore > 1) {
+    throw new Error(`Gemini returned invalid overallScore: ${parsed.overallScore}`)
+  }
   const inputTokens  = data.usageMetadata?.promptTokenCount     || 0
   const outputTokens = data.usageMetadata?.candidatesTokenCount || 0
   const costUsd      = (inputTokens * 0.0000001) + (outputTokens * 0.0000004)
@@ -180,12 +188,20 @@ export const handler = async (event) => {
   if (!GEMINI_KEY) return err('GEMINI_API_KEY not configured', 503)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
-  if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
+  if (!isValidUUID(projectId) || !Array.isArray(pointIds) || !pointIds.length) {
     return err('projectId and pointIds required')
   }
+  const validIds = pointIds.filter(isValidUUID)
+  if (!validIds.length) return err('No valid pointIds')
 
   const supabase = adminSupabase()
-  const ids      = pointIds.slice(0, CAP)
+
+  // Verify project belongs to this user
+  const { data: project } = await supabase
+    .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
+  if (!project) return err('Project not found', 404)
+
+  const ids = validIds.slice(0, CAP)
 
   // Process all points in parallel
   const settled = await Promise.allSettled(

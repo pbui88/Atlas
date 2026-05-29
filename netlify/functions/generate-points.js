@@ -1,5 +1,5 @@
 import * as turf from '@turf/turf'
-import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 // Compass bearing (0–360°) from point A → point B
@@ -94,7 +94,7 @@ export const handler = async (event) => {
   if (error) return err(error, 401)
 
   const projectId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('projectId')
-  if (!projectId) return err('projectId required')
+  if (!isValidUUID(projectId)) return err('projectId required')
 
   const { geojson, spacingMeters = 50 } = JSON.parse(event.body || '{}')
   if (!geojson?.coordinates) return err('geojson polygon required')
@@ -104,11 +104,16 @@ export const handler = async (event) => {
 
   const { data: project } = await supabase
     .from('projects')
-    .select('id, user_id')
+    .select('id, user_id, status')
     .eq('id', projectId)
     .eq('user_id', user.id)
     .single()
   if (!project) return err('Project not found', 404)
+
+  // Prevent double-submission — reject if a scan is already in progress
+  if (['queued', 'collecting', 'analyzing'].includes(project.status)) {
+    return err('A scan is already in progress for this project', 409)
+  }
 
   let points
   let method = 'road'

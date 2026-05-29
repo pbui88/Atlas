@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 
 const POSITIONSTACK_KEY = process.env.POSITIONSTACK_API_KEY
 const CAP               = 50   // points geocoded in parallel per function call
@@ -24,7 +24,7 @@ function extractAddress(results) {
 // Returns a property-level address or null.
 // Retries once with a wider candidate pool if the first pass yields nothing.
 async function reverseGeocode(lat, lng) {
-  const base = `http://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&output=json`
+  const base = `https://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&output=json`
 
   // First attempt — tight limit
   const res1  = await fetch(`${base}&limit=10`)
@@ -82,17 +82,24 @@ export const handler = async (event) => {
   if (!POSITIONSTACK_KEY) return err('POSITIONSTACK_API_KEY not configured', 503)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
-  if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
+  if (!isValidUUID(projectId) || !Array.isArray(pointIds) || !pointIds.length) {
     return err('projectId and pointIds required')
   }
+  const validIds = pointIds.filter(isValidUUID)
+  if (!validIds.length) return err('No valid pointIds')
 
   const supabase = adminSupabase()
+
+  // Verify project belongs to this user
+  const { data: project } = await supabase
+    .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
+  if (!project) return err('Project not found', 404)
 
   // Fetch the requested points
   const { data: requested } = await supabase
     .from('scan_points')
     .select('id, lat, lng, address')
-    .in('id', pointIds.slice(0, CAP))
+    .in('id', validIds.slice(0, CAP))
 
   // Also find any points in this project that have a lat/lng-looking address
   // so they get cleaned up even if not in the current batch

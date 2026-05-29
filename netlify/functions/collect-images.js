@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
@@ -102,11 +102,18 @@ export const handler = async (event) => {
   if (error) return err(error, 401)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
-  if (!projectId || !Array.isArray(pointIds) || !pointIds.length) {
+  if (!isValidUUID(projectId) || !Array.isArray(pointIds) || !pointIds.length) {
     return err('projectId and pointIds required')
   }
+  const validIds = pointIds.filter(isValidUUID)
+  if (!validIds.length) return err('No valid pointIds')
 
   const supabase = adminSupabase()
+
+  // Verify project belongs to this user
+  const { data: project } = await supabase
+    .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
+  if (!project) return err('Project not found', 404)
 
   // Require user's own Google Maps key — no platform fallback
   const apiKey = await resolveApiKey(user.id, supabase)
@@ -117,7 +124,7 @@ export const handler = async (event) => {
     return err(`Monthly limit reached — ${used.toLocaleString()} / ${limit.toLocaleString()} points used this cycle.`, 429)
   }
 
-  const ids = pointIds.slice(0, Math.min(CAP, remaining))
+  const ids = validIds.slice(0, Math.min(CAP, remaining))
 
   const { data: pts } = await supabase
     .from('scan_points')

@@ -47,6 +47,9 @@ export async function requireAdmin(event) {
   return { user, error: null }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const isValidUUID = (id) => typeof id === 'string' && UUID_RE.test(id)
+
 export const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
