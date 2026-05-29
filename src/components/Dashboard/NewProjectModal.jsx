@@ -74,7 +74,7 @@ export default function NewProjectModal({ onClose }) {
             <button type="submit" disabled={!form.name.trim() || loading} className="btn-primary flex-1">
               {loading ? (
                 <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating…</>
-              ) : 'Create Project'}
+              ) : 'Create List'}
             </button>
           </div>
         </form>
