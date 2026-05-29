@@ -17,33 +17,26 @@ export const handler = async (event) => {
       .select('*')
       .order('created_at', { ascending: false })
 
-    // Single query for all usage logs in the last 30 days (max cycle window),
-    // then aggregate per-user in JS using each user's specific cycle start.
-    const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const { data: allLogs } = await supabase
-      .from('usage_logs')
-      .select('user_id, created_at')
-      .in('service', ['street_view', 'mapillary'])
-      .gte('created_at', since30d)
-
-    // Build timestamp list per user
-    const logsByUser = {}
-    for (const log of allLogs || []) {
-      if (!logsByUser[log.user_id]) logsByUser[log.user_id] = []
-      logsByUser[log.user_id].push(new Date(log.created_at).getTime())
-    }
-
-    // Count within each user's specific cycle window
-    const usageByUser = {}
-    for (const p of profiles || []) {
-      const anchor = new Date(p.cycle_anchor_date ?? p.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10))
-      anchor.setUTCHours(0, 0, 0, 0)
-      const elapsed    = Math.floor((Date.now() - anchor.getTime()) / (30 * 24 * 60 * 60 * 1000))
-      const cycleStart = new Date(anchor)
-      cycleStart.setUTCDate(cycleStart.getUTCDate() + elapsed * 30)
-      const cycleStartMs = cycleStart.getTime()
-      usageByUser[p.id] = (logsByUser[p.id] || []).filter(ts => ts >= cycleStartMs).length
-    }
+    // Parallel count queries — one per user using their specific cycle window.
+    // Avoids PostgREST's default 1000-row cap that would truncate a single
+    // bulk fetch of all usage_logs, causing every count to come back wrong.
+    const usageCounts = await Promise.all(
+      (profiles || []).map(async p => {
+        const anchor = new Date(p.cycle_anchor_date ?? p.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10))
+        anchor.setUTCHours(0, 0, 0, 0)
+        const elapsed    = Math.floor((Date.now() - anchor.getTime()) / (30 * 24 * 60 * 60 * 1000))
+        const cycleStart = new Date(anchor)
+        cycleStart.setUTCDate(cycleStart.getUTCDate() + elapsed * 30)
+        const { count } = await supabase
+          .from('usage_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', p.id)
+          .in('service', ['street_view', 'mapillary'])
+          .gte('created_at', cycleStart.toISOString())
+        return { id: p.id, count: count ?? 0 }
+      })
+    )
+    const usageByUser = Object.fromEntries(usageCounts.map(r => [r.id, r.count]))
 
     // Fetch which users have their own Google Maps key configured
     const { data: keyRows } = await supabase
