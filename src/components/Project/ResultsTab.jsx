@@ -101,8 +101,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // usage===null means still loading; treat as blocked to avoid false-positive
   const noKeyBlocked = usage === null || !usage.has_own_key
 
+  const RESULTS_LIMIT = 1000
+
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
+  const [totalComplete, setTotalComplete] = useState(0)
   const [resLoading, setResLoading] = useState(true)
   const [selected,   setSelected]   = useState(null)
   const [minScore,   setMinScore]   = useState(0)
@@ -131,12 +134,22 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   const fetchResults = useCallback(async () => {
     setResLoading(true)
+
+    // Get total count separately so we know if we're hitting the limit
+    const { count } = await supabase
+      .from('scan_points')
+      .select('*', { count: 'exact', head: true })
+      .eq('project_id', project.id)
+      .eq('status', 'complete')
+    setTotalComplete(count || 0)
+
     const { data: pts } = await supabase
       .from('scan_points')
       .select('id, lat, lng, address, status')
       .eq('project_id', project.id)
       .eq('status', 'complete')
-      .order('created_at')
+      .order('overall_score', { ascending: false, nullsFirst: false })
+      .limit(RESULTS_LIMIT)
 
     if (!pts?.length) { setPoints([]); setResLoading(false); return }
 
@@ -499,6 +512,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             }
             {!resLoading && checkedCount === 0 && hasFilters && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
+            )}
+            {!resLoading && totalComplete > RESULTS_LIMIT && (
+              <span className="text-amber-500 ml-1" title={`Showing top ${RESULTS_LIMIT} by score. ${totalComplete.toLocaleString()} total.`}>
+                (top {RESULTS_LIMIT.toLocaleString()})
+              </span>
             )}
           </span>
           <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-400 hover:text-slate-700 transition">Refresh</button>

@@ -40,7 +40,10 @@ export function AuthProvider({ children }) {
     try {
       const data = await getMyUsage()
       setUsage(data)
-    } catch {}
+    } catch (e) {
+      console.warn('Failed to load usage quota:', e?.message)
+      // Keep last known good state — don't reset to null
+    }
   }, [])
 
   useEffect(() => {
