@@ -118,7 +118,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       navigator.geolocation.getCurrentPosition(
         ({ coords }) => {
           map.panTo({ lat: coords.latitude, lng: coords.longitude })
-          map.setZoom(13)
+          map.setZoom(14)
         },
         () => {} // user denied or unavailable — stay on default US view
       )
