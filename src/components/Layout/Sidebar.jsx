@@ -7,10 +7,10 @@ function NavItem({ to, icon, label }) {
       to={to}
       end={to === '/dashboard'}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+        `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
           isActive
-            ? 'bg-brand-600/15 text-brand-400 border border-brand-600/20'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            ? 'bg-brand-600/15 text-brand-400 border border-brand-600/25 shadow-sm shadow-brand-600/10'
+            : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]'
         }`
       }
     >
@@ -22,7 +22,6 @@ function NavItem({ to, icon, label }) {
 
 function UsageWidget() {
   const { usage } = useAuth()
-
   if (!usage) return null
 
   const { used, limit, remaining, cycleStart } = usage
@@ -34,56 +33,33 @@ function UsageWidget() {
 
   const barColor   = blocked || critical ? 'bg-red-500' : warning ? 'bg-amber-400' : 'bg-brand-500'
   const labelColor = blocked ? 'text-red-400' : critical ? 'text-red-400' : warning ? 'text-amber-400' : 'text-slate-300'
-  const borderColor = blocked ? 'border-red-500/30' : critical ? 'border-red-500/20' : warning ? 'border-amber-500/20' : 'border-slate-800'
-  const bgColor     = blocked ? 'bg-red-500/5' : 'bg-slate-900'
 
   return (
     <div className="px-3 pb-3">
-      <div className={`${bgColor} border ${borderColor} rounded-lg p-3`}>
-
-        {/* Header */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-slate-400">Monthly quota</span>
-          <span className={`text-xs font-bold ${labelColor}`}>
-            {pct}%
-          </span>
+          <span className="text-xs font-medium text-slate-500">Monthly quota</span>
+          <span className={`text-xs font-bold ${labelColor}`}>{pct}%</span>
         </div>
-
-        {/* Bar */}
-        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden mb-2">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-            style={{ width: `${pct}%` }}
-          />
+        <div className="h-1 w-full bg-white/[0.06] rounded-full overflow-hidden mb-2">
+          <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
         </div>
-
-        {/* Stats row */}
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between">
           <span className={`text-xs font-semibold ${labelColor}`}>
             {used.toLocaleString()} <span className="font-normal text-slate-600">/ {limit.toLocaleString()}</span>
           </span>
           <span className="text-xs text-slate-600">↺ {daysLeft}d</span>
         </div>
-
-        {/* Enforcement status */}
-        {blocked ? (
-          <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
+        {blocked && (
+          <div className="mt-2 flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
             <span className="w-1.5 h-1.5 bg-red-400 rounded-full shrink-0" />
-            <span className="text-xs text-red-400 font-medium">Quota reached — scans blocked</span>
+            <span className="text-xs text-red-400 font-medium">Quota reached</span>
           </div>
-        ) : critical ? (
-          <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
-            <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse shrink-0" />
-            <span className="text-xs text-red-400 font-medium">{remaining.toLocaleString()} pts remaining</span>
-          </div>
-        ) : warning ? (
-          <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
-            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse shrink-0" />
-            <span className="text-xs text-amber-400 font-medium">{remaining.toLocaleString()} pts remaining</span>
-          </div>
-        ) : (
-          <div className="text-xs text-slate-600">
-            {remaining.toLocaleString()} pts remaining
+        )}
+        {!blocked && (critical || warning) && (
+          <div className={`mt-2 flex items-center gap-1.5 rounded-md px-2 py-1.5 ${critical ? 'bg-red-500/10 border border-red-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full animate-pulse shrink-0 ${critical ? 'bg-red-400' : 'bg-amber-400'}`} />
+            <span className={`text-xs font-medium ${critical ? 'text-red-400' : 'text-amber-400'}`}>{remaining.toLocaleString()} pts left</span>
           </div>
         )}
       </div>
@@ -100,28 +76,34 @@ export default function Sidebar() {
     navigate('/login')
   }
 
+  const initial = (profile?.full_name || profile?.email || 'U')[0].toUpperCase()
+
   return (
-    <aside className="w-56 shrink-0 bg-slate-950 border-r border-slate-800 flex flex-col h-full">
+    <aside className="w-56 shrink-0 bg-navy-950 border-r border-white/[0.05] flex flex-col h-full">
+
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-slate-800">
+      <div className="px-4 py-5 border-b border-white/[0.05]">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-md shadow-brand-600/30">
+          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-600/30">
             <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c-.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
             </svg>
           </div>
-          <span className="font-bold text-white text-sm tracking-tight">Atlas</span>
+          <div>
+            <span className="font-bold text-white text-sm tracking-tight block leading-none">Atlas</span>
+            <span className="text-[10px] text-brand-500 font-semibold tracking-widest uppercase">AI Dream Team</span>
+          </div>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 p-3 space-y-0.5">
         <NavItem
           to="/dashboard"
           label="Projects"
           icon={
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
             </svg>
           }
         />
@@ -131,35 +113,32 @@ export default function Sidebar() {
             label="Admin"
             icon={
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
               </svg>
             }
           />
         )}
       </nav>
 
-      {/* Usage widget */}
+      {/* Usage */}
       <UsageWidget />
 
-      {/* User section */}
-      <div className="p-3 border-t border-slate-800">
-        <div className="flex items-center gap-2.5 px-2 py-1.5 mb-2">
+      {/* User */}
+      <div className="p-3 border-t border-white/[0.05]">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 mb-1.5">
           <div className="w-7 h-7 rounded-full bg-brand-600/20 border border-brand-600/30 flex items-center justify-center shrink-0">
-            <span className="text-xs font-semibold text-brand-400">
-              {(profile?.full_name || profile?.email || 'U')[0].toUpperCase()}
-            </span>
+            <span className="text-xs font-bold text-brand-400">{initial}</span>
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-200 truncate">
+            <p className="text-xs font-semibold text-slate-200 truncate">
               {profile?.full_name || profile?.email || 'User'}
             </p>
-            {isAdmin && <p className="text-xs text-brand-500">Admin</p>}
+            {isAdmin && <p className="text-[10px] text-brand-500 font-semibold">Admin</p>}
           </div>
         </div>
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-600 hover:text-slate-300 hover:bg-white/[0.04] transition"
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
