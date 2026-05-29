@@ -148,7 +148,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .select('id, lat, lng, address, status')
       .eq('project_id', project.id)
       .eq('status', 'complete')
-      .order('overall_score', { ascending: false, nullsFirst: false })
+      .order('created_at')
       .limit(RESULTS_LIMIT)
 
     if (!pts?.length) { setPoints([]); setResLoading(false); return }
