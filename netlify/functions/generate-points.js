@@ -13,9 +13,10 @@ function bearingBetween(lat1, lng1, lat2, lng2) {
 
 async function getRoadsFromOSM(polygonGeoJson) {
   const [west, south, east, north] = turf.bbox(polygonGeoJson)
-  // Exclude 'service' (driveways, parking aisles) and 'road' (unknown type).
-  // Also exclude private/no-access roads to avoid points on private property.
-  const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street|unclassified|trunk)$"][access!~"^(private|no)$"](${south},${west},${north},${east});(._;>;);out body;`
+  // Only named, public-facing residential and collector roads.
+  // Requiring [name] excludes alleys, back-access roads, and service lanes
+  // which almost never have street names in OSM.
+  const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street)$"][name][access!~"^(private|no)$"](${south},${west},${north},${east});(._;>;);out body;`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20000)
   try {
