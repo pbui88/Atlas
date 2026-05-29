@@ -142,23 +142,38 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPreview(pts)
   }, [])
 
-  // Count residential properties inside the polygon using Overpass API
+  // Count addressed properties inside the polygon using Overpass API
   useEffect(() => {
     if (!polygon) { setPropCount(null); return }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15000)
     setPropLoading(true)
     setPropCount(null)
+
     const coords  = polygon.coordinates[0]
     const polyStr = coords.map(([lng, lat]) => `${lat} ${lng}`).join(' ')
-    const query   = `[out:json][timeout:20];(way[building](poly:"${polyStr}");node["addr:housenumber"](poly:"${polyStr}"););out count;`
+    // Count only address nodes — avoids double-counting way+node for same property
+    const query = `[out:json][timeout:15];node["addr:housenumber"](poly:"${polyStr}");out count;`
+
     fetch('https://overpass-api.de/api/interpreter', {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body:    `data=${encodeURIComponent(query)}`,
+      signal:  controller.signal,
     })
       .then(r => r.json())
-      .then(d => setPropCount(Number(d.elements?.[0]?.tags?.total ?? 0)))
-      .catch(() => setPropCount(null))
-      .finally(() => setPropLoading(false))
+      .then(d => {
+        const total = d.elements?.[0]?.tags?.total
+        setPropCount(total != null ? Number(total) : null)
+      })
+      .catch(e => {
+        if (e.name !== 'AbortError') console.warn('Property count failed:', e.message)
+        setPropCount(null)
+      })
+      .finally(() => { clearTimeout(timer); setPropLoading(false) })
+
+    return () => { controller.abort(); clearTimeout(timer) }
   }, [polygon])
 
   // Keep cost in sync with whatever polygon/points are currently shown.
