@@ -66,9 +66,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [searchInput,    setSearchInput]    = useState('')
   const [suggestions,    setSuggestions]    = useState([])
   const [showDropdown,   setShowDropdown]   = useState(false)
-  const [zipInput,       setZipInput]       = useState('')
-  const [zipLoading,     setZipLoading]     = useState(false)
-  const [zipError,       setZipError]       = useState(null)
 
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
@@ -152,62 +149,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       : (preview.length || generateGridPoints(polygon, SPACING).length)
     setCost(estimateCost(count))
   }, [polygon, preview, scanPoints])
-
-  const handleZipSearch = async () => {
-    if (!/^\d{5}$/.test(zipInput)) { setZipError('Enter a 5-digit ZIP code'); return }
-    setZipLoading(true)
-    setZipError(null)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 12000)
-
-    const applyPolygon = (geo) => {
-      let g = geo
-      if (g.type === 'MultiPolygon') {
-        const largest = g.coordinates.reduce((a, b) => a[0].length > b[0].length ? a : b)
-        g = { type: 'Polygon', coordinates: largest }
-      }
-      if (g.type !== 'Polygon') return false
-      setPolygon(g)
-      setPreview([])
-      setDrawingMode(null)
-      if (mapRef.current) {
-        const bounds = new window.google.maps.LatLngBounds()
-        g.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
-        mapRef.current.fitBounds(bounds, 40)
-      }
-      setPreview(generateGridPoints(g, SPACING))
-      return true
-    }
-
-    try {
-      // Primary: US Census TIGERweb — authoritative boundary for every US ZIP
-      const censusUrl =
-        `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/PUMA_TAD_TAZ_UGA_ZCTA/MapServer/2/query` +
-        `?where=ZCTA5CE20%3D%27${zipInput}%27&outFields=ZCTA5CE20&outSR=4326&f=geojson`
-      const censusRes = await fetch(censusUrl, { signal: controller.signal })
-      if (censusRes.ok) {
-        const censusData = await censusRes.json()
-        const geo = censusData.features?.[0]?.geometry
-        if (geo && applyPolygon(geo)) return
-      }
-
-      // Fallback: Nominatim (OSM — coverage varies for US ZIPs)
-      const nomRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?postalcode=${zipInput}&country=us&format=json&polygon_geojson=1&limit=1`,
-        { headers: { 'Accept-Language': 'en-US' }, signal: controller.signal }
-      )
-      const nomData = await nomRes.json()
-      const geo = nomData[0]?.geojson
-      if (geo && applyPolygon(geo)) return
-
-      setZipError('No boundary found for ZIP ' + zipInput)
-    } catch (e) {
-      setZipError(e.name === 'AbortError' ? 'Request timed out — try again' : 'Failed to load ZIP boundary')
-    } finally {
-      clearTimeout(timer)
-      setZipLoading(false)
-    }
-  }
 
   const handleGenerate = async () => {
     if (!polygon) return
@@ -396,46 +337,14 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           <p className="text-xs text-slate-500 mt-0.5">Draw your target neighborhood</p>
         </div>
 
-        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-
-          {/* ZIP code auto-draw */}
-          {!polygon && (
-            <div>
-              <p className="text-xs font-medium text-slate-400 mb-2">ZIP code</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={zipInput}
-                  onChange={e => { setZipInput(e.target.value.replace(/\D/g, '').slice(0, 5)); setZipError(null) }}
-                  onKeyDown={e => e.key === 'Enter' && handleZipSearch()}
-                  placeholder="e.g. 79761"
-                  maxLength={5}
-                  className="flex-1 px-3 py-2 text-xs bg-navy-900 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-600/50"
-                />
-                <button
-                  onClick={handleZipSearch}
-                  disabled={zipLoading || zipInput.length !== 5}
-                  className="px-4 py-2 text-xs bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold transition disabled:opacity-40 shrink-0"
-                >
-                  {zipLoading
-                    ? <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
-                    : 'Load'}
-                </button>
-              </div>
-              {zipError && <p className="text-xs text-red-400 mt-1.5">{zipError}</p>}
-
-              {/* Divider */}
-              <div className="flex items-center gap-2 mt-4">
-                <div className="flex-1 h-px bg-white/[0.06]" />
-                <span className="text-xs text-slate-600">or draw</span>
-                <div className="flex-1 h-px bg-white/[0.06]" />
-              </div>
-            </div>
-          )}
+        <div className="flex-1 p-4 space-y-5 overflow-y-auto">
 
           {/* Draw polygon */}
           {!polygon ? (
             <div>
+              <p className="text-xs text-slate-500 mb-3">
+                Click below, then draw a polygon on the map around the neighborhood you want to scan.
+              </p>
               <button
                 onClick={() => setDrawingMode('polygon')}
                 className={`btn w-full ${drawingMode === 'polygon' ? 'btn-primary' : 'btn-outline'}`}
@@ -449,9 +358,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           ) : (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-slate-400">
-                  {zipInput ? `ZIP ${zipInput}` : 'Polygon drawn'}
-                </span>
+                <span className="text-xs font-medium text-slate-400">Polygon drawn</span>
                 <button onClick={handleClear} className="text-xs text-slate-500 hover:text-red-400 transition">Clear</button>
               </div>
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
