@@ -1,53 +1,47 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost } from '../../lib/geo'
-import { scoreColor } from '../../lib/geo'
 import { useAuth } from '../../context/AuthContext'
 
-const MAP_STYLE = [
-  // Base
-  { elementType: 'geometry',                                                   stylers: [{ color: '#f8f9fa' }] },
-  { elementType: 'labels.text.fill',                                           stylers: [{ color: '#3c4043' }] },
-  { elementType: 'labels.text.stroke',                                         stylers: [{ color: '#ffffff' }, { weight: 2 }] },
+// Grid-based clustering — cell size shrinks as zoom increases
+function buildClusters(points, zoom) {
+  if (!points.length) return []
+  const deg = 0.0015 * Math.pow(2, Math.max(0, 15 - zoom))
+  const cells = {}
+  for (const pt of points) {
+    const k = `${Math.round(pt.lng / deg)},${Math.round(pt.lat / deg)}`
+    if (!cells[k]) cells[k] = { lat: 0, lng: 0, n: 0, scoreSum: 0, scoreCount: 0 }
+    cells[k].lat += pt.lat
+    cells[k].lng += pt.lng
+    cells[k].n++
+    if (pt.overall_score != null) { cells[k].scoreSum += pt.overall_score; cells[k].scoreCount++ }
+  }
+  return Object.values(cells).map(c => ({
+    lat:   c.lat / c.n,
+    lng:   c.lng / c.n,
+    count: c.n,
+    score: c.scoreCount > 0 ? c.scoreSum / c.scoreCount : null,
+  }))
+}
 
-  // Land
-  { featureType: 'landscape',           elementType: 'geometry',               stylers: [{ color: '#f1f3f4' }] },
-  { featureType: 'landscape.man_made',  elementType: 'geometry',               stylers: [{ color: '#e8eaed' }] },
-
-  // Parks & nature
-  { featureType: 'poi.park',            elementType: 'geometry',               stylers: [{ color: '#d5e9c9' }] },
-  { featureType: 'poi.park',            elementType: 'labels.text.fill',       stylers: [{ color: '#4a7c59' }] },
-  { featureType: 'poi',                 elementType: 'labels',                 stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi.business',                                               stylers: [{ visibility: 'off' }] },
-
-  // Water
-  { featureType: 'water',               elementType: 'geometry',               stylers: [{ color: '#aecbfa' }] },
-  { featureType: 'water',               elementType: 'labels.text.fill',       stylers: [{ color: '#4a90d9' }] },
-
-  // Highways
-  { featureType: 'road.highway',        elementType: 'geometry.fill',          stylers: [{ color: '#f6b93b' }] },
-  { featureType: 'road.highway',        elementType: 'geometry.stroke',        stylers: [{ color: '#e08e10' }, { weight: 0.8 }] },
-  { featureType: 'road.highway',        elementType: 'labels.text.fill',       stylers: [{ color: '#5c3a00' }] },
-
-  // Arterial roads
-  { featureType: 'road.arterial',       elementType: 'geometry.fill',          stylers: [{ color: '#ffffff' }] },
-  { featureType: 'road.arterial',       elementType: 'geometry.stroke',        stylers: [{ color: '#d0d4db' }, { weight: 0.6 }] },
-  { featureType: 'road.arterial',       elementType: 'labels.text.fill',       stylers: [{ color: '#5a5f66' }] },
-
-  // Local roads
-  { featureType: 'road.local',          elementType: 'geometry.fill',          stylers: [{ color: '#ffffff' }] },
-  { featureType: 'road.local',          elementType: 'geometry.stroke',        stylers: [{ color: '#e0e3e8' }, { weight: 0.5 }] },
-  { featureType: 'road.local',          elementType: 'labels.text.fill',       stylers: [{ color: '#7a7f88' }] },
-
-  // Administrative boundaries
-  { featureType: 'administrative',      elementType: 'geometry.stroke',        stylers: [{ color: '#b0b8c4' }, { weight: 1 }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill',   stylers: [{ color: '#3c4043' }] },
-  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#6b7280' }] },
-
-  // Transit — hide clutter
-  { featureType: 'transit',                                                    stylers: [{ visibility: 'off' }] },
-]
+function clusterIcon(count, score) {
+  const color = score != null
+    ? score >= 0.70 ? '#ef4444' : score >= 0.45 ? '#f97316' : score >= 0.20 ? '#eab308' : '#22c55e'
+    : '#7c3aed'
+  const size  = count === 1 ? 12 : count < 5 ? 24 : count < 20 ? 30 : 36
+  const fs    = size <= 12 ? 0 : size <= 24 ? 10 : 11
+  const label = size <= 12 ? '' : String(count)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+    <circle cx="${size/2}" cy="${size/2}" r="${size/2-1}" fill="${color}" stroke="white" stroke-width="1.5" opacity="0.92"/>
+    ${label ? `<text x="${size/2}" y="${size/2+4}" text-anchor="middle" fill="white" font-size="${fs}" font-weight="700" font-family="Arial,sans-serif">${label}</text>` : ''}
+  </svg>`
+  return {
+    url:        `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new window.google.maps.Size(size, size),
+    anchor:     new window.google.maps.Point(size / 2, size / 2),
+  }
+}
 
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
@@ -66,6 +60,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [searchInput,    setSearchInput]    = useState('')
   const [suggestions,    setSuggestions]    = useState([])
   const [showDropdown,   setShowDropdown]   = useState(false)
+
+  const [zoom, setZoom] = useState(4)
 
   const mapRef         = useRef(null)
   const drawingMgrRef  = useRef(null)
@@ -174,6 +170,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   const displayPoints = scanPoints?.length > 0 ? scanPoints : preview
   const ptCount       = displayPoints.length
+  const clusters      = useMemo(() => buildClusters(displayPoints, zoom), [displayPoints, zoom])
 
   if (loadError) return (
     <div className="flex items-center justify-center h-full text-red-400 text-sm">
@@ -200,13 +197,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             center={US_CENTER}
             zoom={4}
             options={{
-              styles: MAP_STYLE,
               zoomControl: true,
               streetViewControl: false,
               mapTypeControl: false,
               fullscreenControl: false,
             }}
             onLoad={onMapLoad}
+            onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
           >
             {/* Drawing manager */}
             {!polygon && (
@@ -215,9 +212,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 options={{
                   drawingControl: false,
                   polygonOptions: {
-                    fillColor:   '#0d9488',
-                    fillOpacity: 0.15,
-                    strokeColor: '#0d9488',
+                    fillColor:   '#ef4444',
+                    fillOpacity: 0.12,
+                    strokeColor: '#ef4444',
                     strokeWeight: 2,
                   },
                 }}
@@ -228,7 +225,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             {polygon && (
               <Polygon
                 paths={polygon.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
-                options={{ fillColor: '#0d9488', fillOpacity: 0.08, strokeColor: '#0d9488', strokeWeight: 2 }}
+                options={{ fillColor: '#ef4444', fillOpacity: 0.12, strokeColor: '#ef4444', strokeWeight: 2 }}
               />
             )}
 
@@ -250,20 +247,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               />
             )}
 
-            {/* Scan points */}
-            {displayPoints.slice(0, 2000).map((pt, i) => (
+            {/* Clustered scan points */}
+            {clusters.map((c, i) => (
               <Marker
-                key={`${pt.id || i}`}
-                position={{ lat: pt.lat, lng: pt.lng }}
-                options={{
-                  icon: {
-                    path:        window.google.maps.SymbolPath.CIRCLE,
-                    scale:       3,
-                    fillColor:   pt.overall_score != null ? scoreColor(pt.overall_score) : '#0d9488',
-                    fillOpacity: 0.8,
-                    strokeColor: 'transparent',
-                  },
-                }}
+                key={i}
+                position={{ lat: c.lat, lng: c.lng }}
+                icon={clusterIcon(c.count, c.score)}
+                zIndex={c.count}
               />
             ))}
           </GoogleMap>
