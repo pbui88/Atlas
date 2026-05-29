@@ -49,6 +49,9 @@ function buildRoadLines(osm) {
 
 function sampleRoadPoints(roads, polygon, spacingMeters) {
   const spacingKm = spacingMeters / 1000
+  // Grid cell = spacing/2 metres converted to degrees (~111,320 m per degree).
+  // Any two points that fall in the same cell are the same property — keep one.
+  const cellDeg   = (spacingMeters / 2) / 111320
   const seen      = new Set()
   const points    = []
 
@@ -63,7 +66,8 @@ function sampleRoadPoints(roads, polygon, spacingMeters) {
       const pt  = turf.along(road, pos, { units: 'kilometers' })
       if (!turf.booleanPointInPolygon(pt, polygon)) continue
 
-      const key = `${pt.geometry.coordinates[0].toFixed(4)},${pt.geometry.coordinates[1].toFixed(4)}`
+      const [lng, lat] = pt.geometry.coordinates
+      const key = `${Math.round(lng / cellDeg)},${Math.round(lat / cellDeg)}`
       if (seen.has(key)) continue
       seen.add(key)
 
