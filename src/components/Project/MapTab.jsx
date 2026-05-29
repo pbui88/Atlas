@@ -52,7 +52,7 @@ const MAP_STYLE = [
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const SPACING = 40
+  const SPACING = 25
   const { usage } = useAuth()
   const noKeyBlocked = usage === null || !usage.has_own_key
 
@@ -369,7 +369,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Point spacing */}
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-500">Point spacing</span>
-            <span className="text-xs font-semibold text-slate-700">40 m</span>
+            <span className="text-xs font-semibold text-slate-700">25 m</span>
           </div>
 
           {/* Point / property count */}

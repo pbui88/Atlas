@@ -103,7 +103,7 @@ export const handler = async (event) => {
   const projectId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('projectId')
   if (!isValidUUID(projectId)) return err('projectId required')
 
-  const { geojson, spacingMeters = 50 } = JSON.parse(event.body || '{}')
+  const { geojson, spacingMeters = 25 } = JSON.parse(event.body || '{}')
   if (!geojson?.coordinates) return err('geojson polygon required')
 
   const supabase       = adminSupabase()
