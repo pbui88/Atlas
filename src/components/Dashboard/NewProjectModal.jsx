@@ -29,7 +29,7 @@ export default function NewProjectModal({ onClose }) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl shadow-black/40">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-          <h2 className="font-semibold text-slate-100">New Scan Project</h2>
+          <h2 className="font-semibold text-slate-100">New Scan List</h2>
           <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -39,7 +39,7 @@ export default function NewProjectModal({ onClose }) {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="label">Project Name *</label>
+            <label className="label">List Name *</label>
             <input
               autoFocus
               value={form.name}

@@ -86,7 +86,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold font-display text-white">
             {firstName ? `${firstName}'s Records` : 'Records'}
           </h1>
-          <p className="text-sm text-slate-500 mt-1">Manage your neighborhood scan projects</p>
+          <p className="text-sm text-slate-500 mt-1">Manage your neighborhood scan records</p>
         </div>
         <button onClick={() => setShowNew(true)} className="btn-primary">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
