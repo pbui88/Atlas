@@ -53,12 +53,16 @@ function ProgressBar({ label, value, max, color = 'bg-brand-500' }) {
   )
 }
 
+function mapsUrl(lat, lng) {
+  return `https://www.google.com/maps?q=${lat},${lng}&z=18`
+}
+
 function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
   const score   = point.ai_analyses?.[0]?.overall_score
   const signals = point.ai_analyses?.[0]?.signals || []
   return (
     <div
-      className={`px-3 py-3 border-b border-white/[0.04] transition-colors flex items-start gap-2 ${
+      className={`px-3 py-3 border-b border-white/[0.04] transition-colors flex items-start gap-2 group ${
         isSelected ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : 'hover:bg-white/[0.03]'
       }`}
     >
@@ -92,6 +96,18 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
           )}
         </div>
       </div>
+      <a
+        href={mapsUrl(point.lat, point.lng)}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={e => e.stopPropagation()}
+        title="Open in Google Maps"
+        className="shrink-0 mt-0.5 p-1 rounded text-slate-600 hover:text-brand-400 opacity-0 group-hover:opacity-100 transition-all"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+        </svg>
+      </a>
     </div>
   )
 }
@@ -615,6 +631,18 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 )}
                 {notes && <p className="text-xs text-slate-400 mt-1.5 leading-relaxed line-clamp-2">{notes}</p>}
               </div>
+              <a
+                href={mapsUrl(selected.lat, selected.lng)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 hover:text-white transition text-xs font-medium"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                </svg>
+                Maps
+              </a>
               <button onClick={() => setSelected(null)}
                 className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
