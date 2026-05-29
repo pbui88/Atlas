@@ -53,8 +53,9 @@ function ProgressBar({ label, value, max, color = 'bg-brand-500' }) {
   )
 }
 
-function mapsUrl(lat, lng) {
-  return `https://www.google.com/maps?q=${lat},${lng}&z=18`
+function mapsUrl(lat, lng, address) {
+  const q = address ? encodeURIComponent(address) : `${lat},${lng}`
+  return `https://www.google.com/maps?q=${q}&layer=c&cbll=${lat},${lng}`
 }
 
 function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
@@ -97,7 +98,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         </div>
       </div>
       <a
-        href={mapsUrl(point.lat, point.lng)}
+        href={mapsUrl(point.lat, point.lng, point.address)}
         target="_blank"
         rel="noopener noreferrer"
         onClick={e => e.stopPropagation()}
@@ -632,7 +633,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 {notes && <p className="text-xs text-slate-400 mt-1.5 leading-relaxed line-clamp-2">{notes}</p>}
               </div>
               <a
-                href={mapsUrl(selected.lat, selected.lng)}
+                href={mapsUrl(selected.lat, selected.lng, selected.address)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 hover:text-white transition text-xs font-medium"
