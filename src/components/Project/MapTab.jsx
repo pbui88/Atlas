@@ -151,10 +151,14 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPropLoading(true)
     setPropCount(null)
 
-    const coords  = polygon.coordinates[0]
-    const polyStr = coords.map(([lng, lat]) => `${lat} ${lng}`).join(' ')
-    // Count only address nodes — avoids double-counting way+node for same property
-    const query = `[out:json][timeout:15];node["addr:housenumber"](poly:"${polyStr}");out count;`
+    const coords = polygon.coordinates[0]
+    // Drop the closing duplicate coordinate — Overpass poly filter closes automatically
+    const ring    = coords[0][0] === coords.at(-1)[0] && coords[0][1] === coords.at(-1)[1]
+      ? coords.slice(0, -1)
+      : coords
+    const polyStr = ring.map(([lng, lat]) => `${lat} ${lng}`).join(' ')
+    // Count building ways (footprints) + any standalone address nodes
+    const query = `[out:json][timeout:15];(way["building"](poly:"${polyStr}");node["addr:housenumber"](poly:"${polyStr}"););out count;`
 
     fetch('https://overpass-api.de/api/interpreter', {
       method:  'POST',
@@ -162,9 +166,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       body:    `data=${encodeURIComponent(query)}`,
       signal:  controller.signal,
     })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`Overpass ${r.status}`)
+        return r.json()
+      })
       .then(d => {
-        const total = d.elements?.[0]?.tags?.total
+        const el    = d.elements?.[0]
+        const total = el?.tags?.total ?? el?.tags?.nodes
         setPropCount(total != null ? Number(total) : null)
       })
       .catch(e => {
