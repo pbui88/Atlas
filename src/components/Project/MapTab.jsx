@@ -114,6 +114,14 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       const bounds = new window.google.maps.LatLngBounds()
       polygon.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
       map.fitBounds(bounds, 60)
+    } else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+          map.panTo({ lat: coords.latitude, lng: coords.longitude })
+          map.setZoom(13)
+        },
+        () => {} // user denied or unavailable — stay on default US view
+      )
     }
   }, [polygon])
 
