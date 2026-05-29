@@ -77,15 +77,22 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   // Nominatim (OpenStreetMap) autocomplete — no API key required
   const fetchSuggestions = async (input) => {
     if (!input || input.length < 2) { setSuggestions([]); setShowDropdown(false); return }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5000)
     try {
       const res  = await fetch(
         `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(input)}&format=json&countrycodes=us&limit=5&addressdetails=1`,
-        { headers: { 'Accept-Language': 'en-US' } }
+        { headers: { 'Accept-Language': 'en-US' }, signal: controller.signal }
       )
       const data = await res.json()
       setSuggestions(data)
       setShowDropdown(data.length > 0)
-    } catch { setSuggestions([]); setShowDropdown(false) }
+    } catch (e) {
+      if (e.name !== 'AbortError') console.warn('Nominatim search failed:', e.message)
+      setSuggestions([]); setShowDropdown(false)
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   const handleSearchChange = (e) => {

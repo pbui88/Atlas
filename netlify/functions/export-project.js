@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -8,7 +8,7 @@ export const handler = async (event) => {
   if (error) return err(error, 401)
 
   const { projectId, format = 'GEOJSON', filters = {} } = JSON.parse(event.body || '{}')
-  if (!projectId) return err('projectId required')
+  if (!isValidUUID(projectId)) return err('projectId required')
 
   const supabase = adminSupabase()
 
@@ -21,18 +21,18 @@ export const handler = async (event) => {
     .single()
   if (!project) return err('Project not found', 404)
 
-  // Fetch all points with their analysis.
+  // Only fetch completed points — allows partial export while scan is still running.
   // ai_analyses has UNIQUE on scan_point_id so Supabase returns it as an object, not array.
   const { data: points, error: fetchErr } = await supabase
     .from('scan_points')
     .select('id, lat, lng, address, status, ai_analyses(overall_score, confidence, signals, notes)')
     .eq('project_id', projectId)
+    .eq('status', 'complete')
 
   if (fetchErr) return err(fetchErr.message)
 
-  // Only export points that have an analysis result (ai_analyses is an object, not array)
   const analyzed = (points || []).filter(pt => pt.ai_analyses != null)
-  if (!analyzed.length) return err('No analyzed points found — run AI analysis first')
+  if (!analyzed.length) return err('No completed points with analysis yet — run a scan first')
 
   const minScore = filters.minScore ?? 0
   const filtered = analyzed.filter(pt => {

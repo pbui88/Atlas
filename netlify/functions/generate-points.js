@@ -14,13 +14,20 @@ function bearingBetween(lat1, lng1, lat2, lng2) {
 async function getRoadsFromOSM(polygonGeoJson) {
   const [west, south, east, north] = turf.bbox(polygonGeoJson)
   const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street|service|unclassified|road|trunk)$"](${south},${west},${north},${east});(._;>;);out body;`
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    `data=${encodeURIComponent(query)}`,
-  })
-  if (!res.ok) throw new Error(`Overpass API error: ${res.status}`)
-  return res.json()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20000)
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    `data=${encodeURIComponent(query)}`,
+      signal:  controller.signal,
+    })
+    if (!res.ok) throw new Error(`Overpass API error: ${res.status}`)
+    return res.json()
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function buildRoadLines(osm) {
