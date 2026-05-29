@@ -158,39 +158,49 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setZipLoading(true)
     setZipError(null)
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
+    const timer = setTimeout(() => controller.abort(), 12000)
+
+    const applyPolygon = (geo) => {
+      let g = geo
+      if (g.type === 'MultiPolygon') {
+        const largest = g.coordinates.reduce((a, b) => a[0].length > b[0].length ? a : b)
+        g = { type: 'Polygon', coordinates: largest }
+      }
+      if (g.type !== 'Polygon') return false
+      setPolygon(g)
+      setPreview([])
+      setDrawingMode(null)
+      if (mapRef.current) {
+        const bounds = new window.google.maps.LatLngBounds()
+        g.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
+        mapRef.current.fitBounds(bounds, 40)
+      }
+      setPreview(generateGridPoints(g, SPACING))
+      return true
+    }
+
     try {
-      const res = await fetch(
+      // Primary: US Census TIGERweb — authoritative boundary for every US ZIP
+      const censusUrl =
+        `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/PUMA_TAD_TAZ_UGA_ZCTA/MapServer/2/query` +
+        `?where=ZCTA5CE20%3D%27${zipInput}%27&outFields=ZCTA5CE20&outSR=4326&f=geojson`
+      const censusRes = await fetch(censusUrl, { signal: controller.signal })
+      if (censusRes.ok) {
+        const censusData = await censusRes.json()
+        const geo = censusData.features?.[0]?.geometry
+        if (geo && applyPolygon(geo)) return
+      }
+
+      // Fallback: Nominatim (OSM — coverage varies for US ZIPs)
+      const nomRes = await fetch(
         `https://nominatim.openstreetmap.org/search?postalcode=${zipInput}&country=us&format=json&polygon_geojson=1&limit=1`,
         { headers: { 'Accept-Language': 'en-US' }, signal: controller.signal }
       )
-      clearTimeout(timer)
-      const data = await res.json()
-      const result = data[0]
+      const nomData = await nomRes.json()
+      const geo = nomData[0]?.geojson
+      if (geo && applyPolygon(geo)) return
 
-      if (!result?.geojson) { setZipError('No boundary found for this ZIP code'); return }
-
-      let geo = result.geojson
-      // MultiPolygon → take the largest ring
-      if (geo.type === 'MultiPolygon') {
-        const largest = geo.coordinates.reduce((a, b) => a[0].length > b[0].length ? a : b)
-        geo = { type: 'Polygon', coordinates: largest }
-      }
-      if (geo.type !== 'Polygon') { setZipError('Boundary not available for this ZIP code'); return }
-
-      setPolygon(geo)
-      setPreview([])
-      setDrawingMode(null)
-
-      // Fit map to ZIP boundary
-      if (mapRef.current) {
-        const bounds = new window.google.maps.LatLngBounds()
-        geo.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
-        mapRef.current.fitBounds(bounds, 40)
-      }
-
-      // Show preview points
-      setPreview(generateGridPoints(geo, SPACING))
+      setZipError('No boundary found for ZIP ' + zipInput)
     } catch (e) {
       setZipError(e.name === 'AbortError' ? 'Request timed out — try again' : 'Failed to load ZIP boundary')
     } finally {
