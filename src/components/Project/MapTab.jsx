@@ -209,6 +209,10 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               streetViewControl: false,
               mapTypeControl: false,
               fullscreenControl: false,
+              restriction: {
+                latLngBounds: { north: 49.38, south: 24.52, west: -124.77, east: -66.95 },
+                strictBounds: false,
+              },
             }}
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
