@@ -102,8 +102,10 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setSearchInput(label)
     const lat = parseFloat(s.lat)
     const lng = parseFloat(s.lon)
-    mapRef.current?.panTo({ lat, lng })
-    mapRef.current?.setZoom(14)
+    if (mapRef.current) {
+      mapRef.current.setCenter({ lat, lng })
+      mapRef.current.setZoom(15)
+    }
     setSearchPin({ lat, lng, address: s.display_name })
   }
 
@@ -201,10 +203,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               streetViewControl: false,
               mapTypeControl: false,
               fullscreenControl: false,
-              restriction: {
-                latLngBounds: { north: 49.38, south: 24.52, west: -124.77, east: -66.95 },
-                strictBounds: false,
-              },
             }}
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
