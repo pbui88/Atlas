@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useJsApiLoader } from '@react-google-maps/api'
 import { supabase } from '../../lib/supabase'
@@ -42,6 +42,7 @@ export default function ProjectPage() {
   const [activeTab,      setActiveTab]      = useState('map')
   const [loading,        setLoading]        = useState(true)
   const [autoStartScan,  setAutoStartScan]  = useState(false)
+  const hasAutoStartedRef = useRef(false)
 
   const loadProject = async () => {
     const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
@@ -56,7 +57,19 @@ export default function ProjectPage() {
     setScanPoints(pts || [])
     setLoading(false)
 
-    if (pts?.length > 0 && activeTab === 'map') setActiveTab('results')
+    if (pts?.length > 0) {
+      if (!hasAutoStartedRef.current) {
+        const activeStatus = ['collecting', 'analyzing'].includes(proj.status)
+        const hasIncomplete = pts.some(p => ['pending', 'failed', 'downloaded', 'analyzing'].includes(p.status))
+        if (activeStatus || hasIncomplete) {
+          hasAutoStartedRef.current = true
+          setAutoStartScan(true)
+          setActiveTab('results')
+          return
+        }
+      }
+      if (activeTab === 'map') setActiveTab('results')
+    }
   }
 
   useEffect(() => { loadProject() }, [id])

@@ -134,7 +134,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
-  const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, complete: 0, failed: 0, no_coverage: 0 })
+  const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
   const [running,    setRunning]    = useState(false)
   const [phase,      setPhase]      = useState('')
   const [scanError,  setScanError]  = useState(null)
@@ -146,7 +146,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     const { data } = await supabase.from('scan_points').select('status').eq('project_id', project.id)
     if (!data) return
     const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
-    setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
+    setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
   }
 
   const fetchResults = useCallback(async () => {
@@ -182,17 +182,30 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
-  // Auto-start scan when triggered from Map tab "Run" button.
-  // Empty deps so this runs only on mount — avoids the useEffect cleanup
-  // cancelling the timer when onAutoStartConsumed() resets the prop.
+  // Auto-start from Map tab "Run" button (mount-only, preserves timer cleanup).
   useEffect(() => {
     if (!autoStart) return
-    onAutoStartConsumed?.()          // reset parent flag so re-visits don't re-trigger
-    if (noKeyBlocked) return         // don't auto-start if no key configured yet
-    const t = setTimeout(runScan, 500)  // give DB 500ms to commit new points
-    return () => clearTimeout(t)    // cancel only on unmount
+    onAutoStartConsumed?.()
+    if (noKeyBlocked) return
+    if (autoStarted.current) return
+    autoStarted.current = true
+    const t = setTimeout(runScan, 500)
+    return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Auto-start when returning to a project that has an incomplete scan.
+  useEffect(() => {
+    if (autoStarted.current) return
+    if (running) return
+    if (noKeyBlocked) return
+    if (stats.total === 0) return
+    const incomplete = (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0)
+    if (incomplete === 0) return
+    autoStarted.current = true
+    runScan()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.total, stats.pending, stats.failed, stats.downloaded])
 
   // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
@@ -268,7 +281,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setPhase('analyzing')
     try {
       const { data: toAnalyze } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).eq('status', 'downloaded')
+        .eq('project_id', project.id).in('status', ['downloaded', 'analyzing'])
       if (toAnalyze?.length) {
         const chunks = chunkArray(toAnalyze.map(p => p.id), AI_BATCH)
         for (let i = 0; i < chunks.length; i += AI_CONCUR) {
@@ -458,7 +471,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         {/* Progress bars — shown while running or when scan has started */}
         {stats.total > 0 && (
           <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
-            <ProgressBar label="Images" value={stats.downloaded + stats.complete} max={stats.total} />
+            <ProgressBar label="Images" value={stats.downloaded + stats.analyzing + stats.complete} max={stats.total} />
             <ProgressBar label="AI analysis" value={stats.complete} max={stats.total} color="bg-green-500" />
           </div>
         )}
@@ -560,11 +573,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                   <button onClick={() => { setMinScore(0); setSigFilter([]) }}
                     className="mt-2 text-xs text-brand-600 hover:underline">Clear filters</button>
                 </>
+              ) : (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0) > 0 ? (
+                <p className="text-sm text-slate-400">Starting scan…</p>
               ) : (
-                <>
-                  <p className="text-sm text-slate-400">No results yet.</p>
-                  <p className="text-xs text-slate-400 mt-1">Go to the Map tab, draw an area and click Run.</p>
-                </>
+                <p className="text-sm text-slate-400">No results yet.</p>
               )}
             </div>
           ) : (
