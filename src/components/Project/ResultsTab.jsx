@@ -152,7 +152,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const fetchResults = useCallback(async () => {
     setResLoading(true)
 
-    // Get total count separately so we know if we're hitting the limit
     const { count } = await supabase
       .from('scan_points')
       .select('*', { count: 'exact', head: true })
@@ -162,21 +161,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
     const { data: pts } = await supabase
       .from('scan_points')
-      .select('id, lat, lng, address, status')
+      .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
       .eq('project_id', project.id)
       .eq('status', 'complete')
       .order('created_at')
       .limit(RESULTS_LIMIT)
 
-    if (!pts?.length) { setPoints([]); setResLoading(false); return }
-
-    const { data: analyses } = await supabase
-      .from('ai_analyses')
-      .select('scan_point_id, overall_score, confidence, signals, notes')
-      .in('scan_point_id', pts.map(p => p.id))
-
-    const analysisMap = Object.fromEntries((analyses || []).map(a => [a.scan_point_id, a]))
-    setPoints(pts.map(pt => ({ ...pt, ai_analyses: analysisMap[pt.id] ? [analysisMap[pt.id]] : [] })))
+    setPoints(pts || [])
     setResLoading(false)
   }, [project.id])
 
