@@ -102,7 +102,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         target="_blank"
         rel="noopener noreferrer"
         onClick={e => e.stopPropagation()}
-        title="Open in Google Maps"
+        title="Open Street View"
         className="shrink-0 mt-0.5 p-1 rounded text-slate-600 hover:text-brand-400 opacity-0 group-hover:opacity-100 transition-all"
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -652,7 +652,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                 </svg>
-                Maps
+                Street View
               </a>
               <button onClick={() => setSelected(null)}
                 className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
