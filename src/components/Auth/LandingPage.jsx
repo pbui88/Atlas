@@ -98,10 +98,10 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero — split layout */}
-      <div className="relative z-10 flex-1 flex items-center max-w-7xl mx-auto w-full px-8 py-12 gap-16">
+      <div className="relative z-10 flex-1 flex items-center w-full py-12 gap-0">
 
         {/* Left: content */}
-        <div className="flex-1 max-w-xl">
+        <div className="w-1/2 px-8 max-w-2xl ml-auto">
           {/* Badge */}
           <div className="inline-flex items-center gap-2 bg-brand-600/10 border border-brand-600/20 rounded-full px-4 py-1.5 text-sm text-brand-400 mb-8">
             <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-pulse" />
@@ -144,12 +144,12 @@ export default function LandingPage() {
           </p>
         </div>
 
-        {/* Right: hero image */}
-        <div className="flex-1 hidden lg:flex items-center justify-center">
+        {/* Right: hero image — full 50% of viewport */}
+        <div className="w-1/2 hidden lg:flex items-center justify-center">
           <img
             src="/hero.png"
             alt="Atlas AI"
-            className="w-full max-w-2xl object-contain"
+            className="w-full h-full object-cover"
             style={{
               maskImage: 'radial-gradient(ellipse 65% 70% at 55% 48%, black 15%, transparent 80%)',
               WebkitMaskImage: 'radial-gradient(ellipse 65% 70% at 55% 48%, black 15%, transparent 80%)',
