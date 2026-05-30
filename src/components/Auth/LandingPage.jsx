@@ -180,6 +180,7 @@ export default function LandingPage() {
               ),
               title: 'Street View Capture',
               desc: 'Downloads imagery at every point via Google Street View — automatically.',
+              bg: '/atlas_car.png',
             },
             {
               icon: (
@@ -189,14 +190,25 @@ export default function LandingPage() {
               ),
               title: 'AI Distress Scoring',
               desc: 'AI Atlas Vision analyzes each property and scores distress signals automatically.',
+              bg: '/atlas_chip.png',
             },
           ].map((f, i) => (
             <div
               key={i}
               className="relative overflow-hidden bg-navy-800/70 border border-white/[0.06] rounded-2xl p-5 backdrop-blur-sm hover:border-white/[0.10] transition-colors"
-              style={f.bg ? { backgroundImage: `url(${f.bg})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
             >
-              {f.bg && <div className="absolute inset-0 bg-navy-900/60 rounded-2xl" />}
+              {f.bg && (
+                <img
+                  src={f.bg}
+                  alt=""
+                  aria-hidden
+                  className="absolute inset-0 w-full h-full object-cover opacity-40"
+                  style={{
+                    maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 10%, transparent 80%)',
+                    WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 10%, transparent 80%)',
+                  }}
+                />
+              )}
               <div className="relative z-10 w-9 h-9 bg-white/[0.05] border border-white/[0.06] rounded-xl flex items-center justify-center mb-4">
                 {f.icon}
               </div>
