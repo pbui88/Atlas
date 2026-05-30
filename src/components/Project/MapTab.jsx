@@ -395,7 +395,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </div>
               </div>
               <p className="text-xs text-slate-400 pt-1">
-                Images via Google Street View ($0.007/point)
+                Images via Google Street View ($0.014/point)
               </p>
             </div>
           )}

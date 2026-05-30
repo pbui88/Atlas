@@ -62,11 +62,11 @@ export const DIRECTIONS = [
   { label: 'W', heading: 270 },
 ]
 
-// Image sourcing: Google Street View Static API (image only, $7/1k = $0.007/point).
+// Image sourcing: Google Street View Static API ($14/1k = $0.014/point displayed to users).
 // Road bearing stored from OSM at generation time — no metadata call needed.
 // AI cost is ~$0.0002/point on Gemini 2.5-flash-lite.
 export const API_COSTS = {
-  streetViewPer1k:      7,      // image download only = $0.007/point
+  streetViewPer1k:      14,     // displayed price = $0.014/point
   geocodingPer1k:       0,
   aiPerPoint:           0.0002,
   analysisCacheHitRate: 0.20,
