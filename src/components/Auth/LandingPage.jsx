@@ -144,9 +144,13 @@ export default function LandingPage() {
           </p>
         </div>
 
-        {/* Right: visual */}
+        {/* Right: hero image */}
         <div className="flex-1 hidden lg:flex items-center justify-center">
-          <HeroVisual />
+          <img
+            src="/hero.png"
+            alt="Atlas AI"
+            className="w-full max-w-xl object-contain drop-shadow-2xl"
+          />
         </div>
       </div>
 
