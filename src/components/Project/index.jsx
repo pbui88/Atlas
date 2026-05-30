@@ -59,9 +59,8 @@ export default function ProjectPage() {
 
     if (pts?.length > 0) {
       if (!hasAutoStartedRef.current) {
-        const activeStatus = ['collecting', 'analyzing'].includes(proj.status)
         const hasIncomplete = pts.some(p => ['pending', 'failed', 'downloaded', 'analyzing'].includes(p.status))
-        if (activeStatus || hasIncomplete) {
+        if (hasIncomplete) {
           hasAutoStartedRef.current = true
           setAutoStartScan(true)
           setActiveTab('results')
