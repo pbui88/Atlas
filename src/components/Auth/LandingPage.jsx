@@ -170,6 +170,7 @@ export default function LandingPage() {
               ),
               title: 'Draw Any Area',
               desc: 'Select a neighborhood polygon. Atlas generates hundreds of scan points along roads.',
+              bg: '/polygon-bg.png',
             },
             {
               icon: (
@@ -190,12 +191,17 @@ export default function LandingPage() {
               desc: 'AI Atlas Vision analyzes each property and scores distress signals automatically.',
             },
           ].map((f, i) => (
-            <div key={i} className="bg-navy-800/70 border border-white/[0.06] rounded-2xl p-5 backdrop-blur-sm hover:border-white/[0.10] transition-colors">
-              <div className="w-9 h-9 bg-white/[0.05] border border-white/[0.06] rounded-xl flex items-center justify-center mb-4">
+            <div
+              key={i}
+              className="relative overflow-hidden bg-navy-800/70 border border-white/[0.06] rounded-2xl p-5 backdrop-blur-sm hover:border-white/[0.10] transition-colors"
+              style={f.bg ? { backgroundImage: `url(${f.bg})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+            >
+              {f.bg && <div className="absolute inset-0 bg-navy-900/60 rounded-2xl" />}
+              <div className="relative z-10 w-9 h-9 bg-white/[0.05] border border-white/[0.06] rounded-xl flex items-center justify-center mb-4">
                 {f.icon}
               </div>
-              <h3 className="text-sm font-semibold text-white mb-1.5">{f.title}</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">{f.desc}</p>
+              <h3 className="relative z-10 text-sm font-semibold text-white mb-1.5">{f.title}</h3>
+              <p className="relative z-10 text-xs text-slate-500 leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>
