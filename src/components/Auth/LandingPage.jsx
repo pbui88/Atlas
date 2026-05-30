@@ -149,10 +149,10 @@ export default function LandingPage() {
           <img
             src="/hero.png"
             alt="Atlas AI"
-            className="w-full max-w-xl object-contain"
+            className="w-full max-w-2xl object-contain"
             style={{
-              maskImage: 'radial-gradient(ellipse 80% 85% at 55% 48%, black 30%, transparent 100%)',
-              WebkitMaskImage: 'radial-gradient(ellipse 80% 85% at 55% 48%, black 30%, transparent 100%)',
+              maskImage: 'radial-gradient(ellipse 65% 70% at 55% 48%, black 15%, transparent 80%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 65% 70% at 55% 48%, black 15%, transparent 80%)',
             }}
           />
         </div>
