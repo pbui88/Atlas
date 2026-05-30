@@ -113,7 +113,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
   )
 }
 
-export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed, isLoaded = false }) {
+export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
   const { usage, refreshUsage } = useAuth()
   // usage===null means still loading; treat as blocked to avoid false-positive
   const noKeyBlocked = usage === null || !usage.has_own_key
@@ -131,10 +131,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [selImages,  setSelImages]  = useState([])
   const [imgLoading, setImgLoading] = useState(false)
   const [checkedIds, setCheckedIds] = useState(new Set())
-  const selectAllRef    = useRef(null)
-  const [showStreetView, setShowStreetView] = useState(false)
-  const streetViewRef   = useRef(null)
-  const panoramaRef     = useRef(null)
+  const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
   const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
@@ -217,29 +214,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .then(({ data }) => { setSelImages(data || []); setImgLoading(false) })
   }, [selected?.id])
 
-  // Reset to images view when a different property is selected
-  useEffect(() => { setShowStreetView(false) }, [selected?.id])
-
-  // Initialize or reposition the embedded Street View panorama
-  useEffect(() => {
-    if (!showStreetView || !selected || !isLoaded) return
-    if (!streetViewRef.current || !window.google?.maps?.StreetViewPanorama) return
-    if (!panoramaRef.current) {
-      panoramaRef.current = new window.google.maps.StreetViewPanorama(streetViewRef.current, {
-        position: { lat: selected.lat, lng: selected.lng },
-        pov: { heading: 0, pitch: 0 },
-        zoom: 1,
-        addressControl: false,
-        showRoadLabels: false,
-        motionTracking: false,
-        motionTrackingControl: false,
-        fullscreenControl: false,
-      })
-    } else {
-      panoramaRef.current.setPosition({ lat: selected.lat, lng: selected.lng })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showStreetView, selected?.id, isLoaded])
 
   // ── Scan logic ─────────────────────────────────────────────
   const runScan = async () => {
@@ -669,21 +643,18 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 )}
                 {notes && <p className="text-xs text-slate-400 mt-1.5 leading-relaxed line-clamp-2">{notes}</p>}
               </div>
-              <button
-                onClick={() => setShowStreetView(v => !v)}
-                title={showStreetView ? 'Show captured images' : 'Show Street View'}
-                className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition text-xs font-medium ${
-                  showStreetView
-                    ? 'bg-brand-600/20 text-brand-400 border border-brand-600/25'
-                    : 'bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 hover:text-white'
-                }`}
+              <a
+                href={mapsUrl(selected.lat, selected.lng, selected.address)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-slate-300 hover:text-white transition text-xs font-medium"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                 </svg>
                 Street View
-              </button>
+              </a>
               <button onClick={() => setSelected(null)}
                 className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -692,14 +663,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </button>
             </div>
 
-            {/* Images + embedded Street View */}
+            {/* Images */}
             <div className="flex-1 relative overflow-hidden">
-              {/* Street View panorama — always mounted so it has dimensions when toggled */}
-              <div
-                ref={streetViewRef}
-                className={`absolute inset-0 z-10 transition-opacity duration-200 ${showStreetView ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-              />
-              <div className={`absolute inset-0 overflow-y-auto transition-opacity duration-200 ${showStreetView ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+              <div className="absolute inset-0 overflow-y-auto">
                 {imgLoading ? (
                   <div className="flex justify-center py-16">
                     <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />

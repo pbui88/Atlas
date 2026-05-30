@@ -147,7 +147,6 @@ export default function ProjectPage() {
             onProjectUpdate={loadProject}
             autoStart={autoStartScan}
             onAutoStartConsumed={() => setAutoStartScan(false)}
-            isLoaded={isLoaded}
           />
         )}
       </div>
