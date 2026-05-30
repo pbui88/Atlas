@@ -179,7 +179,7 @@ export default function LandingPage() {
                 </svg>
               ),
               title: 'AI Distress Scoring',
-              desc: 'Gemini Vision analyzes each property and scores distress signals automatically.',
+              desc: 'AI Atlas Vision analyzes each property and scores distress signals automatically.',
             },
           ].map((f, i) => (
             <div key={i} className="bg-navy-800/70 border border-white/[0.06] rounded-2xl p-5 backdrop-blur-sm hover:border-white/[0.10] transition-colors">
