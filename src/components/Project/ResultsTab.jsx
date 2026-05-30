@@ -605,7 +605,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             ) : (
               ['CSV'].map(fmt => (
                 <button key={fmt} onClick={() => handleExport(fmt)} className="flex-1 btn-outline py-1.5 text-xs">
-                  {fmt}
+                  Download
                 </button>
               ))
             )}
