@@ -151,8 +151,8 @@ export default function LandingPage() {
             alt="Atlas AI"
             className="w-full h-full object-cover"
             style={{
-              maskImage: 'radial-gradient(ellipse 65% 70% at 55% 48%, black 15%, transparent 80%)',
-              WebkitMaskImage: 'radial-gradient(ellipse 65% 70% at 55% 48%, black 15%, transparent 80%)',
+              maskImage: 'radial-gradient(ellipse 90% 85% at 52% 52%, black 25%, transparent 85%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 90% 85% at 52% 52%, black 25%, transparent 85%)',
             }}
           />
         </div>
