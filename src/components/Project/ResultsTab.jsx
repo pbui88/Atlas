@@ -167,7 +167,14 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .order('created_at')
       .limit(RESULTS_LIMIT)
 
-    setPoints(pts || [])
+    // Supabase returns ai_analyses as a single object (not array) for one-to-one relations.
+    // Normalize to array so the rest of the code can use ai_analyses?.[0] consistently.
+    setPoints((pts || []).map(pt => ({
+      ...pt,
+      ai_analyses: pt.ai_analyses
+        ? (Array.isArray(pt.ai_analyses) ? pt.ai_analyses : [pt.ai_analyses])
+        : [],
+    })))
     setResLoading(false)
   }, [project.id])
 
