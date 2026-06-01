@@ -1,65 +1,5 @@
 import { useNavigate } from 'react-router-dom'
 
-function HeroVisual() {
-  return (
-    <div className="relative flex items-center justify-center w-full h-full min-h-[500px]">
-      {/* Outer glow */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-[420px] h-[420px] rounded-full bg-brand-600/10 blur-3xl" />
-      </div>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-[280px] h-[280px] rounded-full bg-cyan-500/10 blur-2xl" />
-      </div>
-
-      {/* Rings */}
-      <div className="relative w-72 h-72 flex items-center justify-center">
-        <div className="absolute inset-0 rounded-full border border-brand-600/20 animate-[spin_20s_linear_infinite]" />
-        <div className="absolute inset-4 rounded-full border border-brand-600/15 animate-[spin_15s_linear_infinite_reverse]" />
-        <div className="absolute inset-8 rounded-full border border-cyan-500/20 animate-[spin_10s_linear_infinite]" />
-
-        {/* Orbiting dots */}
-        {[0, 60, 120, 180, 240, 300].map((deg, i) => (
-          <div
-            key={i}
-            className="absolute w-1.5 h-1.5 rounded-full bg-brand-400"
-            style={{
-              top:  `${50 - 46 * Math.cos((deg * Math.PI) / 180)}%`,
-              left: `${50 + 46 * Math.sin((deg * Math.PI) / 180)}%`,
-              transform: 'translate(-50%, -50%)',
-              opacity: 0.5 + (i % 3) * 0.2,
-            }}
-          />
-        ))}
-
-        {/* Center globe */}
-        <div className="w-32 h-32 rounded-full bg-gradient-to-br from-navy-700 via-brand-900/50 to-navy-800 border border-brand-600/30 flex items-center justify-center shadow-2xl shadow-brand-600/20">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-brand-600/40 to-cyan-500/20 border border-brand-500/20 flex items-center justify-center">
-            <svg className="w-9 h-9 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      {/* Floating data points */}
-      {[
-        { top: '20%', left: '15%', label: '273 properties', delay: '0s' },
-        { top: '65%', left: '10%', label: '98 score', delay: '0.5s' },
-        { top: '25%', right: '10%', label: 'AI ready', delay: '1s' },
-        { top: '70%', right: '15%', label: '$0.014/property', delay: '1.5s' },
-      ].map((p, i) => (
-        <div
-          key={i}
-          className="absolute bg-navy-800/90 border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 font-medium backdrop-blur-sm shadow-lg"
-          style={{ top: p.top, left: p.left, right: p.right, animation: `pulse 3s ease-in-out ${p.delay} infinite` }}
-        >
-          {p.label}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export default function LandingPage() {
   const navigate = useNavigate()
 
@@ -101,7 +41,7 @@ export default function LandingPage() {
       <div className="relative z-10 flex-1 flex items-center w-full py-12 gap-0">
 
         {/* Left: content */}
-        <div className="w-1/2 px-8 max-w-2xl ml-auto">
+        <div className="w-full lg:w-1/2 px-8 max-w-2xl lg:ml-auto">
           {/* Badge */}
           <div className="inline-flex items-center gap-2 bg-brand-600/10 border border-brand-600/20 rounded-full px-4 py-1.5 text-sm text-brand-400 mb-8">
             <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-pulse" />
@@ -148,9 +88,11 @@ export default function LandingPage() {
         <div className="w-1/2 hidden lg:flex items-center justify-center">
           <img
             src="/hero.png"
-            alt="Atlas AI"
+            alt=""
+            aria-hidden
             className="w-full h-full object-cover"
             style={{
+              // first gradient fades image edges; second preserves ATLAS text in bottom-left
               maskImage: 'radial-gradient(ellipse 60% 65% at 58% 42%, black 10%, transparent 68%), radial-gradient(ellipse 24% 20% at 26% 78%, black 53%, transparent 100%)',
               WebkitMaskImage: 'radial-gradient(ellipse 60% 65% at 58% 42%, black 10%, transparent 68%), radial-gradient(ellipse 24% 20% at 26% 78%, black 53%, transparent 100%)',
             }}
@@ -170,7 +112,7 @@ export default function LandingPage() {
               ),
               title: 'Draw Any Area',
               desc: 'Select a neighborhood polygon. Atlas generates hundreds of scan points along roads.',
-              bg: '/polygon-bg.png',
+              bg: '/polygon-bg.webp',
             },
             {
               icon: (
@@ -180,7 +122,7 @@ export default function LandingPage() {
               ),
               title: 'Street View Capture',
               desc: 'Downloads imagery at every point via Google Street View — automatically.',
-              bg: '/atlas_car.png',
+              bg: '/atlas_car.webp',
             },
             {
               icon: (
@@ -190,7 +132,7 @@ export default function LandingPage() {
               ),
               title: 'AI Distress Scoring',
               desc: 'AI Atlas Vision analyzes each property and scores distress signals automatically.',
-              bg: '/atlas_chip.png',
+              bg: '/atlas_chip.webp',
             },
           ].map((f, i) => (
             <div
