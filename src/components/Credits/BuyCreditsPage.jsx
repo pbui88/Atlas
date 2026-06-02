@@ -72,16 +72,22 @@ export default function BuyCreditsPage() {
           <div className="flex flex-wrap gap-6">
             <div>
               <p className="text-2xl font-bold font-display text-white">{usage.remaining.toLocaleString()}</p>
-              <p className="text-xs text-slate-500 mt-0.5">Credits remaining</p>
+              <p className="text-xs text-slate-500 mt-0.5">Total remaining</p>
             </div>
             <div>
               <p className="text-2xl font-bold font-display text-slate-400">{usage.used.toLocaleString()}</p>
               <p className="text-xs text-slate-500 mt-0.5">Used this cycle</p>
             </div>
+            <div>
+              <p className="text-2xl font-bold font-display text-slate-400">{usage.limit.toLocaleString()}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Monthly quota</p>
+            </div>
             {usage.purchasedCredits > 0 && (
               <div>
-                <p className="text-2xl font-bold font-display text-brand-400">{usage.purchasedCredits.toLocaleString()}</p>
-                <p className="text-xs text-slate-500 mt-0.5">Purchased credits</p>
+                <p className="text-2xl font-bold font-display text-brand-400">
+                  {(usage.purchasedRemaining ?? usage.purchasedCredits).toLocaleString()}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">Purchased remaining</p>
               </div>
             )}
           </div>

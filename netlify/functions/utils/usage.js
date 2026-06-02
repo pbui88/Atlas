@@ -8,20 +8,20 @@ function currentCycleStart(anchorDateStr) {
   return start
 }
 
-// Returns { used, limit, remaining, cycleStart } for a given user.
-// "used" counts every image_download or image_cache_hit in the current 30-day window.
+// Returns { used, limit, remaining, cycleStart, purchasedCredits, purchasedCreditsUsed } for a given user.
+// remaining = cycleRemaining + purchasedRemaining so purchased credits don't renew each cycle.
 export async function getUserUsage(userId, supabase) {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('points_limit, purchased_credits, cycle_anchor_date')
+    .select('points_limit, purchased_credits, purchased_credits_used, cycle_anchor_date')
     .eq('id', userId)
     .maybeSingle()
 
-  const monthlyLimit      = profile?.points_limit      ?? 10000
-  const purchasedCredits  = profile?.purchased_credits ?? 0
-  const limit             = monthlyLimit + purchasedCredits
-  const anchor            = profile?.cycle_anchor_date ?? new Date().toISOString().slice(0, 10)
-  const cycleStart = currentCycleStart(anchor)
+  const monthlyLimit          = profile?.points_limit           ?? 10000
+  const purchasedCredits      = profile?.purchased_credits      ?? 0
+  const purchasedCreditsUsed  = profile?.purchased_credits_used ?? 0
+  const anchor                = profile?.cycle_anchor_date      ?? new Date().toISOString().slice(0, 10)
+  const cycleStart            = currentCycleStart(anchor)
 
   const { count } = await supabase
     .from('usage_logs')
@@ -30,12 +30,17 @@ export async function getUserUsage(userId, supabase) {
     .in('service', ['street_view', 'mapillary'])
     .gte('created_at', cycleStart.toISOString())
 
-  const used = count ?? 0
+  const cycleUsed         = count ?? 0
+  const cycleRemaining    = Math.max(0, monthlyLimit - cycleUsed)
+  const purchasedRemaining = Math.max(0, purchasedCredits - purchasedCreditsUsed)
+
   return {
-    used,
-    limit,
-    remaining:        Math.max(0, limit - used),
-    cycleStart:       cycleStart.toISOString(),
+    used:                 cycleUsed,
+    limit:                monthlyLimit,
+    remaining:            cycleRemaining + purchasedRemaining,
+    cycleStart:           cycleStart.toISOString(),
     purchasedCredits,
+    purchasedCreditsUsed,
+    purchasedRemaining,
   }
 }
