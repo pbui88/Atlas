@@ -8,7 +8,7 @@ function currentCycleStart(anchorDateStr) {
   return start
 }
 
-// Returns { used, limit, remaining, cycleStart, purchasedCredits, purchasedCreditsUsed } for a given user.
+// Returns { used, limit, remaining, cycleStart, purchasedCredits, purchasedCreditsUsed, purchasedRemaining }.
 // remaining = cycleRemaining + purchasedRemaining so purchased credits don't renew each cycle.
 export async function getUserUsage(userId, supabase) {
   const { data: profile } = await supabase

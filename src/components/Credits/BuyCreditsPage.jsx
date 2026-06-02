@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams, useOutletContext } from 'react-router-dom'
+import { useSearchParams, useOutletContext, useNavigate } from 'react-router-dom'
 import { createCheckoutSession } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 
@@ -13,22 +13,28 @@ export default function BuyCreditsPage() {
   const { openSidebar } = useOutletContext()
   const { usage, refreshUsage } = useAuth()
   const [searchParams] = useSearchParams()
-  const [loading, setLoading] = useState(null)
+  const navigate = useNavigate()
+  const [loading,      setLoading]      = useState(null)
+  const [checkoutError, setCheckoutError] = useState(null)  // Fix 7
 
-  const success = searchParams.get('success') === 'true'
+  const success  = searchParams.get('success') === 'true'
   const addedPts = parseInt(searchParams.get('points') || '0', 10)
 
+  // Fix 5: refreshUsage in deps. Fix 6: clear query params after banner shown.
   useEffect(() => {
-    if (success) refreshUsage()
-  }, [success])
+    if (!success) return
+    refreshUsage()
+    navigate('/credits', { replace: true })
+  }, [success, refreshUsage, navigate])
 
   const handleBuy = async (points) => {
     setLoading(points)
+    setCheckoutError(null)
     try {
       const { url } = await createCheckoutSession(points)
       window.location.href = url
     } catch (e) {
-      alert(e.message)
+      setCheckoutError(e.message)  // Fix 7: inline error instead of alert()
       setLoading(null)
     }
   }
@@ -62,6 +68,21 @@ export default function BuyCreditsPage() {
           <p className="text-sm text-emerald-400 font-medium">
             Payment successful — {addedPts.toLocaleString()} credits added to your account.
           </p>
+        </div>
+      )}
+
+      {/* Checkout error — Fix 7 */}
+      {checkoutError && (
+        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-8">
+          <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+          <p className="text-sm text-red-400 font-medium">{checkoutError}</p>
+          <button onClick={() => setCheckoutError(null)} className="ml-auto text-red-500 hover:text-red-300 transition">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 
