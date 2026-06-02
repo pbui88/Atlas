@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import { getProjects, deleteProject } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 import ProjectCard from './ProjectCard'
@@ -49,6 +50,7 @@ function EmptyState({ onNew }) {
 }
 
 export default function Dashboard() {
+  const { openSidebar } = useOutletContext()
   const { profile } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -79,16 +81,27 @@ export default function Dashboard() {
   const firstName = profile?.full_name ? profile.full_name.split(' ')[0] : null
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold font-display text-white">
-            {firstName ? `${firstName}'s Records` : 'Records'}
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">Manage your neighborhood scan records</p>
+        <div className="flex items-start gap-3">
+          <button
+            onClick={openSidebar}
+            className="mt-1 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden shrink-0"
+            aria-label="Open navigation"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold font-display text-white">
+              {firstName ? `${firstName}'s Records` : 'Records'}
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">Manage your neighborhood scan records</p>
+          </div>
         </div>
-        <button onClick={() => setShowNew(true)} className="btn-primary">
+        <button onClick={() => setShowNew(true)} className="btn-primary shrink-0">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
@@ -98,7 +111,7 @@ export default function Dashboard() {
 
       {/* Stats */}
       {projects.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <StatCard
             label="Total Records"
             value={projects.length}

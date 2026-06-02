@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage,
   adminSetUserLimit, adminResetUserCycle, adminSetUserKey,
@@ -137,6 +138,7 @@ function KeyEditor({ user, onSave }) {
 }
 
 export default function AdminPanel() {
+  const { openSidebar } = useOutletContext()
   const [users,   setUsers]   = useState([])
   const [usage,   setUsage]   = useState(null)
   const [loading, setLoading] = useState(true)
@@ -188,14 +190,25 @@ export default function AdminPanel() {
   const pendingUsers = users.filter(u => !u.is_active)
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold font-display text-white">Admin</h1>
-          <p className="text-sm text-slate-500 mt-1">Manage users and monitor platform usage</p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={openSidebar}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden shrink-0"
+            aria-label="Open navigation"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold font-display text-white">Admin</h1>
+            <p className="text-sm text-slate-500 mt-1">Manage users and monitor platform usage</p>
+          </div>
         </div>
-        <button onClick={load} className="btn-outline text-xs gap-2">
+        <button onClick={load} className="btn-outline text-xs gap-2 shrink-0">
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
           </svg>
@@ -249,7 +262,8 @@ export default function AdminPanel() {
         </div>
       ) : tab === 'users' ? (
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
                 {['User', 'Role', 'Status', 'Usage (cycle)', 'Limit', 'API Key', 'Joined', ''].map(h => (
@@ -299,7 +313,8 @@ export default function AdminPanel() {
                 )
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
           {users.length === 0 && (
             <p className="text-center text-sm text-slate-600 py-10">No users found.</p>
           )}

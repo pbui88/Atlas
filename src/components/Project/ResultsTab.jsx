@@ -436,10 +436,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const notes       = analysis?.notes
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col md:flex-row h-full">
 
-      {/* ── Left panel ── */}
-      <div className="w-80 bg-navy-800 border-r border-white/[0.06] flex flex-col shrink-0">
+      {/* ── Left panel ── hidden on mobile when a property is selected */}
+      <div className={`${selected ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-navy-800 border-b md:border-b-0 md:border-r border-white/[0.06] shrink-0`}>
 
         {/* Results header */}
         <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
@@ -617,8 +617,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         </div>
       </div>
 
-      {/* ── Right panel: image viewer ── */}
-      <div className="flex-1 flex flex-col bg-slate-950 min-w-0">
+      {/* ── Right panel: image viewer — hidden on mobile when nothing selected ── */}
+      <div className={`${selected ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-slate-950 min-w-0`}>
         {selected ? (
           <>
             {/* Property header */}
@@ -656,8 +656,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 Street View
               </a>
               <button onClick={() => setSelected(null)}
-                className="shrink-0 p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                className="shrink-0 flex items-center gap-1 p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition">
+                <svg className="w-4 h-4 md:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                </svg>
+                <span className="text-xs font-medium md:hidden">Back</span>
+                <svg className="w-4 h-4 hidden md:block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>

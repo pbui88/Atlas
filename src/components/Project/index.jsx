@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link, useOutletContext } from 'react-router-dom'
 import { useJsApiLoader } from '@react-google-maps/api'
 import { supabase } from '../../lib/supabase'
 import { updateProject } from '../../lib/api'
@@ -31,6 +31,7 @@ const TABS = [
 ]
 
 export default function ProjectPage() {
+  const { openSidebar } = useOutletContext()
   const { id } = useParams()
   const navigate = useNavigate()
   const { isLoaded, loadError } = useJsApiLoader({
@@ -86,8 +87,17 @@ export default function ProjectPage() {
   return (
     <div className="flex flex-col h-screen bg-navy-900">
       {/* Header */}
-      <header className="flex items-center gap-4 px-5 py-3 border-b border-white/[0.06] shrink-0 bg-navy-950">
-        <Link to="/dashboard" className="text-slate-500 hover:text-slate-200 transition">
+      <header className="flex items-center gap-3 px-3 sm:px-5 py-3 border-b border-white/[0.06] shrink-0 bg-navy-950">
+        <button
+          onClick={openSidebar}
+          className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden shrink-0"
+          aria-label="Open navigation"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+        </button>
+        <Link to="/dashboard" className="text-slate-500 hover:text-slate-200 transition shrink-0">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>

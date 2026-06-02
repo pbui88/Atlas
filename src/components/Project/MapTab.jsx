@@ -50,6 +50,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const { usage } = useAuth()
   const noKeyBlocked = usage === null || !usage.has_own_key
 
+  const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
@@ -319,14 +320,36 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
+          {/* Mobile panel toggle */}
+          <button
+            onClick={() => setShowPanel(p => !p)}
+            className="absolute bottom-4 right-4 z-10 lg:hidden flex items-center gap-1.5 px-3 py-2 bg-navy-800/95 border border-white/[0.10] rounded-xl text-xs font-medium text-slate-300 shadow-xl backdrop-blur-sm"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+            </svg>
+            Scan Area
+          </button>
+
         </div>
       </div>
 
       {/* ── Right panel ── */}
-      <div className="w-72 bg-navy-800 border-l border-white/[0.06] flex flex-col">
-        <div className="p-4 border-b border-white/[0.06]">
-          <h3 className="text-sm font-semibold text-white">Scan Area</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Draw your target neighborhood</p>
+      <div className={`${showPanel ? 'flex' : 'hidden'} lg:flex flex-col bg-navy-800 border-l border-white/[0.06]
+        absolute inset-0 z-20 lg:relative lg:inset-auto lg:z-auto lg:w-72`}>
+        <div className="p-4 border-b border-white/[0.06] flex items-start justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Scan Area</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Draw your target neighborhood</p>
+          </div>
+          <button
+            onClick={() => setShowPanel(false)}
+            className="lg:hidden p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         <div className="flex-1 p-4 space-y-5 overflow-y-auto">
