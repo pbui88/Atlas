@@ -7,6 +7,7 @@ import AppLayout           from './components/Layout/AppLayout'
 import Dashboard           from './components/Dashboard/index'
 import ProjectPage         from './components/Project/index'
 import AdminPanel          from './components/Admin/index'
+import BuyCreditsPage      from './components/Credits/BuyCreditsPage'
 
 function Spinner() {
   return (
@@ -51,6 +52,9 @@ export default function App() {
           </Route>
           <Route path="/admin" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
             <Route index element={<AdminPanel />} />
+          </Route>
+          <Route path="/credits" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+            <Route index element={<BuyCreditsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

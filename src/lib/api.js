@@ -62,6 +62,9 @@ export const exportProject    = (projectId, format, filters = {}) =>
 // ── Usage (current user) ─────────────────────────────────────
 export const getMyUsage = () => call('my-usage')
 
+// ── Credits / Stripe ─────────────────────────────────────────
+export const createCheckoutSession = (points) => call('create-checkout', 'POST', { points })
+
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })
