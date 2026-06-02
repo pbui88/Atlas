@@ -394,32 +394,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
           {/* Cost estimate */}
           {cost && (
-            <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3 space-y-2">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Estimated Cost</p>
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Street View ({ptCount} imgs)</span>
-                  <span className={cost.streetView === 0 ? 'text-emerald-400' : 'text-slate-300'}>
-                    {cost.streetView === 0 ? 'Free' : `$${cost.streetView}`}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Geocoding</span>
-                  <span className="text-emerald-400">Free</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">AI Analysis</span>
-                  <span className="text-slate-300">${cost.ai}</span>
-                </div>
-                <div className="divider pt-1 mt-1" />
-                <div className="flex justify-between font-semibold">
-                  <span className="text-slate-300">Total</span>
-                  <span className="text-brand-400">${cost.total}</span>
-                </div>
+            <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-semibold uppercase tracking-wide">Estimated Cost</span>
+                <span className="text-brand-400 font-bold">${cost.total}</span>
               </div>
-              <p className="text-xs text-slate-400 pt-1">
-                Images via Google Street View ($0.014/point)
-              </p>
             </div>
           )}
 
