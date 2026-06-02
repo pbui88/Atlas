@@ -9,23 +9,32 @@ const PACKAGES = [
   { points: 20000, price: 280, perPoint: '1.4¢' },
 ]
 
+const VALID_POINTS = new Set(PACKAGES.map(p => p.points))
+
 export default function BuyCreditsPage() {
   const { openSidebar } = useOutletContext()
   const { usage, refreshUsage } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [loading,      setLoading]      = useState(null)
-  const [checkoutError, setCheckoutError] = useState(null)  // Fix 7
+  const [loading,       setLoading]       = useState(null)
+  const [checkoutError, setCheckoutError] = useState(null)
+
+  // Fix 1: capture success into local state before clearing URL so banner persists
+  const [showSuccess, setShowSuccess] = useState(false)
+  const [successPts,  setSuccessPts]  = useState(0)
 
   const success  = searchParams.get('success') === 'true'
-  const addedPts = parseInt(searchParams.get('points') || '0', 10)
+  // Fix 5: validate points from URL against known packages to prevent spoofed banner
+  const rawPts   = parseInt(searchParams.get('points') || '0', 10)
+  const addedPts = VALID_POINTS.has(rawPts) ? rawPts : 0
 
-  // Fix 5: refreshUsage in deps. Fix 6: clear query params after banner shown.
   useEffect(() => {
-    if (!success) return
+    if (!success || addedPts <= 0) return
+    setShowSuccess(true)
+    setSuccessPts(addedPts)
     refreshUsage()
     navigate('/credits', { replace: true })
-  }, [success, refreshUsage, navigate])
+  }, [success, addedPts, refreshUsage, navigate])
 
   const handleBuy = async (points) => {
     setLoading(points)
@@ -34,7 +43,7 @@ export default function BuyCreditsPage() {
       const { url } = await createCheckoutSession(points)
       window.location.href = url
     } catch (e) {
-      setCheckoutError(e.message)  // Fix 7: inline error instead of alert()
+      setCheckoutError(e.message)
       setLoading(null)
     }
   }
@@ -59,19 +68,24 @@ export default function BuyCreditsPage() {
         </div>
       </div>
 
-      {/* Success banner */}
-      {success && addedPts > 0 && (
+      {/* Fix 1: use showSuccess/successPts state — not URL params — so banner survives navigate() */}
+      {showSuccess && successPts > 0 && (
         <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 mb-8">
           <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <p className="text-sm text-emerald-400 font-medium">
-            Payment successful — {addedPts.toLocaleString()} credits added to your account.
+            Payment successful — {successPts.toLocaleString()} credits added to your account.
           </p>
+          <button onClick={() => setShowSuccess(false)} className="ml-auto text-emerald-600 hover:text-emerald-400 transition">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 
-      {/* Checkout error — Fix 7 */}
+      {/* Checkout error */}
       {checkoutError && (
         <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-8">
           <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -105,8 +119,9 @@ export default function BuyCreditsPage() {
             </div>
             {usage.purchasedCredits > 0 && (
               <div>
+                {/* Fix 3: purchasedRemaining is always present — drop dead fallback */}
                 <p className="text-2xl font-bold font-display text-brand-400">
-                  {(usage.purchasedRemaining ?? usage.purchasedCredits).toLocaleString()}
+                  {usage.purchasedRemaining.toLocaleString()}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">Purchased remaining</p>
               </div>

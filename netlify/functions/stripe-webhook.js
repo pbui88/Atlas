@@ -54,9 +54,15 @@ export const handler = async (event) => {
       .insert({ stripe_session_id: session.id, user_id: userId, points })
 
     if (insertError) {
-      console.error('Failed to record purchase (possible race):', insertError.message)
-      // Return 200 — Stripe doesn't need to retry; we'll investigate via Stripe dashboard
-      return respond(200, { received: true })
+      if (insertError.code === '23505') {
+        // Unique violation = concurrent request already processed this session
+        console.log('Race condition on insert — already credited:', session.id)
+        return respond(200, { received: true })
+      }
+      // Real DB error — return 500 so Stripe retries; duplicate check above
+      // ensures the retry won't double-credit if the insert already landed
+      console.error('Failed to record purchase:', insertError.message, '| session:', session.id)
+      return respond(500, { error: 'Failed to record purchase' })
     }
 
     // Now safely increment the user's credit balance

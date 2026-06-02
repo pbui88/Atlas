@@ -101,7 +101,9 @@ export const handler = async (event) => {
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
 
-  const { projectId, pointIds } = JSON.parse(event.body || '{}')
+  let projectId, pointIds
+  try { ({ projectId, pointIds } = JSON.parse(event.body || '{}')) }
+  catch { return err('Invalid request body', 400) }
   if (!isValidUUID(projectId) || !Array.isArray(pointIds) || !pointIds.length) {
     return err('projectId and pointIds required')
   }
