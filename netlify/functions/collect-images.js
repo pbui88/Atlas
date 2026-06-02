@@ -121,7 +121,7 @@ export const handler = async (event) => {
 
   const { remaining, used, limit } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {
-    return err(`Monthly limit reached — ${used.toLocaleString()} / ${limit.toLocaleString()} points used this cycle.`, 429)
+    return err('Credit limit reached — purchase more credits or wait for your monthly quota to reset.', 429)
   }
 
   const ids = validIds.slice(0, Math.min(CAP, remaining))
@@ -140,6 +140,19 @@ export const handler = async (event) => {
   const results = settled.map(s =>
     s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
   )
+
+  // Deduct from purchased credits if this batch pushed usage past the monthly limit.
+  // used = cycleUsed before this batch; limit = monthly quota only.
+  // Any downloads beyond the monthly limit come from the purchased credit pool.
+  const downloadedCount  = results.filter(r => r.status === 'downloaded').length
+  const cycleUsedAfter   = used + downloadedCount
+  const purchasedConsumed = Math.max(0, cycleUsedAfter - limit)
+  if (purchasedConsumed > 0) {
+    await supabase.rpc('increment_purchased_credits_used', {
+      p_user_id: user.id,
+      p_points:  purchasedConsumed,
+    })
+  }
 
   const { count: completed } = await supabase
     .from('scan_points')
