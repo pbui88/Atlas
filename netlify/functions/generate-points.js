@@ -110,7 +110,10 @@ export const handler = async (event) => {
   const projectId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('projectId')
   if (!isValidUUID(projectId)) return err('projectId required')
 
-  const { geojson, spacingMeters = 25 } = JSON.parse(event.body || '{}')
+  // Fix 2: guard malformed body
+  let genBody = {}
+  try { genBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
+  const { geojson, spacingMeters = 25 } = genBody
   if (!geojson?.coordinates) return err('geojson polygon required')
 
   const supabase       = adminSupabase()
@@ -145,12 +148,13 @@ export const handler = async (event) => {
   if (points.length === 0) return err('No points generated — polygon may be too small')
   if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
 
-  const { used, limit, remaining } = await getUserUsage(user.id, supabase)
+  // Fix 4: use generic "credit limit" wording — remaining now includes purchased credits
+  const { remaining } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {
-    return err(`Monthly limit reached — you have used ${used.toLocaleString()} of ${limit.toLocaleString()} points this cycle.`, 429)
+    return err('Credit limit reached — purchase more credits or wait for your monthly quota to reset.', 429)
   }
   if (points.length > remaining) {
-    return err(`This scan needs ${points.length.toLocaleString()} points but you only have ${remaining.toLocaleString()} remaining this cycle (${used.toLocaleString()} / ${limit.toLocaleString()} used).`, 429)
+    return err(`This scan needs ${points.length.toLocaleString()} points but you only have ${remaining.toLocaleString()} credits remaining.`, 429)
   }
 
   await supabase.from('scan_points').delete().eq('project_id', projectId).eq('status', 'pending')

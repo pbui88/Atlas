@@ -4,6 +4,9 @@ const RESEND_KEY   = process.env.RESEND_API_KEY
 const ADMIN_EMAIL  = process.env.ADMIN_NOTIFICATION_EMAIL
 const SITE_URL     = process.env.VITE_SITE_URL || 'https://your-atlas-app.netlify.app'
 
+// Fix 6: escape user-supplied strings before inserting into email HTML
+const escHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
 async function sendEmail(user) {
   if (!RESEND_KEY || !ADMIN_EMAIL) return   // degrade gracefully if not configured
 
@@ -13,14 +16,14 @@ async function sendEmail(user) {
     body: JSON.stringify({
       from:    'Atlas <onboarding@resend.dev>',
       to:      [ADMIN_EMAIL],
-      subject: `New user registration — ${user.email}`,
+      subject: `New user registration — ${escHtml(user.email)}`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
           <h2 style="color:#1e293b">New user registered on Atlas</h2>
           <p style="color:#475569">A new user is waiting for activation:</p>
           <table style="width:100%;border-collapse:collapse;margin:16px 0">
-            <tr><td style="padding:8px 0;color:#94a3b8;width:100px">Name</td><td style="padding:8px 0;color:#1e293b;font-weight:600">${user.full_name || '—'}</td></tr>
-            <tr><td style="padding:8px 0;color:#94a3b8">Email</td><td style="padding:8px 0;color:#1e293b;font-weight:600">${user.email}</td></tr>
+            <tr><td style="padding:8px 0;color:#94a3b8;width:100px">Name</td><td style="padding:8px 0;color:#1e293b;font-weight:600">${escHtml(user.full_name) || '—'}</td></tr>
+            <tr><td style="padding:8px 0;color:#94a3b8">Email</td><td style="padding:8px 0;color:#1e293b;font-weight:600">${escHtml(user.email)}</td></tr>
             <tr><td style="padding:8px 0;color:#94a3b8">Signed up</td><td style="padding:8px 0;color:#1e293b">${new Date().toLocaleString()}</td></tr>
           </table>
           <a href="${SITE_URL}/admin" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px">

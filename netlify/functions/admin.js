@@ -1,4 +1,4 @@
-import { requireAdmin, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAdmin, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 export const handler = async (event) => {
@@ -89,15 +89,19 @@ export const handler = async (event) => {
   // ── GET per-user usage detail ─────────────────────────────────
   if (event.httpMethod === 'GET' && action === 'user-usage') {
     const userId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('userId')
-    if (!userId) return err('userId required')
+    // Fix 7: validate userId is a real UUID before querying
+    if (!isValidUUID(userId)) return err('userId required')
     const usage = await getUserUsage(userId, supabase)
     return ok(usage)
   }
 
   // ── PATCH: update user role / status / limit / API key ──────────────────
   if (event.httpMethod === 'PATCH') {
-    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey } = JSON.parse(event.body || '{}')
-    if (!userId) return err('userId required')
+    // Fix 2: guard against malformed request body
+    let patchBody = {}
+    try { patchBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey } = patchBody
+    if (!isValidUUID(userId)) return err('userId required')
 
     // Handle Google Maps key separately (stored in user_keys, not profiles)
     if (googleMapsKey !== undefined) {
@@ -114,7 +118,11 @@ export const handler = async (event) => {
     }
 
     const updates = {}
-    if (role               !== undefined) updates.role               = role
+    // Fix 1: validate role value to prevent arbitrary strings being stored
+    if (role !== undefined) {
+      if (!['admin', 'user'].includes(role)) return err('Invalid role')
+      updates.role = role
+    }
     if (is_active          !== undefined) updates.is_active          = is_active
     if (points_limit       !== undefined) updates.points_limit       = Math.max(0, parseInt(points_limit, 10))
     if (cycle_anchor_date  !== undefined) updates.cycle_anchor_date  = cycle_anchor_date
@@ -132,8 +140,11 @@ export const handler = async (event) => {
 
   // ── DELETE: delete user and all data ─────────────────────────
   if (event.httpMethod === 'DELETE') {
-    const { userId } = JSON.parse(event.body || '{}')
-    if (!userId) return err('userId required')
+    // Fix 2: guard against malformed request body
+    let deleteBody = {}
+    try { deleteBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
+    const { userId } = deleteBody
+    if (!isValidUUID(userId)) return err('userId required')
     if (userId === user.id) return err('Cannot delete yourself')
 
     const { error: delErr } = await supabase.auth.admin.deleteUser(userId)

@@ -22,13 +22,17 @@ export const handler = async (event) => {
 
   // ── POST: create project ─────────────────────────────────
   if (event.httpMethod === 'POST') {
-    const body = JSON.parse(event.body || '{}')
+    // Fix 2 + 3: guard malformed body, validate name length
+    let body = {}
+    try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
     const { name, description } = body
-    if (!name?.trim()) return err('name is required')
+    const trimmedName = name?.trim()
+    if (!trimmedName) return err('name is required')
+    if (trimmedName.length > 255) return err('Name must be 255 characters or less')
 
     const { data, error: dbErr } = await supabase
       .from('projects')
-      .insert({ user_id: user.id, name: name.trim(), description: description || null })
+      .insert({ user_id: user.id, name: trimmedName, description: description || null })
       .select()
       .single()
     if (dbErr) return err(dbErr.message)
@@ -38,7 +42,9 @@ export const handler = async (event) => {
   // ── PATCH: update project ────────────────────────────────
   if (event.httpMethod === 'PATCH') {
     if (!projectId) return err('id required')
-    const body = JSON.parse(event.body || '{}')
+    // Fix 2: guard malformed body
+    let body = {}
+    try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
     const allowed = ['name', 'description', 'status', 'point_spacing_meters', 'scan_area_geojson',
                      'total_points', 'completed_points', 'failed_points', 'completed_at']
     const updates = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)))

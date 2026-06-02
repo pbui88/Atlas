@@ -7,7 +7,10 @@ export const handler = async (event) => {
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
 
-  const { projectId, format = 'GEOJSON', filters = {} } = JSON.parse(event.body || '{}')
+  // Fix 2: guard malformed body
+  let exportBody = {}
+  try { exportBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
+  const { projectId, format = 'GEOJSON', filters = {} } = exportBody
   if (!isValidUUID(projectId)) return err('projectId required')
 
   const supabase = adminSupabase()
