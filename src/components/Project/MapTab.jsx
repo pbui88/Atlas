@@ -451,13 +451,21 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* Point count */}
-          {pointCount !== null && (
-            <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-semibold uppercase tracking-wide">Total Points</span>
-                <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
-              </div>
+          {/* Stats card */}
+          {(ptCount > 0 || pointCount !== null) && (
+            <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3 space-y-2">
+              {ptCount > 0 && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500">Property Count</span>
+                  <span className="text-slate-300 font-semibold">{ptCount.toLocaleString()}</span>
+                </div>
+              )}
+              {pointCount !== null && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500">Total Points (draw)</span>
+                  <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
+                </div>
+              )}
             </div>
           )}
 
