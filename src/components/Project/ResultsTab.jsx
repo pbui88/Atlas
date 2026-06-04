@@ -114,7 +114,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
 }
 
 export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
-  const { usage, refreshUsage } = useAuth()
+  const { usage, refreshUsage, isAdmin } = useAuth()
   const keyLoading   = usage === null
   const noKeyBlocked = usage !== null && !usage.has_own_key
 
@@ -457,21 +457,30 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">Loading account…</p>
             )}
             {noKeyBlocked && !running && (
-              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — go to Settings</p>
+              <p className="text-[11px] text-amber-500 mt-0.5 truncate">
+                {isAdmin ? 'No API key — go to Settings' : 'No API key — contact your admin'}
+              </p>
             )}
             {scanError && !running && (
-              <p className="text-[11px] text-red-500 mt-0.5 truncate">Scan stopped — {scanError.includes('key') ? 'no API key' : 'quota reached'}</p>
+              <p className="text-[11px] text-red-500 mt-0.5 truncate">{scanError}</p>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {running && (
+            {running ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                 <button onClick={pause} className="btn border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 text-xs px-2.5 py-1.5">
                   Pause
                 </button>
               </>
-            )}
+            ) : canStart ? (
+              <button
+                onClick={() => { autoStarted.current = true; runScan() }}
+                className="btn border border-brand-600/30 text-brand-400 hover:bg-brand-600/10 text-xs px-2.5 py-1.5"
+              >
+                {scanError ? 'Retry' : 'Start'}
+              </button>
+            ) : null}
           </div>
         </div>
 
