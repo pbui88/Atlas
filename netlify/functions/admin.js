@@ -118,7 +118,7 @@ export const handler = async (event) => {
       if (googleMapsKey) {
         const { error: keyErr } = await supabase
           .from('user_keys')
-          .upsert({ user_id: userId, google_maps_key: googleMapsKey, updated_at: new Date().toISOString() })
+          .upsert({ user_id: userId, google_maps_key: googleMapsKey, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
         if (keyErr) return err(keyErr.message)
         return ok({ has_own_key: true })
       } else {
