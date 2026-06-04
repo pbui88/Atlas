@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { GoogleMap, DrawingManager, Polygon, Marker } from '@react-google-maps/api'
+import { GoogleMap, Polygon, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost } from '../../lib/geo'
 import { useAuth } from '../../context/AuthContext'
@@ -52,6 +52,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
+  const [tempPoints,     setTempPoints]     = useState([])
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
   const [cost,           setCost]           = useState(null)
@@ -65,7 +66,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [zoom, setZoom] = useState(4)
 
   const mapRef         = useRef(null)
-  const drawingMgrRef  = useRef(null)
   const searchInputRef = useRef(null)
   const debounceRef    = useRef(null)
 
@@ -120,23 +120,26 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     }
   }, [polygon])
 
-  // Imperatively sync drawing mode to native DrawingManager instance
-  useEffect(() => {
-    if (!drawingMgrRef.current) return
-    const mode = drawingMode ? window.google.maps.drawing.OverlayType.POLYGON : null
-    drawingMgrRef.current.setDrawingMode(mode)
+  const handleMapClick = useCallback((e) => {
+    if (drawingMode !== 'polygon') return
+    setTempPoints(prev => [...prev, { lat: e.latLng.lat(), lng: e.latLng.lng() }])
   }, [drawingMode])
 
-  const handlePolygonComplete = useCallback((poly) => {
-    const path   = poly.getPath().getArray()
-    const coords = path.map(ll => [ll.lng(), ll.lat()])
+  const handleFinishDrawing = useCallback(() => {
+    if (tempPoints.length < 3) return
+    const coords = tempPoints.map(p => [p.lng, p.lat])
     coords.push(coords[0])
     const geoJson = { type: 'Polygon', coordinates: [coords] }
-    poly.setMap(null)
     setPolygon(geoJson)
     setDrawingMode(null)
+    setTempPoints([])
     const pts = generateGridPoints(geoJson, SPACING)
     setPreview(pts)
+  }, [tempPoints])
+
+  const handleCancelDrawing = useCallback(() => {
+    setDrawingMode(null)
+    setTempPoints([])
   }, [])
 
 
@@ -204,24 +207,17 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               streetViewControl: false,
               mapTypeControl: false,
               fullscreenControl: false,
+              draggableCursor: drawingMode === 'polygon' ? 'crosshair' : undefined,
             }}
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
+            onClick={handleMapClick}
           >
-            {/* Drawing manager */}
-            {!polygon && (
-              <DrawingManager
-                onLoad={dm => { drawingMgrRef.current = dm }}
-                options={{
-                  drawingControl: false,
-                  polygonOptions: {
-                    fillColor:   '#ef4444',
-                    fillOpacity: 0.12,
-                    strokeColor: '#ef4444',
-                    strokeWeight: 2,
-                  },
-                }}
-                onPolygonComplete={handlePolygonComplete}
+            {/* Live polygon preview while drawing */}
+            {drawingMode === 'polygon' && tempPoints.length >= 2 && (
+              <Polygon
+                paths={tempPoints}
+                options={{ fillColor: '#ef4444', fillOpacity: 0.12, strokeColor: '#ef4444', strokeWeight: 2, strokeDasharray: '6 4' }}
               />
             )}
 
@@ -357,18 +353,44 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Draw polygon */}
           {!polygon ? (
             <div>
-              <p className="text-xs text-slate-500 mb-3">
-                Click below, then draw a polygon on the map around the neighborhood you want to scan.
-              </p>
-              <button
-                onClick={() => setDrawingMode('polygon')}
-                className={`btn w-full ${drawingMode === 'polygon' ? 'btn-primary' : 'btn-outline'}`}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-                </svg>
-                {drawingMode === 'polygon' ? 'Drawing… click map to place points' : 'Draw'}
-              </button>
+              {drawingMode !== 'polygon' ? (
+                <>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Click Draw, then click on the map to place points around your target area.
+                  </p>
+                  <button
+                    onClick={() => setDrawingMode('polygon')}
+                    className="btn btn-outline w-full"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                    </svg>
+                    Draw Area
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-400">
+                    <span className="font-semibold text-brand-400">{tempPoints.length}</span> point{tempPoints.length !== 1 ? 's' : ''} placed — click the map to add more
+                  </p>
+                  <button
+                    onClick={handleFinishDrawing}
+                    disabled={tempPoints.length < 3}
+                    className="btn btn-primary w-full disabled:opacity-40"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    Finish Drawing {tempPoints.length >= 3 ? '' : `(need ${3 - tempPoints.length} more)`}
+                  </button>
+                  <button
+                    onClick={handleCancelDrawing}
+                    className="btn btn-outline w-full"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div>

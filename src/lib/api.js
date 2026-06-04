@@ -65,6 +65,11 @@ export const getMyUsage = () => call('my-usage')
 // ── Credits / Stripe ─────────────────────────────────────────
 export const createCheckoutSession = (points) => call('create-checkout', 'POST', { points })
 
+// ── User Keys (BYOK) ─────────────────────────────────────────
+export const getUserKeyStatus = ()    => call('user-keys')
+export const saveUserKey      = (key) => call('user-keys', 'POST', { google_maps_key: key })
+export const deleteUserKey    = ()    => call('user-keys', 'DELETE')
+
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })

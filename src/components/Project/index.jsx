@@ -7,7 +7,7 @@ import { STATUS_LABELS, STATUS_BADGE_CLASS } from '../../lib/constants'
 import MapTab     from './MapTab'
 import ResultsTab from './ResultsTab'
 
-const LIBRARIES = ['drawing', 'geometry']
+const LIBRARIES = ['geometry']
 
 const TABS = [
   {
