@@ -54,7 +54,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [tempPoints,     setTempPoints]     = useState([])
-  const [mousePos,       setMousePos]       = useState(null)
   const [isDragging,     setIsDragging]     = useState(false)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
@@ -132,7 +131,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const pts = tempPointsRef.current
     tempPointsRef.current = []
     setTempPoints([])
-    setMousePos(null)
     if (pts.length < 3) return
     const coords = pts.map(p => [p.lng, p.lat])
     coords.push(coords[0])
@@ -152,10 +150,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   }, [drawingMode])
 
   const handleMapMouseMove = useCallback((e) => {
-    if (drawingMode !== 'polygon') return
+    if (drawingMode !== 'polygon' || !isDraggingRef.current) return
     const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-    setMousePos(pt)
-    if (!isDraggingRef.current) return
     const prev = tempPointsRef.current
     const last = prev[prev.length - 1]
     if (last) {
@@ -180,7 +176,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     tempPointsRef.current = []
     setDrawingMode(null)
     setTempPoints([])
-    setMousePos(null)
   }, [])
 
 
@@ -401,7 +396,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               {drawingMode !== 'polygon' ? (
                 <>
                   <p className="text-xs text-slate-500 mb-3">
-                    Click Draw, then click on the map to place points around your target area.
+                    Click Draw, then click and drag on the map to outline your target area.
                   </p>
                   <button
                     onClick={() => setDrawingMode('polygon')}
