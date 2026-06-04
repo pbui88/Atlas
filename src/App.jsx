@@ -8,7 +8,6 @@ import Dashboard           from './components/Dashboard/index'
 import ProjectPage         from './components/Project/index'
 import AdminPanel          from './components/Admin/index'
 import BuyCreditsPage      from './components/Credits/BuyCreditsPage'
-import SettingsPage        from './components/Settings/SettingsPage'
 
 function Spinner() {
   return (
@@ -56,9 +55,6 @@ export default function App() {
           </Route>
           <Route path="/credits" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
             <Route index element={<BuyCreditsPage />} />
-          </Route>
-          <Route path="/settings" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
-            <Route index element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
