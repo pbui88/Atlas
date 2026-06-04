@@ -55,6 +55,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [tempPoints,     setTempPoints]     = useState([])
   const [mousePos,       setMousePos]       = useState(null)
+  const [isDragging,     setIsDragging]     = useState(false)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
   const [pointCount,     setPointCount]     = useState(null)
@@ -69,6 +70,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   const mapRef         = useRef(null)
   const tempPointsRef  = useRef([])
+  const isDraggingRef  = useRef(false)
   const searchInputRef = useRef(null)
   const debounceRef    = useRef(null)
 
@@ -123,33 +125,58 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     }
   }, [polygon])
 
-  const handleMapClick = useCallback((e) => {
-    if (drawingMode !== 'polygon') return
-    const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-    tempPointsRef.current = [...tempPointsRef.current, pt]
-    setTempPoints(tempPointsRef.current)
-  }, [drawingMode])
-
-  const handleMapMouseMove = useCallback((e) => {
-    if (drawingMode !== 'polygon') return
-    setMousePos({ lat: e.latLng.lat(), lng: e.latLng.lng() })
-  }, [drawingMode])
-
-  const handleFinishDrawing = useCallback(() => {
+  const finishDrag = useCallback(() => {
+    if (!isDraggingRef.current) return
+    isDraggingRef.current = false
+    setIsDragging(false)
     const pts = tempPointsRef.current
+    tempPointsRef.current = []
+    setTempPoints([])
+    setMousePos(null)
     if (pts.length < 3) return
     const coords = pts.map(p => [p.lng, p.lat])
     coords.push(coords[0])
     const geoJson = { type: 'Polygon', coordinates: [coords] }
-    tempPointsRef.current = []
-    setTempPoints([])
-    setMousePos(null)
     setPolygon(geoJson)
     setDrawingMode(null)
     setPreview(generateGridPoints(geoJson, SPACING))
   }, [])
 
+  const handleMapMouseDown = useCallback((e) => {
+    if (drawingMode !== 'polygon') return
+    isDraggingRef.current = true
+    setIsDragging(true)
+    const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    tempPointsRef.current = [pt]
+    setTempPoints([pt])
+  }, [drawingMode])
+
+  const handleMapMouseMove = useCallback((e) => {
+    if (drawingMode !== 'polygon') return
+    const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    setMousePos(pt)
+    if (!isDraggingRef.current) return
+    const prev = tempPointsRef.current
+    const last = prev[prev.length - 1]
+    if (last) {
+      const dlat = pt.lat - last.lat
+      const dlng = pt.lng - last.lng
+      if (Math.sqrt(dlat * dlat + dlng * dlng) < 0.0002) return
+    }
+    const updated = [...prev, pt]
+    tempPointsRef.current = updated
+    setTempPoints(updated)
+  }, [drawingMode])
+
+  useEffect(() => {
+    if (drawingMode !== 'polygon') return
+    document.addEventListener('mouseup', finishDrag)
+    return () => document.removeEventListener('mouseup', finishDrag)
+  }, [drawingMode, finishDrag])
+
   const handleCancelDrawing = useCallback(() => {
+    isDraggingRef.current = false
+    setIsDragging(false)
     tempPointsRef.current = []
     setDrawingMode(null)
     setTempPoints([])
@@ -222,51 +249,22 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               mapTypeControl: false,
               fullscreenControl: false,
               draggableCursor: drawingMode === 'polygon' ? 'crosshair' : undefined,
+              draggable:       drawingMode !== 'polygon',
+              scrollwheel:     drawingMode !== 'polygon',
             }}
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
-            onClick={handleMapClick}
+            onMouseDown={handleMapMouseDown}
             onMouseMove={handleMapMouseMove}
+            onMouseUp={finishDrag}
           >
-            {/* Placed edges */}
+            {/* Live drag outline */}
             {drawingMode === 'polygon' && tempPoints.length >= 2 && (
               <Polyline
                 path={tempPoints}
                 options={{ strokeColor: '#ef4444', strokeWeight: 2, strokeOpacity: 1 }}
               />
             )}
-
-            {/* Rubber-band line from last point to cursor */}
-            {drawingMode === 'polygon' && tempPoints.length >= 1 && mousePos && (
-              <Polyline
-                path={[tempPoints[tempPoints.length - 1], mousePos]}
-                options={{
-                  strokeColor:   '#ef4444',
-                  strokeWeight:  2,
-                  strokeOpacity: 0,
-                  icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 }, offset: '0', repeat: '8px' }],
-                }}
-              />
-            )}
-
-            {/* Vertex dots */}
-            {drawingMode === 'polygon' && tempPoints.map((pt, i) => (
-              <Marker
-                key={i}
-                position={pt}
-                options={{
-                  icon: {
-                    path:        window.google.maps.SymbolPath.CIRCLE,
-                    scale:       5,
-                    fillColor:   i === 0 ? '#ffffff' : '#ef4444',
-                    fillOpacity: 1,
-                    strokeColor: '#ef4444',
-                    strokeWeight: 2,
-                  },
-                  zIndex: 10,
-                }}
-              />
-            ))}
 
             {polygon && (
               <Polygon
@@ -417,23 +415,12 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs text-slate-400">
-                    <span className="font-semibold text-brand-400">{tempPoints.length}</span> point{tempPoints.length !== 1 ? 's' : ''} placed — click the map to add more
-                  </p>
-                  <button
-                    onClick={handleFinishDrawing}
-                    disabled={tempPoints.length < 3}
-                    className="btn btn-primary w-full disabled:opacity-40"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
-                    Finish Drawing {tempPoints.length >= 3 ? '' : `(need ${3 - tempPoints.length} more)`}
-                  </button>
-                  <button
-                    onClick={handleCancelDrawing}
-                    className="btn btn-outline w-full"
-                  >
+                  <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg px-3 py-2">
+                    <p className="text-xs text-brand-400 font-medium">
+                      {isDragging ? 'Drawing… release to finish' : 'Click and drag on the map to draw'}
+                    </p>
+                  </div>
+                  <button onClick={handleCancelDrawing} className="btn btn-outline w-full">
                     Cancel
                   </button>
                 </div>
