@@ -115,8 +115,8 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
 
 export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
   const { usage, refreshUsage } = useAuth()
-  // usage===null means still loading; treat as blocked to avoid false-positive
-  const noKeyBlocked = usage === null || !usage.has_own_key
+  const keyLoading   = usage === null
+  const noKeyBlocked = usage !== null && !usage.has_own_key
 
   const RESULTS_LIMIT = 1000
 
@@ -180,22 +180,30 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
-  // Auto-start from Map tab "Run" button (mount-only, preserves timer cleanup).
+  // Signal parent immediately so it can clear the autoStart flag (mount-only).
   useEffect(() => {
     if (!autoStart) return
     onAutoStartConsumed?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Start scan once usage has loaded and key is confirmed — retries when keyLoading changes.
+  useEffect(() => {
+    if (!autoStart) return
+    if (keyLoading) return
     if (noKeyBlocked) return
     if (autoStarted.current) return
     autoStarted.current = true
     const t = setTimeout(runScan, 500)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [autoStart, keyLoading, noKeyBlocked])
 
   // Auto-start when returning to a project that has an incomplete scan.
   useEffect(() => {
     if (autoStarted.current) return
     if (running) return
+    if (keyLoading) return
     if (noKeyBlocked) return
     if (stats.total === 0) return
     const incomplete = (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0)
@@ -203,7 +211,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     autoStarted.current = true
     runScan()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stats.total, stats.pending, stats.failed, stats.downloaded])
+  }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noKeyBlocked])
 
   // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
@@ -429,7 +437,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   const hasFilters  = minScore > 0 || sigFilter.length > 0
-  const canStart    = stats.total > 0 && !running && !noKeyBlocked
+  const canStart    = stats.total > 0 && !running && !noKeyBlocked && !keyLoading
   const analysis    = selected?.ai_analyses?.[0]
   const score       = analysis?.overall_score
   const signals     = analysis?.signals || []
@@ -448,8 +456,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             {running && phase && (
               <p className="text-[11px] text-brand-600 mt-0.5 truncate">{PHASE_LABEL[phase]}</p>
             )}
+            {keyLoading && !running && (
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">Loading account…</p>
+            )}
             {noKeyBlocked && !running && (
-              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — contact admin</p>
+              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — go to Settings</p>
             )}
             {scanError && !running && (
               <p className="text-[11px] text-red-500 mt-0.5 truncate">Scan stopped — {scanError.includes('key') ? 'no API key' : 'quota reached'}</p>
