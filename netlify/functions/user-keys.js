@@ -30,7 +30,7 @@ export const handler = async (event) => {
 
     const { error: upsertErr } = await supabase
       .from('user_keys')
-      .upsert({ user_id: user.id, google_maps_key: key, updated_at: new Date().toISOString() })
+      .upsert({ user_id: user.id, google_maps_key: key, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
     if (upsertErr) return err(upsertErr.message)
 
     return ok({ has_key: true })
