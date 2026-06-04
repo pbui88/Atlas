@@ -80,7 +80,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-200 font-medium truncate leading-snug">
-            {point.address || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`}
+            {point.address || <span className="text-slate-500 italic">Address pending</span>}
           </p>
           {signals.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
@@ -654,7 +654,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">
-                  {selected.address || `${selected.lat.toFixed(5)}, ${selected.lng.toFixed(5)}`}
+                  {selected.address || <span className="text-slate-400 italic font-normal">Address pending</span>}
                 </p>
                 {signals.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
