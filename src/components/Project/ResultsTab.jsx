@@ -139,7 +139,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [phase,      setPhase]      = useState('')
   const [scanError,  setScanError]  = useState(null)
   const [abortRef]   = useState({ current: false })
-  const autoStarted  = useRef(false)
+  const autoStarted        = useRef(false)
+  const autoStartInitialRef = useRef(autoStart)
 
   // ── Data fetching ──────────────────────────────────────────
   const fetchStats = async () => {
@@ -180,24 +181,20 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
-  // Signal parent immediately so it can clear the autoStart flag (mount-only).
+  // Start scan once usage has loaded and key is confirmed.
+  // Uses a ref for the initial autoStart value so the timeout is never
+  // canceled when the parent clears the autoStart prop.
   useEffect(() => {
-    if (!autoStart) return
-    onAutoStartConsumed?.()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Start scan once usage has loaded and key is confirmed — retries when keyLoading changes.
-  useEffect(() => {
-    if (!autoStart) return
+    if (!autoStartInitialRef.current) return
     if (keyLoading) return
     if (noKeyBlocked) return
     if (autoStarted.current) return
     autoStarted.current = true
-    const t = setTimeout(runScan, 500)
+    onAutoStartConsumed?.()       // signal parent only after committing
+    const t = setTimeout(runScan, 300)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, keyLoading, noKeyBlocked])
+  }, [keyLoading, noKeyBlocked])
 
   // Auto-start when returning to a project that has an incomplete scan.
   useEffect(() => {
