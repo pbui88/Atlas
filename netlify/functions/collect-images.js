@@ -37,6 +37,42 @@ async function resolveApiKeyAndMode(userId, supabase) {
   }
 }
 
+// Compass bearing (degrees) from point A to point B.
+function bearingTo(lat1, lng1, lat2, lng2) {
+  const R  = Math.PI / 180
+  const y  = Math.sin((lng2 - lng1) * R) * Math.cos(lat2 * R)
+  const x  = Math.cos(lat1 * R) * Math.sin(lat2 * R)
+           - Math.sin(lat1 * R) * Math.cos(lat2 * R) * Math.cos((lng2 - lng1) * R)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
+// Offset a lat/lng by distanceMeters in a compass direction.
+function offsetCoords(lat, lng, headingDeg, distanceMeters) {
+  const R       = 6371000
+  const bearing = (headingDeg * Math.PI) / 180
+  const lat1    = (lat * Math.PI) / 180
+  const lng1    = (lng * Math.PI) / 180
+  const lat2    = Math.asin(
+    Math.sin(lat1) * Math.cos(distanceMeters / R) +
+    Math.cos(lat1) * Math.sin(distanceMeters / R) * Math.cos(bearing)
+  )
+  const lng2    = lng1 + Math.atan2(
+    Math.sin(bearing) * Math.sin(distanceMeters / R) * Math.cos(lat1),
+    Math.cos(distanceMeters / R) - Math.sin(lat1) * Math.sin(lat2)
+  )
+  return { lat: (lat2 * 180) / Math.PI, lng: (lng2 * 180) / Math.PI }
+}
+
+// Fetch actual panorama position from Street View Metadata API (free — $0).
+async function getPanoramaLocation(lat, lng, apiKey) {
+  try {
+    const res  = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&return_error_code=true&key=${apiKey}`)
+    const data = await res.json()
+    if (data.status === 'OK' && data.location) return data.location
+  } catch {}
+  return null
+}
+
 // Returns: { buffer } on success, { noCoverage: true } for 404 (no imagery),
 // or throws an Error for 400/403 (bad key / API not enabled).
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
@@ -56,9 +92,14 @@ async function processPoint(pt, projectId, userId, apiKey, supabase) {
   try {
     if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
-    // Road bearing stored at generation time from OSM geometry.
-    // Rotate 90° perpendicular to face properties across the street.
-    const heading = ((road_bearing ?? 0) + 90) % 360
+    // Get actual panorama position (free metadata call).
+    // The panorama is where the Street View car physically was — slightly off
+    // the road center. Compute heading from there directly toward the property
+    // so the camera faces the house front exactly, not just "perpendicular to the road."
+    const pano        = await getPanoramaLocation(lat, lng, apiKey) ?? { lat, lng }
+    const perpDeg     = ((road_bearing ?? 0) + 90) % 360
+    const propPos     = offsetCoords(pano.lat, pano.lng, perpDeg, 20)
+    const heading     = Math.round(bearingTo(pano.lat, pano.lng, propPos.lat, propPos.lng))
 
     await supabase.from('scan_points')
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
