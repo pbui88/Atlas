@@ -148,10 +148,9 @@ export const handler = async (event) => {
   if (points.length === 0) return err('No points generated — polygon may be too small')
   if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
 
-  // Fix 4: use generic "credit limit" wording — remaining now includes purchased credits
   const { remaining } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {
-    return err('Credit limit reached — purchase more credits or wait for your monthly quota to reset.', 429)
+    return err('Insufficient credits — contact your admin to add more credits.', 429)
   }
   if (points.length > remaining) {
     return err(`This scan needs ${points.length.toLocaleString()} points but you only have ${remaining.toLocaleString()} credits remaining.`, 429)

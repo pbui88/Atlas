@@ -121,9 +121,9 @@ export const handler = async (event) => {
   const apiKey = await resolveApiKey(user.id, supabase)
   if (!apiKey) return err('No Google Maps API key configured. Contact your admin to set up your key.', 503)
 
-  const { remaining, used, limit } = await getUserUsage(user.id, supabase)
+  const { remaining } = await getUserUsage(user.id, supabase)
   if (remaining <= 0) {
-    return err('Credit limit reached — purchase more credits or wait for your monthly quota to reset.', 429)
+    return err('Insufficient credits — contact your admin to add more credits.', 429)
   }
 
   const ids = validIds.slice(0, Math.min(CAP, remaining))
@@ -143,16 +143,12 @@ export const handler = async (event) => {
     s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
   )
 
-  // Deduct from purchased credits if this batch pushed usage past the monthly limit.
-  // used = cycleUsed before this batch; limit = monthly quota only.
-  // Any downloads beyond the monthly limit come from the purchased credit pool.
-  const downloadedCount  = results.filter(r => r.status === 'downloaded').length
-  const cycleUsedAfter   = used + downloadedCount
-  const purchasedConsumed = Math.max(0, cycleUsedAfter - limit)
-  if (purchasedConsumed > 0) {
+  // Every downloaded image deducts directly from purchased/granted credits.
+  const downloadedCount = results.filter(r => r.status === 'downloaded').length
+  if (downloadedCount > 0) {
     await supabase.rpc('increment_purchased_credits_used', {
       p_user_id: user.id,
-      p_points:  purchasedConsumed,
+      p_points:  downloadedCount,
     })
   }
 

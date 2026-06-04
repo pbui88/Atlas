@@ -9,7 +9,7 @@ function currentCycleStart(anchorDateStr) {
 }
 
 // Returns { used, limit, remaining, cycleStart, purchasedCredits, purchasedCreditsUsed, purchasedRemaining }.
-// remaining = cycleRemaining + purchasedRemaining so purchased credits don't renew each cycle.
+// remaining = purchasedRemaining only — granted/purchased credits are the sole scan currency.
 export async function getUserUsage(userId, supabase) {
   const { data: profile } = await supabase
     .from('profiles')
@@ -30,14 +30,13 @@ export async function getUserUsage(userId, supabase) {
     .in('service', ['street_view', 'mapillary'])
     .gte('created_at', cycleStart.toISOString())
 
-  const cycleUsed         = count ?? 0
-  const cycleRemaining    = Math.max(0, monthlyLimit - cycleUsed)
+  const cycleUsed          = count ?? 0
   const purchasedRemaining = Math.max(0, purchasedCredits - purchasedCreditsUsed)
 
   return {
     used:                 cycleUsed,
     limit:                monthlyLimit,
-    remaining:            cycleRemaining + purchasedRemaining,
+    remaining:            purchasedRemaining,
     cycleStart:           cycleStart.toISOString(),
     purchasedCredits,
     purchasedCreditsUsed,
