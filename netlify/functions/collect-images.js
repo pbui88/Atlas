@@ -37,12 +37,17 @@ async function resolveApiKeyAndMode(userId, supabase) {
   }
 }
 
+// Returns: { buffer } on success, { noCoverage: true } for 404 (no imagery),
+// or throws an Error for 400/403 (bad key / API not enabled).
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
   const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${apiKey}`
   const res = await fetch(url)
-  if (!res.ok) return null
-  if (!(res.headers.get('content-type') || '').includes('image')) return null
-  return res.arrayBuffer()
+  if (res.status === 403 || res.status === 400) {
+    throw new Error(`Street View API key error (HTTP ${res.status}) — check the key is valid and Street View Static API is enabled.`)
+  }
+  if (!res.ok) return { noCoverage: true }
+  if (!(res.headers.get('content-type') || '').includes('image')) return { noCoverage: true }
+  return { buffer: await res.arrayBuffer() }
 }
 
 async function processPoint(pt, projectId, userId, apiKey, supabase) {
@@ -59,14 +64,16 @@ async function processPoint(pt, projectId, userId, apiKey, supabase) {
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    // Single API call: image download only ($0.007)
-    const buffer = await downloadGoogleImage(lat, lng, heading, apiKey)
-    if (!buffer) {
+    const result = await downloadGoogleImage(lat, lng, heading, apiKey)
+
+    if (result.noCoverage) {
       await supabase.from('scan_points')
         .update({ status: 'no_coverage', updated_at: new Date().toISOString() })
         .eq('id', pointId)
       return { pointId, status: 'no_coverage' }
     }
+
+    const { buffer } = result
 
     const storagePath = `${projectId}/${pointId}/F.jpg`
     const { error: upErr } = await supabase.storage
@@ -109,6 +116,8 @@ async function processPoint(pt, projectId, userId, apiKey, supabase) {
     return { pointId, status: 'downloaded' }
   } catch (e) {
     console.error(`processPoint failed ${pointId}:`, e.message)
+    // Re-throw API key errors so the handler can return a 503 to the frontend
+    if (e.message.includes('API key error')) throw e
     await supabase.from('scan_points')
       .update({ status: 'failed', error_msg: e.message, updated_at: new Date().toISOString() })
       .eq('id', pointId)
@@ -155,6 +164,10 @@ export const handler = async (event) => {
   const settled = await Promise.allSettled(
     pts.map(pt => processPoint(pt, projectId, user.id, apiKey, supabase))
   )
+
+  // Surface API key errors as 503 so the frontend scan aborts with a clear message
+  const keyError = settled.find(s => s.status === 'rejected' && s.reason?.message?.includes('API key error'))
+  if (keyError) return err(keyError.reason.message, 503)
 
   const results = settled.map(s =>
     s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
