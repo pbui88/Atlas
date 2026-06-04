@@ -1,7 +1,30 @@
 import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 
 const POSITIONSTACK_KEY = process.env.POSITIONSTACK_API_KEY
+const PLATFORM_KEY      = process.env.GOOGLE_MAPS_KEY
 const CAP               = 50   // points geocoded in parallel per function call
+
+// Fetch the actual Street View panorama location (free metadata call).
+// The panorama is where the camera physically was — offset from here gives
+// a much more accurate property geocoding than offsetting from the road center.
+async function getPanoramaLocation(lat, lng, apiKey) {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&return_error_code=true&key=${apiKey}`
+    const res  = await fetch(url)
+    const data = await res.json()
+    if (data.status === 'OK' && data.location) return data.location
+  } catch {}
+  return null
+}
+
+// Resolve a Google Maps API key for metadata calls.
+async function resolveGoogleKey(userId, supabase) {
+  const [{ data: keyRow }, { data: profile }] = await Promise.all([
+    supabase.from('user_keys').select('google_maps_key').eq('user_id', userId).maybeSingle(),
+    supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
+  ])
+  return keyRow?.google_maps_key || (profile?.role === 'admin' ? PLATFORM_KEY : null)
+}
 
 // Offset lat/lng by distanceMeters in the given compass heading (degrees).
 // Used to move the geocoding query point from the road center toward the property.
@@ -75,7 +98,7 @@ async function reverseGeocode(lat, lng) {
   return address2
 }
 
-async function geocodePoint(pt, supabase) {
+async function geocodePoint(pt, googleKey, supabase) {
   // Skip only if address exists AND is not a raw coordinate string
   if (pt.address && !looksLikeLatLng(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
@@ -87,22 +110,29 @@ async function geocodePoint(pt, supabase) {
 
   try {
     let address = null
+    const headingDeg = pt.road_bearing != null ? (pt.road_bearing + 90) % 360 : null
 
-    if (pt.road_bearing != null) {
-      // Known road bearing: offset 25m toward the photographed property (camera = road_bearing + 90°)
-      const headingDeg = (pt.road_bearing + 90) % 360
-      const { lat, lng } = offsetCoords(pt.lat, pt.lng, headingDeg, 25)
+    // Use actual panorama location as the base for offsetting — it's where the
+    // Street View camera physically was, giving much more accurate property geocoding.
+    let baseLat = pt.lat
+    let baseLng = pt.lng
+    if (googleKey) {
+      const pano = await getPanoramaLocation(pt.lat, pt.lng, googleKey)
+      if (pano) { baseLat = pano.lat; baseLng = pano.lng }
+    }
+
+    if (headingDeg != null) {
+      const { lat, lng } = offsetCoords(baseLat, baseLng, headingDeg, 20)
       address = await reverseGeocode(lat, lng)
     } else {
-      // No road bearing (grid fallback): try both perpendicular directions and use whichever returns a result
-      const { lat: lat1, lng: lng1 } = offsetCoords(pt.lat, pt.lng, 90, 25)
+      // No road bearing (grid fallback): try both perpendicular directions
+      const { lat: lat1, lng: lng1 } = offsetCoords(baseLat, baseLng, 90, 20)
       address = await reverseGeocode(lat1, lng1)
       if (!address) {
-        const { lat: lat2, lng: lng2 } = offsetCoords(pt.lat, pt.lng, 270, 25)
+        const { lat: lat2, lng: lng2 } = offsetCoords(baseLat, baseLng, 270, 20)
         address = await reverseGeocode(lat2, lng2)
       }
-      // Last resort: use the road point itself
-      if (!address) address = await reverseGeocode(pt.lat, pt.lng)
+      if (!address) address = await reverseGeocode(baseLat, baseLng)
     }
     if (address) {
       await supabase.from('scan_points')
@@ -166,8 +196,10 @@ export const handler = async (event) => {
 
   if (!pts.length) return ok({ results: [] })
 
+  const googleKey = await resolveGoogleKey(user.id, supabase)
+
   const settled = await Promise.allSettled(
-    pts.map(pt => geocodePoint(pt, supabase))
+    pts.map(pt => geocodePoint(pt, googleKey, supabase))
   )
 
   const results       = settled.map(s => s.status === 'fulfilled' ? s.value : { status: 'error' })
