@@ -5,11 +5,12 @@ import { getUserUsage } from './utils/usage.js'
 const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
 const CAP          = 20
 
-// Resolves which API key to use for this batch and whether to deduct purchased credits.
+// Resolves which Google API key to use for billing and whether to deduct purchased credits.
 // Admin           → platform key, no credit deduction.
-// Non-admin within monthly quota + has own key → own key, no credit deduction.
-// Non-admin beyond monthly quota OR no own key, with purchased credits → platform key, deduct credits.
-// Otherwise       → null (blocked).
+// Non-admin       → ALWAYS deducts purchased credits.
+//   Within 10k/month + has own key → own key (billed to user's Google account).
+//   Beyond 10k/month OR no own key → platform key (billed to platform).
+//   No purchased credits remaining → blocked.
 async function resolveApiKeyAndMode(userId, supabase) {
   const [{ data: keyRow }, { data: profile }, usage] = await Promise.all([
     supabase.from('user_keys').select('google_maps_key').eq('user_id', userId).maybeSingle(),
@@ -22,17 +23,18 @@ async function resolveApiKeyAndMode(userId, supabase) {
   }
 
   const { used, limit, purchasedRemaining } = usage
-  const withinMonthlyQuota = used < limit
 
-  if (withinMonthlyQuota && keyRow?.google_maps_key) {
-    return { apiKey: keyRow.google_maps_key, deductPurchased: false, remaining: limit - used }
+  if (purchasedRemaining <= 0) {
+    return { apiKey: null, deductPurchased: false, remaining: 0 }
   }
 
-  if (purchasedRemaining > 0) {
-    return { apiKey: PLATFORM_KEY, deductPurchased: true, remaining: purchasedRemaining }
+  // Route to own key if within monthly 10k quota and key exists, else platform key
+  const useOwnKey = used < limit && !!keyRow?.google_maps_key
+  return {
+    apiKey:           useOwnKey ? keyRow.google_maps_key : PLATFORM_KEY,
+    deductPurchased:  true,
+    remaining:        purchasedRemaining,
   }
-
-  return { apiKey: null, deductPurchased: false, remaining: 0 }
 }
 
 async function downloadGoogleImage(lat, lng, heading, apiKey) {

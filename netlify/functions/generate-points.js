@@ -139,8 +139,9 @@ export const handler = async (event) => {
     getUserUsage(user.id, supabase),
   ])
   const purchasedRemaining = Math.max(0, (preflight.purchasedCredits ?? 0) - (preflight.purchasedCreditsUsed ?? 0))
-  const hasAccess = !!keyRow || profile?.role === 'admin' || purchasedRemaining > 0
-  if (!hasAccess) return err('No Google Maps API key or credits configured. Contact your admin.', 503)
+  // Access gate: non-admin needs purchased/granted credits. Own Google key is for billing routing only.
+  const hasAccess = profile?.role === 'admin' || purchasedRemaining > 0
+  if (!hasAccess) return err('No credits available. Contact your admin to grant credits.', 503)
 
   let points
   let method = 'road'
