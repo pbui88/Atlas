@@ -168,14 +168,24 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .order('created_at')
       .limit(RESULTS_LIMIT)
 
-    // Supabase returns ai_analyses as a single object (not array) for one-to-one relations.
-    // Normalize to array so the rest of the code can use ai_analyses?.[0] consistently.
-    setPoints((pts || []).map(pt => ({
+    // Normalize ai_analyses (Supabase returns object for one-to-one, not array)
+    const normalized = (pts || []).map(pt => ({
       ...pt,
       ai_analyses: pt.ai_analyses
         ? (Array.isArray(pt.ai_analyses) ? pt.ai_analyses : [pt.ai_analyses])
         : [],
-    })))
+    }))
+
+    // Deduplicate by address — keep highest-scoring point per unique address
+    const seen = new Map()
+    for (const pt of normalized) {
+      const key = pt.address || `${pt.lat.toFixed(5)},${pt.lng.toFixed(5)}`
+      const existing = seen.get(key)
+      const score    = pt.ai_analyses?.[0]?.overall_score ?? -1
+      const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1
+      if (!existing || score > exScore) seen.set(key, pt)
+    }
+    setPoints(Array.from(seen.values()))
     setResLoading(false)
   }, [project.id])
 

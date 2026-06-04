@@ -3,6 +3,24 @@ import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './uti
 const POSITIONSTACK_KEY = process.env.POSITIONSTACK_API_KEY
 const CAP               = 50   // points geocoded in parallel per function call
 
+// Offset lat/lng by distanceMeters in the given compass heading (degrees).
+// Used to move the geocoding query point from the road center toward the property.
+function offsetCoords(lat, lng, headingDeg, distanceMeters) {
+  const R       = 6371000
+  const bearing = (headingDeg * Math.PI) / 180
+  const lat1    = (lat * Math.PI) / 180
+  const lng1    = (lng * Math.PI) / 180
+  const lat2    = Math.asin(
+    Math.sin(lat1) * Math.cos(distanceMeters / R) +
+    Math.cos(lat1) * Math.sin(distanceMeters / R) * Math.cos(bearing)
+  )
+  const lng2 = lng1 + Math.atan2(
+    Math.sin(bearing) * Math.sin(distanceMeters / R) * Math.cos(lat1),
+    Math.cos(distanceMeters / R) - Math.sin(lat1) * Math.sin(lat2)
+  )
+  return { lat: (lat2 * 180) / Math.PI, lng: (lng2 * 180) / Math.PI }
+}
+
 // Rejects strings that look like raw coordinates, e.g. "37.123, -122.456"
 function looksLikeLatLng(str) {
   return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test((str || '').trim())
@@ -58,7 +76,10 @@ async function geocodePoint(pt, supabase) {
   }
 
   try {
-    const address = await reverseGeocode(pt.lat, pt.lng)
+    // Offset 25m toward the property being photographed (camera faces road_bearing + 90°)
+    const headingDeg = ((pt.road_bearing ?? 0) + 90) % 360
+    const { lat, lng } = offsetCoords(pt.lat, pt.lng, headingDeg, 25)
+    const address = await reverseGeocode(lat, lng)
     if (address) {
       await supabase.from('scan_points')
         .update({ address, updated_at: new Date().toISOString() })
@@ -95,17 +116,17 @@ export const handler = async (event) => {
     .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
   if (!project) return err('Project not found', 404)
 
-  // Fetch the requested points
+  // Fetch the requested points (road_bearing needed to offset toward the property)
   const { data: requested } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address')
+    .select('id, lat, lng, address, road_bearing')
     .in('id', validIds.slice(0, CAP))
 
   // Also find any points in this project that have a lat/lng-looking address
   // so they get cleaned up even if not in the current batch
   const { data: badAddressed } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address')
+    .select('id, lat, lng, address, road_bearing')
     .eq('project_id', projectId)
     .not('address', 'is', null)
 
