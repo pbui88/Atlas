@@ -479,7 +479,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         {stats.total > 0 && (
           <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
             <ProgressBar label="Collecting Property Images" value={stats.downloaded + stats.analyzing + stats.complete} max={stats.total} />
-            <ProgressBar label="Atlas Analysis" value={stats.complete} max={stats.total} color="bg-green-500" />
+            <ProgressBar label="Atlas Analyzing" value={stats.complete} max={stats.total} color="bg-green-500" />
           </div>
         )}
 
