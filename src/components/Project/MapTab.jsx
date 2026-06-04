@@ -67,6 +67,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [zoom, setZoom] = useState(4)
 
   const mapRef         = useRef(null)
+  const tempPointsRef  = useRef([])
   const searchInputRef = useRef(null)
   const debounceRef    = useRef(null)
 
@@ -123,22 +124,28 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   const handleMapClick = useCallback((e) => {
     if (drawingMode !== 'polygon') return
-    setTempPoints(prev => [...prev, { lat: e.latLng.lat(), lng: e.latLng.lng() }])
+    const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    tempPointsRef.current = [...tempPointsRef.current, pt]
+    setTempPoints(tempPointsRef.current)
   }, [drawingMode])
 
-  const handleFinishDrawing = useCallback(() => {
-    if (tempPoints.length < 3) return
-    const coords = tempPoints.map(p => [p.lng, p.lat])
+  const handleMapDblClick = useCallback(() => {
+    if (drawingMode !== 'polygon') return
+    // dblclick fires after 2 click events — remove the last spurious click point
+    const pts = tempPointsRef.current.slice(0, -1)
+    if (pts.length < 3) return
+    const coords = pts.map(p => [p.lng, p.lat])
     coords.push(coords[0])
     const geoJson = { type: 'Polygon', coordinates: [coords] }
+    tempPointsRef.current = []
+    setTempPoints([])
     setPolygon(geoJson)
     setDrawingMode(null)
-    setTempPoints([])
-    const pts = generateGridPoints(geoJson, SPACING)
-    setPreview(pts)
-  }, [tempPoints])
+    setPreview(generateGridPoints(geoJson, SPACING))
+  }, [drawingMode])
 
   const handleCancelDrawing = useCallback(() => {
+    tempPointsRef.current = []
     setDrawingMode(null)
     setTempPoints([])
   }, [])
@@ -213,6 +220,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
             onClick={handleMapClick}
+            onDblClick={handleMapDblClick}
           >
             {/* Live polygon preview while drawing */}
             {drawingMode === 'polygon' && tempPoints.length >= 2 && (
@@ -357,7 +365,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               {drawingMode !== 'polygon' ? (
                 <>
                   <p className="text-xs text-slate-500 mb-3">
-                    Click Draw, then click on the map to place points around your target area.
+                    Click Draw, then click on the map to outline your target area. Double-click to finish.
                   </p>
                   <button
                     onClick={() => setDrawingMode('polygon')}
@@ -371,19 +379,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs text-slate-400">
-                    <span className="font-semibold text-brand-400">{tempPoints.length}</span> point{tempPoints.length !== 1 ? 's' : ''} placed — click the map to add more
-                  </p>
-                  <button
-                    onClick={handleFinishDrawing}
-                    disabled={tempPoints.length < 3}
-                    className="btn btn-primary w-full disabled:opacity-40"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                    </svg>
-                    Finish Drawing {tempPoints.length >= 3 ? '' : `(need ${3 - tempPoints.length} more)`}
-                  </button>
+                  <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg px-3 py-2">
+                    <p className="text-xs text-brand-400 font-medium">
+                      {tempPoints.length < 3
+                        ? `Click the map to place points (${tempPoints.length}/3 minimum)`
+                        : `${tempPoints.length} points — double-click to finish`}
+                    </p>
+                  </div>
                   <button
                     onClick={handleCancelDrawing}
                     className="btn btn-outline w-full"
