@@ -24,42 +24,54 @@ function UsageWidget() {
   const { usage } = useAuth()
   if (!usage) return null
 
-  const { used, limit, remaining, cycleStart } = usage
-  const pct      = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
-  const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(cycleStart).getTime()) / (1000 * 60 * 60 * 24)))
-  const blocked  = remaining <= 0
-  const critical = !blocked && pct >= 90
-  const warning  = !blocked && !critical && pct >= 75
+  const { purchasedCredits = 0, purchasedCreditsUsed = 0 } = usage
+  const remaining = Math.max(0, purchasedCredits - purchasedCreditsUsed)
+  const pct       = purchasedCredits > 0 ? Math.min(100, Math.round((purchasedCreditsUsed / purchasedCredits) * 100)) : 0
+  const empty     = remaining <= 0
+  const low       = !empty && pct >= 75
 
-  const barColor   = blocked || critical ? 'bg-red-500' : warning ? 'bg-amber-400' : 'bg-brand-500'
-  const labelColor = blocked ? 'text-red-400' : critical ? 'text-red-400' : warning ? 'text-amber-400' : 'text-slate-300'
+  const barColor   = empty ? 'bg-red-500' : low ? 'bg-amber-400' : 'bg-brand-500'
+  const labelColor = empty ? 'text-red-400' : low ? 'text-amber-400' : 'text-slate-300'
 
   return (
     <div className="px-3 pb-3">
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-slate-500">Monthly quota</span>
-          <span className={`text-xs font-bold ${labelColor}`}>{pct}%</span>
+          <span className="text-xs font-medium text-slate-500">Credits</span>
+          <span className={`text-xs font-bold ${labelColor}`}>
+            {remaining.toLocaleString()} left
+          </span>
         </div>
         <div className="h-1 w-full bg-white/[0.06] rounded-full overflow-hidden mb-2">
-          <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+            style={{ width: purchasedCredits > 0 ? `${100 - pct}%` : '0%' }}
+          />
         </div>
         <div className="flex items-center justify-between">
-          <span className={`text-xs font-semibold ${labelColor}`}>
-            {used.toLocaleString()} <span className="font-normal text-slate-600">/ {limit.toLocaleString()}</span>
+          <span className="text-xs text-slate-600">
+            {purchasedCreditsUsed.toLocaleString()} used
           </span>
-          <span className="text-xs text-slate-600">↺ {daysLeft}d</span>
+          <span className="text-xs text-slate-600">
+            {purchasedCredits.toLocaleString()} total
+          </span>
         </div>
-        {blocked && (
+        {empty && purchasedCredits > 0 && (
           <div className="mt-2 flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
             <span className="w-1.5 h-1.5 bg-red-400 rounded-full shrink-0" />
-            <span className="text-xs text-red-400 font-medium">Quota reached</span>
+            <span className="text-xs text-red-400 font-medium">Credits exhausted</span>
           </div>
         )}
-        {!blocked && (critical || warning) && (
-          <div className={`mt-2 flex items-center gap-1.5 rounded-md px-2 py-1.5 ${critical ? 'bg-red-500/10 border border-red-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full animate-pulse shrink-0 ${critical ? 'bg-red-400' : 'bg-amber-400'}`} />
-            <span className={`text-xs font-medium ${critical ? 'text-red-400' : 'text-amber-400'}`}>{remaining.toLocaleString()} pts left</span>
+        {empty && purchasedCredits === 0 && (
+          <div className="mt-2 flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full shrink-0" />
+            <span className="text-xs text-amber-400 font-medium">No credits — contact admin</span>
+          </div>
+        )}
+        {!empty && low && (
+          <div className="mt-2 flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+            <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse shrink-0" />
+            <span className="text-xs text-amber-400 font-medium">{remaining.toLocaleString()} pts remaining</span>
           </div>
         )}
       </div>
