@@ -46,7 +46,7 @@ function clusterIcon(count, score) {
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const SPACING = 25
+  const SPACING = 20
   const { usage } = useAuth()
   const keyLoading   = usage === null
   const noKeyBlocked = usage !== null && !usage.has_own_key

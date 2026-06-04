@@ -113,7 +113,7 @@ export const handler = async (event) => {
   // Fix 2: guard malformed body
   let genBody = {}
   try { genBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
-  const { geojson, spacingMeters = 25 } = genBody
+  const { geojson, spacingMeters = 20 } = genBody
   if (!geojson?.coordinates) return err('geojson polygon required')
 
   const supabase       = adminSupabase()
