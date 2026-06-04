@@ -40,7 +40,7 @@ async function resolveApiKeyAndMode(userId, supabase) {
 // Returns: { buffer } on success, { noCoverage: true } for 404 (no imagery),
 // or throws an Error for 400/403 (bad key / API not enabled).
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
-  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=15&fov=80&return_error_code=true&key=${apiKey}`
+  const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=0&fov=60&return_error_code=true&key=${apiKey}`
   const res = await fetch(url)
   if (res.status === 403 || res.status === 400) {
     throw new Error(`Street View API key error (HTTP ${res.status}) — check the key is valid and Street View Static API is enabled.`)
