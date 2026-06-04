@@ -132,16 +132,14 @@ export const handler = async (event) => {
     return err('A scan is already in progress for this project', 409)
   }
 
-  // Fail fast: user must have own key OR purchased credits (platform key) OR be admin
-  const [{ data: keyRow }, { data: profile }, preflight] = await Promise.all([
-    supabase.from('user_keys').select('user_id').eq('user_id', user.id).not('google_maps_key', 'is', null).maybeSingle(),
+  // Fail fast: non-admin must have purchased/granted credits; admin always passes
+  const [{ data: profile }, preflight] = await Promise.all([
     supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
     getUserUsage(user.id, supabase),
   ])
+  const isAdmin            = profile?.role === 'admin'
   const purchasedRemaining = Math.max(0, (preflight.purchasedCredits ?? 0) - (preflight.purchasedCreditsUsed ?? 0))
-  // Access gate: non-admin needs purchased/granted credits. Own Google key is for billing routing only.
-  const hasAccess = profile?.role === 'admin' || purchasedRemaining > 0
-  if (!hasAccess) return err('No credits available. Contact your admin to grant credits.', 503)
+  if (!isAdmin && purchasedRemaining <= 0) return err('No credits available. Contact your admin to grant credits.', 503)
 
   let points
   let method = 'road'
@@ -159,12 +157,14 @@ export const handler = async (event) => {
   if (points.length === 0) return err('No points generated — polygon may be too small')
   if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
 
-  const { remaining } = preflight
-  if (remaining <= 0) {
-    return err('Insufficient credits — contact your admin to add more credits.', 429)
-  }
-  if (points.length > remaining) {
-    return err(`This scan needs ${points.length.toLocaleString()} points but you only have ${remaining.toLocaleString()} credits remaining.`, 429)
+  if (!isAdmin) {
+    const { remaining } = preflight
+    if (remaining <= 0) {
+      return err('Insufficient credits — contact your admin to add more credits.', 429)
+    }
+    if (points.length > remaining) {
+      return err(`This scan needs ${points.length.toLocaleString()} points but you only have ${remaining.toLocaleString()} credits remaining.`, 429)
+    }
   }
 
   await supabase.from('scan_points').delete().eq('project_id', projectId).eq('status', 'pending')
