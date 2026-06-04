@@ -478,8 +478,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         {/* Progress bars — shown while running or when scan has started */}
         {stats.total > 0 && (
           <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
-            <ProgressBar label="Images" value={stats.downloaded + stats.analyzing + stats.complete} max={stats.total} />
-            <ProgressBar label="AI analysis" value={stats.complete} max={stats.total} color="bg-green-500" />
+            <ProgressBar label="Collecting Property Images" value={stats.downloaded + stats.analyzing + stats.complete} max={stats.total} />
+            <ProgressBar label="Atlas Analysis" value={stats.complete} max={stats.total} color="bg-green-500" />
           </div>
         )}
 
