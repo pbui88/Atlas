@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { GoogleMap, Polygon, Polyline, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
-import { generateGridPoints, estimateCost } from '../../lib/geo'
+import { generateGridPoints } from '../../lib/geo'
 import { useAuth } from '../../context/AuthContext'
 
 // Grid-based clustering — cell size shrinks as zoom increases
@@ -57,7 +57,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [mousePos,       setMousePos]       = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
-  const [cost,           setCost]           = useState(null)
+  const [pointCount,     setPointCount]     = useState(null)
   const [generating,     setGenerating]     = useState(false)
   const [error,          setError]          = useState(null)
   const [searchPin,      setSearchPin]      = useState(null)
@@ -156,13 +156,13 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   }, [])
 
 
-  // Keep cost in sync with whatever polygon/points are currently shown.
+  // Keep point count in sync with whatever polygon/points are currently shown.
   useEffect(() => {
-    if (!polygon) { setCost(null); return }
+    if (!polygon) { setPointCount(null); return }
     const count = scanPoints?.length > 0
       ? scanPoints.length
       : (preview.length || generateGridPoints(polygon, SPACING).length)
-    setCost(estimateCost(count))
+    setPointCount(count)
   }, [polygon, preview, scanPoints])
 
   const handleGenerate = async () => {
@@ -183,7 +183,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const handleClear = () => {
     setPolygon(null)
     setPreview([])
-    setCost(null)
+    setPointCount(null)
   }
 
 
@@ -460,12 +460,12 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             </div>
           )}
 
-          {/* Cost estimate */}
-          {cost && (
+          {/* Point count */}
+          {pointCount !== null && (
             <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-semibold uppercase tracking-wide">Estimated Cost</span>
-                <span className="text-brand-400 font-bold">${cost.total}</span>
+                <span className="text-slate-400 font-semibold uppercase tracking-wide">Total Points</span>
+                <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
               </div>
             </div>
           )}
