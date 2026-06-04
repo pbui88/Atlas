@@ -48,7 +48,8 @@ const US_CENTER = { lat: 39.5, lng: -98.35 }
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const SPACING = 25
   const { usage } = useAuth()
-  const noKeyBlocked = usage === null || !usage.has_own_key
+  const keyLoading   = usage === null
+  const noKeyBlocked = usage !== null && !usage.has_own_key
 
   const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
@@ -433,20 +434,22 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
         <div className="p-4 border-t border-white/[0.06] space-y-2">
           {noKeyBlocked && (
             <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-              No Google Maps API key — contact admin
+              No Google Maps API key — go to Settings to add one
             </p>
           )}
-          {scanPoints?.length > 0 && !generating && !noKeyBlocked && (
+          {scanPoints?.length > 0 && !generating && !noKeyBlocked && !keyLoading && (
             <p className="text-xs text-center text-slate-400">
               {scanPoints.length.toLocaleString()} points from previous scan — re-draw to run again
             </p>
           )}
           <button
             onClick={handleGenerate}
-            disabled={!polygon || generating || noKeyBlocked}
+            disabled={!polygon || generating || noKeyBlocked || keyLoading}
             className="btn-primary w-full"
           >
-            {generating ? (
+            {keyLoading ? (
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Loading…</>
+            ) : generating ? (
               <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating points…</>
             ) : (
               <>

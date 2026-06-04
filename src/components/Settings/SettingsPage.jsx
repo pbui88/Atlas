@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { getUserKeyStatus, saveUserKey, deleteUserKey } from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
 
 function KeyIcon() {
   return (
@@ -20,6 +21,7 @@ function CheckIcon() {
 
 export default function SettingsPage() {
   const { openSidebar } = useOutletContext()
+  const { refreshUsage } = useAuth()
 
   const [hasKey,     setHasKey]     = useState(null)   // null = loading
   const [updatedAt,  setUpdatedAt]  = useState(null)
@@ -53,6 +55,7 @@ export default function SettingsPage() {
       setKeyInput('')
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+      refreshUsage()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -68,6 +71,7 @@ export default function SettingsPage() {
       await deleteUserKey()
       setHasKey(false)
       setUpdatedAt(null)
+      refreshUsage()
     } catch (err) {
       setError(err.message)
     } finally {
