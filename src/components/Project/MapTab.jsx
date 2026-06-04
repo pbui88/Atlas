@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { GoogleMap, Polygon, Marker } from '@react-google-maps/api'
+import { GoogleMap, Polygon, Polyline, Marker } from '@react-google-maps/api'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints, estimateCost } from '../../lib/geo'
 import { useAuth } from '../../context/AuthContext'
@@ -54,6 +54,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
   const [tempPoints,     setTempPoints]     = useState([])
+  const [mousePos,       setMousePos]       = useState(null)
   const [polygon,        setPolygon]        = useState(project.scan_area_geojson || null)
   const [preview,        setPreview]        = useState([])
   const [cost,           setCost]           = useState(null)
@@ -129,6 +130,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setTempPoints(tempPointsRef.current)
   }, [drawingMode])
 
+  const handleMapMouseMove = useCallback((e) => {
+    if (drawingMode !== 'polygon') return
+    setMousePos({ lat: e.latLng.lat(), lng: e.latLng.lng() })
+  }, [drawingMode])
+
   const handleFinishDrawing = useCallback(() => {
     const pts = tempPointsRef.current
     if (pts.length < 3) return
@@ -146,6 +152,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     tempPointsRef.current = []
     setDrawingMode(null)
     setTempPoints([])
+    setMousePos(null)
   }, [])
 
 
@@ -218,14 +225,47 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
             onClick={handleMapClick}
+            onMouseMove={handleMapMouseMove}
           >
-            {/* Live polygon preview while drawing */}
+            {/* Placed edges */}
             {drawingMode === 'polygon' && tempPoints.length >= 2 && (
-              <Polygon
-                paths={tempPoints}
-                options={{ fillColor: '#ef4444', fillOpacity: 0.12, strokeColor: '#ef4444', strokeWeight: 2, strokeDasharray: '6 4' }}
+              <Polyline
+                path={tempPoints}
+                options={{ strokeColor: '#ef4444', strokeWeight: 2, strokeOpacity: 1 }}
               />
             )}
+
+            {/* Rubber-band line from last point to cursor */}
+            {drawingMode === 'polygon' && tempPoints.length >= 1 && mousePos && (
+              <Polyline
+                path={[tempPoints[tempPoints.length - 1], mousePos]}
+                options={{
+                  strokeColor:   '#ef4444',
+                  strokeWeight:  2,
+                  strokeOpacity: 0,
+                  icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 }, offset: '0', repeat: '8px' }],
+                }}
+              />
+            )}
+
+            {/* Vertex dots */}
+            {drawingMode === 'polygon' && tempPoints.map((pt, i) => (
+              <Marker
+                key={i}
+                position={pt}
+                options={{
+                  icon: {
+                    path:        window.google.maps.SymbolPath.CIRCLE,
+                    scale:       5,
+                    fillColor:   i === 0 ? '#ffffff' : '#ef4444',
+                    fillOpacity: 1,
+                    strokeColor: '#ef4444',
+                    strokeWeight: 2,
+                  },
+                  zIndex: 10,
+                }}
+              />
+            ))}
 
             {polygon && (
               <Polygon
