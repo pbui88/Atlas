@@ -132,6 +132,14 @@ export const handler = async (event) => {
     return err('A scan is already in progress for this project', 409)
   }
 
+  // Fail fast: non-admin users must have a Google Maps API key configured
+  const [{ data: keyRow }, { data: profile }] = await Promise.all([
+    supabase.from('user_keys').select('user_id').eq('user_id', user.id).not('google_maps_key', 'is', null).maybeSingle(),
+    supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+  ])
+  const hasKey = !!keyRow || profile?.role === 'admin'
+  if (!hasKey) return err('No Google Maps API key configured. Contact your admin to set up your key.', 503)
+
   let points
   let method = 'road'
   try {
