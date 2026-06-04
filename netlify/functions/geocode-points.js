@@ -27,16 +27,26 @@ function looksLikeLatLng(str) {
 }
 
 // Attempts to extract a property-level address from a PositionStack response.
-// Returns a valid address string, or null if none found.
+// Returns a valid address string with house number, or null if none found.
 function extractAddress(results) {
-  const property = results.find(r => (r.number != null && String(r.number).trim() !== '') || r.type === 'address')
+  // Must have a house number — street-only results are too imprecise
+  const property = results.find(r => r.number != null && String(r.number).trim() !== '')
   if (!property) return null
 
-  const parts = [property.name, property.locality, property.region_code, property.postal_code].filter(Boolean)
-  const address = parts.length > 0 ? parts.join(', ') : property.label || null
+  // Use Positionstack's own formatted label — it includes number, street, city, state, zip
+  if (property.label && !looksLikeLatLng(property.label)) return property.label
 
-  if (!address || looksLikeLatLng(address)) return null
-  return address
+  // Fallback: build manually with house number first
+  const houseNum   = String(property.number).trim()
+  const street     = property.street || property.name || ''
+  const locality   = property.locality || property.county || ''
+  const regionCode = property.region_code || property.region || ''
+  const postal     = property.postal_code || ''
+  const streetAddr = [houseNum, street].filter(Boolean).join(' ')
+  const parts      = [streetAddr, locality, regionCode, postal].filter(Boolean)
+
+  const address = parts.join(', ')
+  return (!address || looksLikeLatLng(address)) ? null : address
 }
 
 // Returns a property-level address or null.
@@ -76,10 +86,24 @@ async function geocodePoint(pt, supabase) {
   }
 
   try {
-    // Offset 25m toward the property being photographed (camera faces road_bearing + 90°)
-    const headingDeg = ((pt.road_bearing ?? 0) + 90) % 360
-    const { lat, lng } = offsetCoords(pt.lat, pt.lng, headingDeg, 25)
-    const address = await reverseGeocode(lat, lng)
+    let address = null
+
+    if (pt.road_bearing != null) {
+      // Known road bearing: offset 25m toward the photographed property (camera = road_bearing + 90°)
+      const headingDeg = (pt.road_bearing + 90) % 360
+      const { lat, lng } = offsetCoords(pt.lat, pt.lng, headingDeg, 25)
+      address = await reverseGeocode(lat, lng)
+    } else {
+      // No road bearing (grid fallback): try both perpendicular directions and use whichever returns a result
+      const { lat: lat1, lng: lng1 } = offsetCoords(pt.lat, pt.lng, 90, 25)
+      address = await reverseGeocode(lat1, lng1)
+      if (!address) {
+        const { lat: lat2, lng: lng2 } = offsetCoords(pt.lat, pt.lng, 270, 25)
+        address = await reverseGeocode(lat2, lng2)
+      }
+      // Last resort: use the road point itself
+      if (!address) address = await reverseGeocode(pt.lat, pt.lng)
+    }
     if (address) {
       await supabase.from('scan_points')
         .update({ address, updated_at: new Date().toISOString() })
