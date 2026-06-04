@@ -68,6 +68,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
   const mapRef         = useRef(null)
   const tempPointsRef  = useRef([])
+  const isDraggingRef  = useRef(false)
   const searchInputRef = useRef(null)
   const debounceRef    = useRef(null)
 
@@ -122,29 +123,53 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     }
   }, [polygon])
 
-  const handleMapClick = useCallback((e) => {
-    if (drawingMode !== 'polygon') return
-    const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-    tempPointsRef.current = [...tempPointsRef.current, pt]
-    setTempPoints(tempPointsRef.current)
-  }, [drawingMode])
-
-  const handleMapDblClick = useCallback(() => {
-    if (drawingMode !== 'polygon') return
-    // dblclick fires after 2 click events — remove the last spurious click point
-    const pts = tempPointsRef.current.slice(0, -1)
+  const finishDrag = useCallback(() => {
+    if (!isDraggingRef.current) return
+    isDraggingRef.current = false
+    const pts = tempPointsRef.current
+    tempPointsRef.current = []
+    setTempPoints([])
     if (pts.length < 3) return
     const coords = pts.map(p => [p.lng, p.lat])
     coords.push(coords[0])
     const geoJson = { type: 'Polygon', coordinates: [coords] }
-    tempPointsRef.current = []
-    setTempPoints([])
     setPolygon(geoJson)
     setDrawingMode(null)
     setPreview(generateGridPoints(geoJson, SPACING))
+  }, [])
+
+  const handleMapMouseDown = useCallback((e) => {
+    if (drawingMode !== 'polygon') return
+    isDraggingRef.current = true
+    const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    tempPointsRef.current = [pt]
+    setTempPoints([pt])
   }, [drawingMode])
 
+  const handleMapMouseMove = useCallback((e) => {
+    if (!isDraggingRef.current || drawingMode !== 'polygon') return
+    const pt   = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    const prev = tempPointsRef.current
+    const last = prev[prev.length - 1]
+    if (last) {
+      const dlat = pt.lat - last.lat
+      const dlng = pt.lng - last.lng
+      if (Math.sqrt(dlat * dlat + dlng * dlng) < 0.0002) return // ~22m min spacing
+    }
+    const updated = [...prev, pt]
+    tempPointsRef.current = updated
+    setTempPoints(updated)
+  }, [drawingMode])
+
+  // Release outside the map element also finishes the polygon
+  useEffect(() => {
+    if (drawingMode !== 'polygon') return
+    document.addEventListener('mouseup', finishDrag)
+    return () => document.removeEventListener('mouseup', finishDrag)
+  }, [drawingMode, finishDrag])
+
   const handleCancelDrawing = useCallback(() => {
+    isDraggingRef.current = false
     tempPointsRef.current = []
     setDrawingMode(null)
     setTempPoints([])
@@ -216,11 +241,14 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               mapTypeControl: false,
               fullscreenControl: false,
               draggableCursor: drawingMode === 'polygon' ? 'crosshair' : undefined,
+              draggable: drawingMode !== 'polygon',
+              scrollwheel: drawingMode !== 'polygon',
             }}
             onLoad={onMapLoad}
             onZoomChanged={() => { if (mapRef.current) setZoom(mapRef.current.getZoom()) }}
-            onClick={handleMapClick}
-            onDblClick={handleMapDblClick}
+            onMouseDown={handleMapMouseDown}
+            onMouseMove={handleMapMouseMove}
+            onMouseUp={finishDrag}
           >
             {/* Live polygon preview while drawing */}
             {drawingMode === 'polygon' && tempPoints.length >= 2 && (
@@ -365,7 +393,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               {drawingMode !== 'polygon' ? (
                 <>
                   <p className="text-xs text-slate-500 mb-3">
-                    Click Draw, then click on the map to outline your target area. Double-click to finish.
+                    Click Draw, then click and drag on the map to outline your target area.
                   </p>
                   <button
                     onClick={() => setDrawingMode('polygon')}
@@ -381,9 +409,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 <div className="space-y-2">
                   <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg px-3 py-2">
                     <p className="text-xs text-brand-400 font-medium">
-                      {tempPoints.length < 3
-                        ? `Click the map to place points (${tempPoints.length}/3 minimum)`
-                        : `${tempPoints.length} points — double-click to finish`}
+                      {isDraggingRef.current
+                        ? 'Drawing… release mouse to finish'
+                        : 'Click and hold, then drag to draw your area'}
                     </p>
                   </div>
                   <button
