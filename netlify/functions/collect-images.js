@@ -5,14 +5,34 @@ import { getUserUsage } from './utils/usage.js'
 const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
 const CAP          = 20
 
-// User's own key takes priority. Admins fall back to platform key.
-// Regular users with no key return null → 503.
-async function resolveApiKey(userId, supabase) {
-  const [{ data: keyRow }, { data: profile }] = await Promise.all([
+// Resolves which API key to use for this batch and whether to deduct purchased credits.
+// Admin           → platform key, no credit deduction.
+// Non-admin within monthly quota + has own key → own key, no credit deduction.
+// Non-admin beyond monthly quota OR no own key, with purchased credits → platform key, deduct credits.
+// Otherwise       → null (blocked).
+async function resolveApiKeyAndMode(userId, supabase) {
+  const [{ data: keyRow }, { data: profile }, usage] = await Promise.all([
     supabase.from('user_keys').select('google_maps_key').eq('user_id', userId).maybeSingle(),
     supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
+    getUserUsage(userId, supabase),
   ])
-  return keyRow?.google_maps_key || (profile?.role === 'admin' ? PLATFORM_KEY : null)
+
+  if (profile?.role === 'admin') {
+    return { apiKey: PLATFORM_KEY, deductPurchased: false, remaining: Infinity }
+  }
+
+  const { used, limit, purchasedRemaining } = usage
+  const withinMonthlyQuota = used < limit
+
+  if (withinMonthlyQuota && keyRow?.google_maps_key) {
+    return { apiKey: keyRow.google_maps_key, deductPurchased: false, remaining: limit - used }
+  }
+
+  if (purchasedRemaining > 0) {
+    return { apiKey: PLATFORM_KEY, deductPurchased: true, remaining: purchasedRemaining }
+  }
+
+  return { apiKey: null, deductPurchased: false, remaining: 0 }
 }
 
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
@@ -117,16 +137,11 @@ export const handler = async (event) => {
     .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
   if (!project) return err('Project not found', 404)
 
-  // Require user's own Google Maps key — no platform fallback
-  const apiKey = await resolveApiKey(user.id, supabase)
-  if (!apiKey) return err('No Google Maps API key configured. Contact your admin to set up your key.', 503)
+  const { apiKey, deductPurchased, remaining } = await resolveApiKeyAndMode(user.id, supabase)
+  if (!apiKey) return err('No API key or credits available. Contact your admin.', 503)
+  if (remaining <= 0) return err('Insufficient credits — contact your admin to add more credits.', 429)
 
-  const { remaining } = await getUserUsage(user.id, supabase)
-  if (remaining <= 0) {
-    return err('Insufficient credits — contact your admin to add more credits.', 429)
-  }
-
-  const ids = validIds.slice(0, Math.min(CAP, remaining))
+  const ids = validIds.slice(0, Math.min(CAP, remaining === Infinity ? CAP : remaining))
 
   const { data: pts } = await supabase
     .from('scan_points')
@@ -143,9 +158,9 @@ export const handler = async (event) => {
     s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
   )
 
-  // Every downloaded image deducts directly from purchased/granted credits.
+  // Only deduct purchased credits when using the platform key (beyond monthly quota).
   const downloadedCount = results.filter(r => r.status === 'downloaded').length
-  if (downloadedCount > 0) {
+  if (deductPurchased && downloadedCount > 0) {
     await supabase.rpc('increment_purchased_credits_used', {
       p_user_id: user.id,
       p_points:  downloadedCount,

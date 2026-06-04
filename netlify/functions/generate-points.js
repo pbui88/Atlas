@@ -132,13 +132,15 @@ export const handler = async (event) => {
     return err('A scan is already in progress for this project', 409)
   }
 
-  // Fail fast: non-admin users must have a Google Maps API key configured
-  const [{ data: keyRow }, { data: profile }] = await Promise.all([
+  // Fail fast: user must have own key OR purchased credits (platform key) OR be admin
+  const [{ data: keyRow }, { data: profile }, preflight] = await Promise.all([
     supabase.from('user_keys').select('user_id').eq('user_id', user.id).not('google_maps_key', 'is', null).maybeSingle(),
     supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+    getUserUsage(user.id, supabase),
   ])
-  const hasKey = !!keyRow || profile?.role === 'admin'
-  if (!hasKey) return err('No Google Maps API key configured. Contact your admin to set up your key.', 503)
+  const purchasedRemaining = Math.max(0, (preflight.purchasedCredits ?? 0) - (preflight.purchasedCreditsUsed ?? 0))
+  const hasAccess = !!keyRow || profile?.role === 'admin' || purchasedRemaining > 0
+  if (!hasAccess) return err('No Google Maps API key or credits configured. Contact your admin.', 503)
 
   let points
   let method = 'road'
@@ -156,7 +158,7 @@ export const handler = async (event) => {
   if (points.length === 0) return err('No points generated — polygon may be too small')
   if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
 
-  const { remaining } = await getUserUsage(user.id, supabase)
+  const { remaining } = preflight
   if (remaining <= 0) {
     return err('Insufficient credits — contact your admin to add more credits.', 429)
   }

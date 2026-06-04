@@ -9,7 +9,8 @@ function currentCycleStart(anchorDateStr) {
 }
 
 // Returns { used, limit, remaining, cycleStart, purchasedCredits, purchasedCreditsUsed, purchasedRemaining }.
-// remaining = purchasedRemaining only — granted/purchased credits are the sole scan currency.
+// remaining = cycleRemaining + purchasedRemaining.
+// cycleRemaining is served by the user's own Google key; purchasedRemaining is served by the platform key.
 export async function getUserUsage(userId, supabase) {
   const { data: profile } = await supabase
     .from('profiles')
@@ -31,12 +32,13 @@ export async function getUserUsage(userId, supabase) {
     .gte('created_at', cycleStart.toISOString())
 
   const cycleUsed          = count ?? 0
+  const cycleRemaining     = Math.max(0, monthlyLimit - cycleUsed)
   const purchasedRemaining = Math.max(0, purchasedCredits - purchasedCreditsUsed)
 
   return {
     used:                 cycleUsed,
     limit:                monthlyLimit,
-    remaining:            purchasedRemaining,
+    remaining:            cycleRemaining + purchasedRemaining,
     cycleStart:           cycleStart.toISOString(),
     purchasedCredits,
     purchasedCreditsUsed,
