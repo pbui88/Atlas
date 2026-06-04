@@ -114,7 +114,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
 }
 
 export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
-  const { usage, refreshUsage, isAdmin } = useAuth()
+  const { usage, refreshUsage } = useAuth()
   const keyLoading   = usage === null
   const noKeyBlocked = usage !== null && !usage.has_own_key
 
@@ -457,9 +457,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">Loading account…</p>
             )}
             {noKeyBlocked && !running && (
-              <p className="text-[11px] text-amber-500 mt-0.5 truncate">
-                {isAdmin ? 'No API key — go to Settings' : 'No API key — contact your admin'}
-              </p>
+              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — contact your admin</p>
             )}
             {scanError && !running && (
               <p className="text-[11px] text-red-500 mt-0.5 truncate">{scanError}</p>
