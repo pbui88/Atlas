@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage,
-  adminSetUserLimit, adminResetUserCycle, adminSetUserKey,
+  adminSetUserLimit, adminResetUserCycle, adminSetUserKey, adminGrantCredits,
 } from '../../lib/api'
 
 function Sparkline({ points = '0,20 20,16 40,14 60,8 80,6', color = '#3b82f6' }) {
@@ -137,6 +137,51 @@ function KeyEditor({ user, onSave }) {
   )
 }
 
+function GrantCreditsEditor({ user, onGrant }) {
+  const [editing, setEditing] = useState(false)
+  const [value,   setValue]   = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  const save = async () => {
+    const pts = parseInt(value, 10)
+    if (isNaN(pts) || pts <= 0) return
+    setSaving(true)
+    try { await onGrant(user.id, pts); setEditing(false); setValue('') }
+    catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  const balance = (user.purchased_credits ?? 0) - (user.purchased_credits_used ?? 0)
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`text-xs font-medium ${balance > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
+          {(user.purchased_credits ?? 0).toLocaleString()} pts
+        </span>
+        <button
+          onClick={() => setEditing(true)}
+          className="text-xs text-slate-600 hover:text-brand-400 transition underline underline-offset-2"
+          title="Grant additional credits"
+        >
+          + Add
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 500" autoFocus min="1"
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+        className="w-20 px-1.5 py-0.5 text-xs bg-navy-700 border border-brand-600/50 rounded text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
+      />
+      <button onClick={save} disabled={saving || !value} className="text-xs text-brand-400 hover:text-brand-300 font-medium disabled:opacity-50">{saving ? '…' : 'Grant'}</button>
+      <button onClick={() => setEditing(false)} className="text-xs text-slate-600 hover:text-slate-400">✕</button>
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,   setUsers]   = useState([])
@@ -179,6 +224,10 @@ export default function AdminPanel() {
   const updateKey    = async (userId, key) => {
     await adminSetUserKey(userId, key)
     setUsers(u => u.map(x => x.id === userId ? { ...x, has_own_key: !!key } : x))
+  }
+  const grantCredits = async (userId, points) => {
+    const { purchased_credits } = await adminGrantCredits(userId, points)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits } : x))
   }
   const resetCycle   = async (user) => {
     if (!confirm(`Reset ${user.email}'s usage cycle to today?`)) return
@@ -266,7 +315,7 @@ export default function AdminPanel() {
             <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                {['User', 'Role', 'Status', 'Usage (cycle)', 'Limit', 'API Key', 'Joined', ''].map(h => (
+                {['User', 'Role', 'Status', 'Usage (cycle)', 'Limit', 'Credits', 'API Key', 'Joined', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -299,6 +348,7 @@ export default function AdminPanel() {
                       <UsageBar used={user.points_used_cycle || 0} limit={user.points_limit ?? 10000} />
                     </td>
                     <td className="px-4 py-3.5"><LimitEditor user={user} onSave={updateLimit} /></td>
+                    <td className="px-4 py-3.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
                     <td className="px-4 py-3.5"><KeyEditor user={user} onSave={updateKey} /></td>
                     <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
                     <td className="px-4 py-3.5">

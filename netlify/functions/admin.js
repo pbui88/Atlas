@@ -100,8 +100,18 @@ export const handler = async (event) => {
     // Fix 2: guard against malformed request body
     let patchBody = {}
     try { patchBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
-    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey } = patchBody
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits } = patchBody
     if (!isValidUUID(userId)) return err('userId required')
+
+    // Handle manual credit grant — increments purchased_credits via RPC
+    if (grantCredits !== undefined) {
+      const pts = parseInt(grantCredits, 10)
+      if (isNaN(pts) || pts <= 0) return err('grantCredits must be a positive integer')
+      const { error: rpcErr } = await supabase.rpc('increment_purchased_credits', { p_user_id: userId, p_points: pts })
+      if (rpcErr) return err(rpcErr.message)
+      const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
+      return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
+    }
 
     // Handle Google Maps key separately (stored in user_keys, not profiles)
     if (googleMapsKey !== undefined) {
