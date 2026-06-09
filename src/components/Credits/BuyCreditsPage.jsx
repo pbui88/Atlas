@@ -4,6 +4,8 @@ import { createCheckoutSession } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 
 const PACKAGES = [
+  { points:  2500, price:  35, perPoint: '1.4¢' },
+  { points:  5000, price:  70, perPoint: '1.4¢' },
   { points: 10000, price: 140, perPoint: '1.4¢' },
   { points: 15000, price: 210, perPoint: '1.4¢', popular: true },
   { points: 20000, price: 280, perPoint: '1.4¢' },
@@ -131,7 +133,7 @@ export default function BuyCreditsPage() {
       )}
 
       {/* Package cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
         {PACKAGES.map(pkg => (
           <div
             key={pkg.points}
