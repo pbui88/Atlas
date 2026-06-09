@@ -102,16 +102,25 @@ export default function Sidebar({ open, onClose }) {
 
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-56 shrink-0
-        bg-navy-950 border-r border-white/[0.05] flex flex-col h-full
+        border-r border-white/[0.05] flex flex-col h-full
         transition-transform duration-200 ease-in-out
         ${open ? 'translate-x-0' : '-translate-x-full'}
         lg:relative lg:translate-x-0
-      `}>
+      `}
+        style={{
+          backgroundImage: 'url(/hero.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      >
+        {/* Dark overlay so content remains readable */}
+        <div className="absolute inset-0 bg-navy-950/85 pointer-events-none" />
 
         {/* Close button — mobile only */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden"
+          className="absolute top-3 right-3 z-10 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden"
           aria-label="Close navigation"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -120,22 +129,20 @@ export default function Sidebar({ open, onClose }) {
         </button>
 
         {/* Logo */}
-        <div className="px-4 py-5 border-b border-white/[0.05]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-600/30">
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c-.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-              </svg>
-            </div>
-            <div>
-              <span className="font-bold text-white text-sm tracking-tight block leading-none">Atlas</span>
-              <span className="text-[10px] text-brand-500 font-semibold tracking-widest uppercase">AI Dream Team</span>
-            </div>
-          </div>
+        <div className="relative z-10 px-4 py-4 border-b border-white/[0.05] flex justify-center">
+          <img
+            src="/atlas_logo.jpeg"
+            alt="AI Dream Team"
+            className="h-[7.5rem] w-auto"
+            style={{
+              maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+            }}
+          />
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 p-3 space-y-0.5">
+        <nav className="relative z-10 flex-1 p-3 space-y-0.5">
           <NavItem
             to="/dashboard"
             label="Records"
@@ -168,10 +175,10 @@ export default function Sidebar({ open, onClose }) {
         </nav>
 
         {/* Usage */}
-        <UsageWidget />
+        <div className="relative z-10"><UsageWidget /></div>
 
         {/* User */}
-        <div className="p-3 border-t border-white/[0.05]">
+        <div className="relative z-10 p-3 border-t border-white/[0.05]">
           <div className="flex items-center gap-2.5 px-2 py-1.5 mb-1.5">
             <div className="w-7 h-7 rounded-full bg-brand-600/20 border border-brand-600/30 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-brand-400">{initial}</span>

@@ -13,13 +13,16 @@ export default function LandingPage() {
 
       {/* Nav */}
       <nav className="relative z-10 px-8 py-5 flex items-center justify-between max-w-7xl mx-auto w-full">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-600/40">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c-.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-            </svg>
-          </div>
-          <span className="font-bold text-white text-sm tracking-tight">Atlas</span>
+        <div className="flex items-center">
+          <img
+                src="/atlas_logo.jpeg"
+                alt="AI Dream Team"
+                className="h-40 w-auto"
+                style={{
+                  maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+                  WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+                }}
+              />
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -50,14 +53,14 @@ export default function LandingPage() {
 
           {/* Headline */}
           <h1 className="font-display text-5xl font-bold text-white leading-[1.1] tracking-tight mb-6">
-            Find Distressed<br />
-            <span className="text-brand-400">Properties</span> at Scale
+            Find Off Market Deals<br />
+            With <span className="text-brand-600">AI Atlas Nationwide</span>
           </h1>
 
           <p className="text-base text-slate-400 leading-relaxed mb-10 max-w-md">
             Draw a neighborhood on the map. Atlas scans every street
             with Google Street View, then AI scores each property for
-            distress signals — automatically.
+            distress signals automatically.
           </p>
 
           {/* CTAs */}

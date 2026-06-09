@@ -2,6 +2,8 @@ import Stripe from 'stripe'
 import { requireAuth, ok, err, options } from './utils/supabase.js'
 
 const PACKAGES = {
+   2500: { points:  2500, amount:  3500, label:  '2,500 Credits' },
+   5000: { points:  5000, amount:  7000, label:  '5,000 Credits' },
   10000: { points: 10000, amount: 14000, label: '10,000 Credits' },
   15000: { points: 15000, amount: 21000, label: '15,000 Credits' },
   20000: { points: 20000, amount: 28000, label: '20,000 Credits' },
