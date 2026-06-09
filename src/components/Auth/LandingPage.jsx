@@ -14,7 +14,15 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="relative z-10 px-8 py-5 flex items-center justify-between max-w-7xl mx-auto w-full">
         <div className="flex items-center">
-          <img src="/atlas_logo.jpeg" alt="AI Dream Team" className="h-20 w-auto rounded-lg" />
+          <img
+                src="/atlas_logo.jpeg"
+                alt="AI Dream Team"
+                className="h-20 w-auto"
+                style={{
+                  maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+                  WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+                }}
+              />
         </div>
         <div className="flex items-center gap-3">
           <button
