@@ -121,7 +121,15 @@ export default function Sidebar({ open, onClose }) {
 
         {/* Logo */}
         <div className="px-4 py-4 border-b border-white/[0.05]">
-          <img src="/atlas_logo.jpeg" alt="AI Dream Team" className="h-[7.5rem] w-auto rounded-lg" />
+          <img
+            src="/atlas_logo.jpeg"
+            alt="AI Dream Team"
+            className="h-[7.5rem] w-auto"
+            style={{
+              maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
+            }}
+          />
         </div>
 
         {/* Nav */}
