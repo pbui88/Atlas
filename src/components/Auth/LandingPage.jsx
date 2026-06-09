@@ -50,8 +50,8 @@ export default function LandingPage() {
 
           {/* Headline */}
           <h1 className="font-display text-5xl font-bold text-white leading-[1.1] tracking-tight mb-6">
-            Find Distressed<br />
-            <span className="text-brand-600">Properties</span> at Scale
+            Find Off Market Deals<br />
+            With <span className="text-brand-600">AI Atlas Nationwide</span>
           </h1>
 
           <p className="text-base text-slate-400 leading-relaxed mb-10 max-w-md">
