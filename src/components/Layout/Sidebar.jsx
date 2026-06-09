@@ -121,7 +121,7 @@ export default function Sidebar({ open, onClose }) {
 
         {/* Logo */}
         <div className="px-4 py-4 border-b border-white/[0.05]">
-          <img src="/atlas_logo.jpeg" alt="AI Dream Team" className="h-12 w-auto rounded-lg" />
+          <img src="/atlas_logo.jpeg" alt="AI Dream Team" className="h-[7.5rem] w-auto rounded-lg" />
         </div>
 
         {/* Nav */}

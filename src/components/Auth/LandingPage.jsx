@@ -17,7 +17,7 @@ export default function LandingPage() {
           <img
                 src="/atlas_logo.jpeg"
                 alt="AI Dream Team"
-                className="h-20 w-auto"
+                className="h-40 w-auto"
                 style={{
                   maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
                   WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)',
