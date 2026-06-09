@@ -28,7 +28,7 @@ export async function getUserUsage(userId, supabase) {
     .from('usage_logs')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .in('service', ['street_view', 'mapillary'])
+    .in('service', ['street_view'])
     .gte('created_at', cycleStart.toISOString())
 
   const cycleUsed          = count ?? 0

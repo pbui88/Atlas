@@ -713,13 +713,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                         <img src={img.storage_url} alt={img.direction} className="w-full object-cover" loading="lazy" />
                         {img.image_source && (
                           <span
-                            title={img.image_source === 'mapillary' ? 'Mapillary (free)' : 'Google Street View'}
-                            className={`absolute top-2 right-2 px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider
-                              ${img.image_source === 'mapillary'
-                                ? 'bg-emerald-500/90 text-white'
-                                : 'bg-blue-500/90 text-white'}`}
+                            title="Google Street View"
+                            className="absolute top-2 right-2 px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider bg-blue-500/90 text-white"
                           >
-                            {img.image_source === 'mapillary' ? 'M' : 'G'}
+                            G
                           </span>
                         )}
                         <div className="px-3 py-1.5">
