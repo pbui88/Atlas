@@ -15,14 +15,18 @@
         "npm:@supabase/supabase-js@^2.45.0",
         "npm:@turf/turf@^6.5.0",
         "npm:@vitejs/plugin-react@^4.3.0",
+        "npm:@vitest/coverage-v8@^4.1.6",
         "npm:autoprefixer@^10.4.19",
+        "npm:jpeg-js@~0.4.4",
         "npm:postcss@^8.4.38",
         "npm:react-dom@^18.3.1",
         "npm:react-router-dom@^6.23.1",
         "npm:react@^18.3.1",
         "npm:recharts@^2.12.7",
+        "npm:stripe@^22.2.0",
         "npm:tailwindcss@^3.4.4",
-        "npm:vite@^5.2.12"
+        "npm:vite@^5.2.12",
+        "npm:vitest@^4.1.6"
       ]
     }
   }
