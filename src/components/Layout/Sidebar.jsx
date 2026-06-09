@@ -129,7 +129,7 @@ export default function Sidebar({ open, onClose }) {
         </button>
 
         {/* Logo */}
-        <div className="relative z-10 px-4 py-4 border-b border-white/[0.05]">
+        <div className="relative z-10 px-4 py-4 border-b border-white/[0.05] flex justify-center">
           <img
             src="/atlas_logo.jpeg"
             alt="AI Dream Team"
