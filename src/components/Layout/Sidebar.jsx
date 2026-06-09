@@ -102,16 +102,25 @@ export default function Sidebar({ open, onClose }) {
 
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-56 shrink-0
-        bg-navy-950 border-r border-white/[0.05] flex flex-col h-full
+        border-r border-white/[0.05] flex flex-col h-full
         transition-transform duration-200 ease-in-out
         ${open ? 'translate-x-0' : '-translate-x-full'}
         lg:relative lg:translate-x-0
-      `}>
+      `}
+        style={{
+          backgroundImage: 'url(/hero.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      >
+        {/* Dark overlay so content remains readable */}
+        <div className="absolute inset-0 bg-navy-950/85 pointer-events-none" />
 
         {/* Close button — mobile only */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden"
+          className="absolute top-3 right-3 z-10 p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.05] transition lg:hidden"
           aria-label="Close navigation"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -120,7 +129,7 @@ export default function Sidebar({ open, onClose }) {
         </button>
 
         {/* Logo */}
-        <div className="px-4 py-4 border-b border-white/[0.05]">
+        <div className="relative z-10 px-4 py-4 border-b border-white/[0.05]">
           <img
             src="/atlas_logo.jpeg"
             alt="AI Dream Team"
@@ -133,7 +142,7 @@ export default function Sidebar({ open, onClose }) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 p-3 space-y-0.5">
+        <nav className="relative z-10 flex-1 p-3 space-y-0.5">
           <NavItem
             to="/dashboard"
             label="Records"
@@ -166,10 +175,10 @@ export default function Sidebar({ open, onClose }) {
         </nav>
 
         {/* Usage */}
-        <UsageWidget />
+        <div className="relative z-10"><UsageWidget /></div>
 
         {/* User */}
-        <div className="p-3 border-t border-white/[0.05]">
+        <div className="relative z-10 p-3 border-t border-white/[0.05]">
           <div className="flex items-center gap-2.5 px-2 py-1.5 mb-1.5">
             <div className="w-7 h-7 rounded-full bg-brand-600/20 border border-brand-600/30 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-brand-400">{initial}</span>
