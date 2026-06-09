@@ -5,7 +5,7 @@
 
 [dev]
   command    = "npm run dev"
-  port       = 3000
+  port       = 8888
   targetPort = 5173
 
 [functions]
