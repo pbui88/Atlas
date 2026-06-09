@@ -57,7 +57,7 @@ export default function LandingPage() {
           <p className="text-base text-slate-400 leading-relaxed mb-10 max-w-md">
             Draw a neighborhood on the map. Atlas scans every street
             with Google Street View, then AI scores each property for
-            distress signals — automatically.
+            distress signals automatically.
           </p>
 
           {/* CTAs */}
