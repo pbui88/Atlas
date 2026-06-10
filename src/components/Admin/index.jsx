@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
-  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage,
+  AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer,
+} from 'recharts'
+import {
+  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
   adminSetUserLimit, adminResetUserCycle, adminSetUserKey, adminGrantCredits,
 } from '../../lib/api'
+
+function fmtBytes(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
 
 function Sparkline({ points = '0,20 20,16 40,14 60,8 80,6', color = '#3b82f6' }) {
   return (
@@ -20,6 +30,47 @@ function StatCard({ label, value, sparkColor = '#3b82f6', sparkPoints }) {
       <div className="flex items-end justify-between">
         <p className="text-3xl font-bold font-display text-white">{value}</p>
         <Sparkline color={sparkColor} points={sparkPoints} />
+      </div>
+    </div>
+  )
+}
+
+function AlertBanner({ alert }) {
+  const critical = alert.level === 'critical'
+  return (
+    <div className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${
+      critical ? 'bg-red-500/10 border-red-500/20' : 'bg-amber-500/10 border-amber-500/20'
+    }`}>
+      <span className={`w-2 h-2 rounded-full shrink-0 ${critical ? 'bg-red-400 animate-pulse' : 'bg-amber-400'}`} />
+      <p className={`text-sm font-medium ${critical ? 'text-red-400' : 'text-amber-400'}`}>{alert.message}</p>
+    </div>
+  )
+}
+
+function CostCard({ label, value, sub }) {
+  return (
+    <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">{label}</p>
+      <p className="text-3xl font-bold font-display text-white">${value.toFixed(2)}</p>
+      {sub && <p className="text-xs text-slate-600 mt-1">{sub}</p>}
+    </div>
+  )
+}
+
+function UsageGauge({ label, used, limit }) {
+  const pct   = limit > 0 ? Math.min(100, (used / limit) * 100) : 0
+  const color = pct >= 90 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-500' : 'bg-brand-500'
+  return (
+    <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+        <span className="text-xs text-slate-600">{pct.toFixed(1)}%</span>
+      </div>
+      <p className="text-xl font-bold font-display text-white mb-3">
+        {fmtBytes(used)} <span className="text-sm font-normal text-slate-600">/ {fmtBytes(limit)}</span>
+      </p>
+      <div className="h-2 w-full bg-white/[0.06] rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
@@ -186,16 +237,22 @@ export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,   setUsers]   = useState([])
   const [usage,   setUsage]   = useState(null)
+  const [monitor, setMonitor] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab,     setTab]     = useState('users')
 
   const load = async () => {
     setLoading(true)
-    try {
-      const [u, us] = await Promise.all([adminGetUsers(), adminGetUsage()])
-      setUsers(u); setUsage(us)
-    } catch (err) { console.error(err) }
-    finally { setLoading(false) }
+    const [usersRes, usageRes, monitorRes] = await Promise.allSettled([
+      adminGetUsers(), adminGetUsage(), adminGetMonitor(),
+    ])
+    if (usersRes.status   === 'fulfilled') setUsers(usersRes.value)
+    else console.error(usersRes.reason)
+    if (usageRes.status   === 'fulfilled') setUsage(usageRes.value)
+    else console.error(usageRes.reason)
+    if (monitorRes.status === 'fulfilled') setMonitor(monitorRes.value)
+    else { console.error(monitorRes.reason); setMonitor(null) }
+    setLoading(false)
   }
 
   useEffect(() => { load() }, [])
@@ -290,7 +347,7 @@ export default function AdminPanel() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-navy-800 border border-white/[0.06] rounded-lg p-1 w-fit">
-        {['users', 'usage'].map(t => (
+        {['users', 'usage', 'monitor'].map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -369,7 +426,7 @@ export default function AdminPanel() {
             <p className="text-center text-sm text-slate-600 py-10">No users found.</p>
           )}
         </div>
-      ) : (
+      ) : tab === 'usage' ? (
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
           <h3 className="text-sm font-semibold text-slate-300 mb-4">Usage Summary — Last 30 Days</h3>
           {usage?.byService?.length > 0 ? (
@@ -389,6 +446,122 @@ export default function AdminPanel() {
           ) : (
             <p className="text-sm text-slate-600">No usage data yet.</p>
           )}
+        </div>
+      ) : !monitor ? (
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6 text-center">
+          <p className="text-sm text-slate-500">Monitor data unavailable.</p>
+          <p className="text-xs text-slate-600 mt-1">Run migration <code className="text-slate-400">012_admin_monitoring.sql</code> on your Supabase project, then refresh.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Alerts */}
+          {monitor.alerts.length > 0 && (
+            <div className="space-y-2">
+              {monitor.alerts.map((a, i) => <AlertBanner key={i} alert={a} />)}
+            </div>
+          )}
+
+          {/* Cost overview */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <CostCard label="API Cost — Today"  value={monitor.costs.today} />
+            <CostCard label="API Cost — 7 Days" value={monitor.costs.last7d} />
+            <CostCard
+              label="API Cost — 30 Days"
+              value={monitor.costs.last30d}
+              sub={monitor.costs.monthlyBudget ? `of $${monitor.costs.monthlyBudget.toFixed(2)} monthly budget` : null}
+            />
+          </div>
+
+          {/* Daily cost trend */}
+          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-slate-300 mb-4">API Cost — Last 30 Days</h3>
+            {monitor.costs.dailyTrend.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={monitor.costs.dailyTrend}>
+                  <defs>
+                    <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="date" tickFormatter={d => d.slice(5)} tick={{ fill: '#475569', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={v => `$${v}`} tick={{ fill: '#475569', fontSize: 11 }} axisLine={false} tickLine={false} width={50} />
+                  <Tooltip
+                    contentStyle={{ background: '#0d1526', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: '#94a3b8' }}
+                    formatter={(v) => [`$${(+v).toFixed(4)}`, 'Cost']}
+                  />
+                  <Area type="monotone" dataKey="cost" stroke="#3b82f6" fill="url(#costGradient)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-slate-600">No cost data yet.</p>
+            )}
+          </div>
+
+          {/* Cost by service */}
+          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-slate-300 mb-4">Cost by Service — Last 30 Days</h3>
+            {monitor.costs.byService.length > 0 ? (
+              <div className="divide-y divide-white/[0.04]">
+                {monitor.costs.byService.map(row => (
+                  <div key={row.service} className="flex items-center justify-between py-3 text-sm">
+                    <span className="text-slate-500 capitalize">{row.service.replace(/_/g, ' ')}</span>
+                    <div className="text-right">
+                      <span className="text-slate-200 font-semibold">{row.totalCount.toLocaleString()} calls</span>
+                      <span className="text-slate-600 ml-3">${row.totalCost.toFixed(4)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">No usage data yet.</p>
+            )}
+          </div>
+
+          {/* Database / storage usage */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <UsageGauge label="Database Size" used={monitor.database.sizeBytes} limit={monitor.database.limitBytes} />
+            <UsageGauge label="Storage Used"  used={monitor.storage.sizeBytes}  limit={monitor.storage.limitBytes} />
+          </div>
+
+          {/* Breakdown */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4">Largest Tables</h3>
+              {monitor.database.tables.length > 0 ? (
+                <div className="divide-y divide-white/[0.04]">
+                  {monitor.database.tables.map(t => (
+                    <div key={t.name} className="flex items-center justify-between py-2.5 text-sm">
+                      <span className="text-slate-500 font-mono text-xs">{t.name}</span>
+                      <span className="text-slate-300 font-medium">{fmtBytes(t.sizeBytes)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">No table data yet.</p>
+              )}
+            </div>
+            <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4">Storage Buckets</h3>
+              {monitor.storage.buckets.length > 0 ? (
+                <div className="divide-y divide-white/[0.04]">
+                  {monitor.storage.buckets.map(b => (
+                    <div key={b.name} className="flex items-center justify-between py-2.5 text-sm">
+                      <span className="text-slate-500 font-mono text-xs">{b.name}</span>
+                      <div className="text-right">
+                        <span className="text-slate-300 font-medium">{fmtBytes(b.sizeBytes)}</span>
+                        <span className="text-slate-600 ml-3">{b.fileCount.toLocaleString()} files</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">No storage data yet.</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
