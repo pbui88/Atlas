@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAuth, adminSupabase, fetchAllRows, ok, err, options, isValidUUID } from './utils/supabase.js'
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -26,13 +26,14 @@ export const handler = async (event) => {
 
   // Only fetch completed points — allows partial export while scan is still running.
   // ai_analyses has UNIQUE on scan_point_id so Supabase returns it as an object, not array.
-  const { data: points, error: fetchErr } = await supabase
-    .from('scan_points')
-    .select('id, lat, lng, address, status, ai_analyses(overall_score, confidence, signals, notes)')
-    .eq('project_id', projectId)
-    .eq('status', 'complete')
-
-  if (fetchErr) return err(fetchErr.message)
+  const points = await fetchAllRows((from, to) =>
+    supabase
+      .from('scan_points')
+      .select('id, lat, lng, address, status, ai_analyses(overall_score, confidence, signals, notes)')
+      .eq('project_id', projectId)
+      .eq('status', 'complete')
+      .range(from, to)
+  )
 
   const analyzed = (points || []).filter(pt => pt.ai_analyses != null)
   if (!analyzed.length) return err('No completed points with analysis yet — run a scan first')

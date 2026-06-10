@@ -55,7 +55,8 @@ const TARGET_GRID_POINTS = 1500
 
 // Even at the coarsest spacing, areas with more than this many estimated
 // points are too large for a single scan — show an estimate and disable Run.
-const MAX_SCAN_POINTS = 15000
+// Must match the generate-points.js backend cap.
+const MAX_SCAN_POINTS = 5000
 
 // Boundaries with more vertices than this are simplified before rendering,
 // so large city/county polygons from OSM/Census don't bog down the map.

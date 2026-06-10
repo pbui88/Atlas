@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase, fetchAllRows } from '../../lib/supabase'
 import { collectImages, analyzePoints, geocodePoints, exportProject } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
@@ -118,11 +118,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const keyLoading   = usage === null
   const noKeyBlocked = usage !== null && !usage.has_own_key
 
-  const RESULTS_LIMIT = 1000
-
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
-  const [totalComplete, setTotalComplete] = useState(0)
   const [resLoading, setResLoading] = useState(true)
   const [selected,   setSelected]   = useState(null)
   const [minScore,   setMinScore]   = useState(0)
@@ -144,8 +141,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   // ── Data fetching ──────────────────────────────────────────
   const fetchStats = async () => {
-    const { data } = await supabase.from('scan_points').select('status').eq('project_id', project.id)
-    if (!data) return
+    const data = await fetchAllRows((from, to) =>
+      supabase.from('scan_points').select('status').eq('project_id', project.id).range(from, to)
+    )
     const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
     setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
   }
@@ -153,20 +151,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const fetchResults = useCallback(async () => {
     setResLoading(true)
 
-    const { count } = await supabase
-      .from('scan_points')
-      .select('*', { count: 'exact', head: true })
-      .eq('project_id', project.id)
-      .eq('status', 'complete')
-    setTotalComplete(count || 0)
-
-    const { data: pts } = await supabase
-      .from('scan_points')
-      .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
-      .eq('project_id', project.id)
-      .eq('status', 'complete')
-      .order('created_at')
-      .limit(RESULTS_LIMIT)
+    const pts = await fetchAllRows((from, to) =>
+      supabase
+        .from('scan_points')
+        .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
+        .eq('project_id', project.id)
+        .eq('status', 'complete')
+        .order('created_at')
+        .range(from, to)
+    )
 
     // Normalize ai_analyses (Supabase returns object for one-to-one, not array)
     const normalized = (pts || []).map(pt => ({
@@ -239,8 +232,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     // ── Phase 1: Collect Street View images ────────────────────
     setPhase('collecting')
     try {
-      const { data: pending } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).in('status', ['pending', 'failed'])
+      const pending = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).in('status', ['pending', 'failed'])
+          .range(from, to)
+      )
       if (pending?.length) {
         const chunks = chunkArray(pending.map(p => p.id), COLLECT_BATCH)
         let quotaHit = false
@@ -273,9 +269,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     // in gaps left from previous runs where the point already progressed.
     setPhase('geocoding')
     try {
-      const { data: dloaded } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).is('address', null)
-        .not('lat', 'is', null).not('lng', 'is', null)
+      const dloaded = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).is('address', null)
+          .not('lat', 'is', null).not('lng', 'is', null)
+          .range(from, to)
+      )
       if (dloaded?.length) {
         const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
         for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
@@ -294,8 +293,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     // ── Phase 3: AI distress analysis ──────────────────────────
     setPhase('analyzing')
     try {
-      const { data: toAnalyze } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).in('status', ['downloaded', 'analyzing'])
+      const toAnalyze = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).in('status', ['downloaded', 'analyzing'])
+          .range(from, to)
+      )
       if (toAnalyze?.length) {
         const chunks = chunkArray(toAnalyze.map(p => p.id), AI_BATCH)
         for (let i = 0; i < chunks.length; i += AI_CONCUR) {
@@ -566,11 +568,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             }
             {!resLoading && checkedCount === 0 && hasFilters && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
-            )}
-            {!resLoading && totalComplete > RESULTS_LIMIT && (
-              <span className="text-amber-500 ml-1" title={`Showing top ${RESULTS_LIMIT} by score. ${totalComplete.toLocaleString()} total.`}>
-                (top {RESULTS_LIMIT.toLocaleString()})
-              </span>
             )}
           </span>
           <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>

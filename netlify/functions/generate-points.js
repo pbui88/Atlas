@@ -155,7 +155,7 @@ export const handler = async (event) => {
   }
 
   if (points.length === 0) return err('No points generated — polygon may be too small')
-  if (points.length > 10000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
+  if (points.length > 5000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
 
   if (!isAdmin) {
     const { remaining } = preflight
