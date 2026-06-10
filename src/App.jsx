@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import LandingPage         from './components/Auth/LandingPage'
@@ -6,8 +7,10 @@ import PendingApprovalPage from './components/Auth/PendingApprovalPage'
 import AppLayout           from './components/Layout/AppLayout'
 import Dashboard           from './components/Dashboard/index'
 import ProjectPage         from './components/Project/index'
-import AdminPanel          from './components/Admin/index'
 import BuyCreditsPage      from './components/Credits/BuyCreditsPage'
+
+// Lazy-loaded: pulls in recharts, only needed by admins
+const AdminPanel = lazy(() => import('./components/Admin/index'))
 
 function Spinner() {
   return (
@@ -51,7 +54,7 @@ export default function App() {
             <Route index element={<ProjectPage />} />
           </Route>
           <Route path="/admin" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
-            <Route index element={<AdminPanel />} />
+            <Route index element={<Suspense fallback={<Spinner />}><AdminPanel /></Suspense>} />
           </Route>
           <Route path="/credits" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
             <Route index element={<BuyCreditsPage />} />

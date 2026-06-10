@@ -15,10 +15,11 @@ export const handler = async (event) => {
     supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
   ])
   const purchasedRemaining = Math.max(0, (usage.purchasedCredits ?? 0) - (usage.purchasedCreditsUsed ?? 0))
-  // has_own_key = "can this user scan"
+  // can_scan = "can this user scan"
   // Non-admin needs purchased/granted credits to scan (every image costs 1 credit).
-  // Having a Google key is for billing routing only, not for access.
-  const has_own_key = purchasedRemaining > 0           // has credits to scan
-                   || profile.data?.role === 'admin'   // admin is never blocked
-  return ok({ ...usage, has_own_key })
+  // Having a Google key is for billing routing only, not for access — a saved
+  // key never unlocks scanning on its own.
+  const can_scan = purchasedRemaining > 0            // has credits to scan
+                 || profile.data?.role === 'admin'   // admin is never blocked
+  return ok({ ...usage, can_scan })
 }

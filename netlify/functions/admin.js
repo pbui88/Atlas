@@ -1,6 +1,25 @@
 import { requireAdmin, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
+// Default monitoring thresholds (Supabase Pro tier) — overridable via env vars.
+const DB_LIMIT_BYTES      = parseInt(process.env.SUPABASE_DB_LIMIT_BYTES, 10)      || 8   * 1024 ** 3
+const STORAGE_LIMIT_BYTES = parseInt(process.env.SUPABASE_STORAGE_LIMIT_BYTES, 10) || 100 * 1024 ** 3
+const MONTHLY_BUDGET_USD  = parseFloat(process.env.MONTHLY_API_BUDGET_USD) || 0
+
+function fmtBytes(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function pushUsageAlert(alerts, label, used, limit) {
+  if (limit <= 0) return
+  const pct = used / limit
+  if (pct >= 0.9)      alerts.push({ level: 'critical', message: `${label} is ${(pct * 100).toFixed(0)}% full (${fmtBytes(used)} / ${fmtBytes(limit)})` })
+  else if (pct >= 0.75) alerts.push({ level: 'warning', message: `${label} is ${(pct * 100).toFixed(0)}% full (${fmtBytes(used)} / ${fmtBytes(limit)})` })
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
 
@@ -83,6 +102,82 @@ export const handler = async (event) => {
       totalProjects,
       totalCalls30d,
       byService: Object.values(aggregated),
+    })
+  }
+
+  // ── GET system monitor: API cost trends + Supabase storage/DB size ──
+  if (event.httpMethod === 'GET' && action === 'monitor') {
+    const DAY     = 24 * 60 * 60 * 1000
+    const since30 = new Date(Date.now() - 30 * DAY)
+
+    const [summaryRes, trendRes, dbSizeRes, tableSizesRes, storageRes] = await Promise.all([
+      supabase.rpc('get_usage_summary',    { p_since: since30.toISOString() }),
+      supabase.rpc('get_daily_cost_trend', { p_since: since30.toISOString() }),
+      supabase.rpc('get_database_size'),
+      supabase.rpc('get_table_sizes'),
+      supabase.rpc('get_storage_usage'),
+    ])
+
+    const byService = (summaryRes.data || []).map(r => ({
+      service:    r.service,
+      totalCount: Number(r.total_count) || 0,
+      totalCost:  Number(r.total_cost)  || 0,
+    }))
+    const cost30d = byService.reduce((s, r) => s + r.totalCost, 0)
+
+    // Roll the per-service daily trend into per-day totals + today/7d windows
+    const todayKey  = new Date().toISOString().slice(0, 10)
+    const since7Key = new Date(Date.now() - 7 * DAY).toISOString().slice(0, 10)
+    const dailyMap  = {}
+    let costToday = 0, cost7d = 0
+    for (const row of trendRes.data || []) {
+      const dayKey = String(row.day)
+      const cost   = Number(row.total_cost) || 0
+      dailyMap[dayKey] = (dailyMap[dayKey] || 0) + cost
+      if (dayKey === todayKey) costToday += cost
+      if (dayKey >= since7Key) cost7d    += cost
+    }
+    const dailyTrend = Object.entries(dailyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, cost]) => ({ date, cost }))
+
+    const dbBytes = Number(dbSizeRes.data) || 0
+    const storageBuckets = (storageRes.data || []).map(r => ({
+      name:      r.bucket_id,
+      sizeBytes: Number(r.total_bytes) || 0,
+      fileCount: Number(r.file_count)  || 0,
+    }))
+    const storageBytes = storageBuckets.reduce((s, r) => s + r.sizeBytes, 0)
+
+    const alerts = []
+    pushUsageAlert(alerts, 'Database', dbBytes, DB_LIMIT_BYTES)
+    pushUsageAlert(alerts, 'Storage',  storageBytes, STORAGE_LIMIT_BYTES)
+    if (MONTHLY_BUDGET_USD > 0) {
+      const pct = cost30d / MONTHLY_BUDGET_USD
+      if (pct >= 1)        alerts.push({ level: 'critical', message: `30-day API spend ($${cost30d.toFixed(2)}) has exceeded the $${MONTHLY_BUDGET_USD.toFixed(2)} budget` })
+      else if (pct >= 0.9) alerts.push({ level: 'warning',  message: `30-day API spend ($${cost30d.toFixed(2)}) is at ${(pct * 100).toFixed(0)}% of the $${MONTHLY_BUDGET_USD.toFixed(2)} budget` })
+    }
+
+    return ok({
+      costs: {
+        today:         costToday,
+        last7d:        cost7d,
+        last30d:       cost30d,
+        byService,
+        dailyTrend,
+        monthlyBudget: MONTHLY_BUDGET_USD || null,
+      },
+      database: {
+        sizeBytes:  dbBytes,
+        limitBytes: DB_LIMIT_BYTES,
+        tables: (tableSizesRes.data || []).map(t => ({ name: t.table_name, sizeBytes: Number(t.size_bytes) || 0 })),
+      },
+      storage: {
+        sizeBytes:  storageBytes,
+        limitBytes: STORAGE_LIMIT_BYTES,
+        buckets:    storageBuckets,
+      },
+      alerts,
     })
   }
 

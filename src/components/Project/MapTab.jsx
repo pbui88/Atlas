@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { GoogleMap, Polygon, Polyline, Marker } from '@react-google-maps/api'
+import * as turf from '@turf/turf'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints } from '../../lib/geo'
 import { useAuth } from '../../context/AuthContext'
@@ -45,11 +46,35 @@ function clusterIcon(count, score) {
 
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
+// Grid spacing (meters) is adaptive: small areas get a fine grid, while
+// city/county-scale areas get a coarser grid so the point count stays
+// scannable. See computeSpacing().
+const MIN_SPACING_M      = 20
+const MAX_SPACING_M      = 200
+const TARGET_GRID_POINTS = 1500
+
+// Even at the coarsest spacing, areas with more than this many estimated
+// points are too large for a single scan — show an estimate and disable Run.
+// Must match the generate-points.js backend cap.
+const MAX_SCAN_POINTS = 5000
+
+// Boundaries with more vertices than this are simplified before rendering,
+// so large city/county polygons from OSM/Census don't bog down the map.
+const MAX_POLYGON_VERTICES = 2000
+
+// Pick a grid spacing that keeps the point count near TARGET_GRID_POINTS,
+// scaling from MIN_SPACING_M (small custom areas) up to MAX_SPACING_M
+// (city/county-scale boundaries).
+function computeSpacing(areaM2) {
+  const raw = Math.sqrt(areaM2 / TARGET_GRID_POINTS)
+  const clamped = Math.min(MAX_SPACING_M, Math.max(MIN_SPACING_M, raw))
+  return Math.round(clamped / 5) * 5
+}
+
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const SPACING = 20
   const { usage } = useAuth()
   const keyLoading   = usage === null
-  const noKeyBlocked = usage !== null && !usage.has_own_key
+  const noCreditsBlocked = usage !== null && !usage.can_scan
 
   const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
@@ -64,6 +89,14 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [searchInput,    setSearchInput]    = useState('')
   const [suggestions,    setSuggestions]    = useState([])
   const [showDropdown,   setShowDropdown]   = useState(false)
+  const [boundaryInput,  setBoundaryInput]  = useState('')
+  const [boundaryLoading, setBoundaryLoading] = useState(false)
+  const [boundaryError,  setBoundaryError]  = useState(null)
+  const [largeArea,      setLargeArea]      = useState(false)
+  const [estimatedCount, setEstimatedCount] = useState(null)
+  const [spacing,        setSpacing]        = useState(() =>
+    project.scan_area_geojson ? computeSpacing(turf.area(project.scan_area_geojson)) : MIN_SPACING_M
+  )
 
   const [zoom, setZoom] = useState(4)
 
@@ -124,6 +157,24 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     }
   }, [polygon])
 
+  // Compute adaptive grid spacing for a polygon and update the preview /
+  // large-area state accordingly. Shared by drawn and auto-loaded polygons.
+  const applySpacingAndPreview = (g) => {
+    const areaM2   = turf.area(g)
+    const sp       = computeSpacing(areaM2)
+    const estimate = Math.round(areaM2 / (sp * sp))
+    setSpacing(sp)
+    if (estimate > MAX_SCAN_POINTS) {
+      setLargeArea(true)
+      setEstimatedCount(estimate)
+      setPreview([])
+    } else {
+      setLargeArea(false)
+      setEstimatedCount(null)
+      setPreview(generateGridPoints(g, sp))
+    }
+  }
+
   const finishDrag = useCallback(() => {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
@@ -137,7 +188,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const geoJson = { type: 'Polygon', coordinates: [coords] }
     setPolygon(geoJson)
     setDrawingMode(null)
-    setPreview(generateGridPoints(geoJson, SPACING))
+    applySpacingAndPreview(geoJson)
   }, [])
 
   const handleMapMouseDown = useCallback((e) => {
@@ -182,18 +233,99 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   // Keep point count in sync with whatever polygon/points are currently shown.
   useEffect(() => {
     if (!polygon) { setPointCount(null); return }
+    if (largeArea) { setPointCount(estimatedCount); return }
     const count = scanPoints?.length > 0
       ? scanPoints.length
-      : (preview.length || generateGridPoints(polygon, SPACING).length)
+      : (preview.length || generateGridPoints(polygon, spacing).length)
     setPointCount(count)
-  }, [polygon, preview, scanPoints])
+  }, [polygon, preview, scanPoints, largeArea, estimatedCount, spacing])
+
+  const applyBoundaryPolygon = (geo) => {
+    let g = geo
+    if (g.type === 'MultiPolygon') {
+      const largest = g.coordinates.reduce((a, b) => a[0].length > b[0].length ? a : b)
+      g = { type: 'Polygon', coordinates: largest }
+    }
+    if (g.type !== 'Polygon') return false
+
+    // Simplify very detailed boundaries (e.g. counties) for smooth rendering
+    if (g.coordinates[0].length > MAX_POLYGON_VERTICES) {
+      const simplified = turf.simplify(g, { tolerance: 0.0008, highQuality: false })
+      if (simplified?.coordinates?.[0]?.length > 3) g = simplified
+    }
+
+    setPolygon(g)
+    setDrawingMode(null)
+    if (mapRef.current) {
+      const bounds = new window.google.maps.LatLngBounds()
+      g.coordinates[0].forEach(([lng, lat]) => bounds.extend({ lat, lng }))
+      mapRef.current.fitBounds(bounds, 40)
+    }
+
+    // City/county boundaries can be huge — adaptive spacing keeps the grid
+    // (and point count) scannable, or flags the area as too large.
+    applySpacingAndPreview(g)
+    return true
+  }
+
+  // Auto-draw a boundary polygon from a ZIP code, city, or county name.
+  const handleBoundarySearch = async () => {
+    const query = boundaryInput.trim()
+    if (!query) return
+    setBoundaryLoading(true)
+    setBoundaryError(null)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 12000)
+
+    try {
+      if (/^\d{5}$/.test(query)) {
+        // ZIP code — Census TIGERweb ZCTA is authoritative for every US ZIP
+        const censusUrl =
+          `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/PUMA_TAD_TAZ_UGA_ZCTA/MapServer/2/query` +
+          `?where=ZCTA5CE20%3D%27${query}%27&outFields=ZCTA5CE20&outSR=4326&f=geojson`
+        const censusRes = await fetch(censusUrl, { signal: controller.signal })
+        if (censusRes.ok) {
+          const censusData = await censusRes.json()
+          const geo = censusData.features?.[0]?.geometry
+          if (geo && applyBoundaryPolygon(geo)) return
+        }
+
+        // Fallback: Nominatim postal code boundary (OSM coverage varies for US ZIPs)
+        const nomRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?postalcode=${query}&country=us&format=json&polygon_geojson=1&limit=1`,
+          { headers: { 'Accept-Language': 'en-US' }, signal: controller.signal }
+        )
+        const nomData = await nomRes.json()
+        const geo = nomData[0]?.geojson
+        if (geo && applyBoundaryPolygon(geo)) return
+
+        setBoundaryError(`No boundary found for ZIP ${query}`)
+      } else {
+        // City or county name — Nominatim admin boundary (OSM relation)
+        const nomRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&polygon_geojson=1&limit=1&countrycodes=us&addressdetails=1`,
+          { headers: { 'Accept-Language': 'en-US' }, signal: controller.signal }
+        )
+        const nomData = await nomRes.json()
+        const geo = nomData[0]?.geojson
+        if (geo && applyBoundaryPolygon(geo)) return
+
+        setBoundaryError(`No boundary found for "${query}"`)
+      }
+    } catch (e) {
+      setBoundaryError(e.name === 'AbortError' ? 'Request timed out — try again' : 'Failed to load boundary')
+    } finally {
+      clearTimeout(timer)
+      setBoundaryLoading(false)
+    }
+  }
 
   const handleGenerate = async () => {
-    if (!polygon) return
+    if (!polygon || largeArea) return
     setGenerating(true)
     setError(null)
     try {
-      await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING })
+      await generatePoints(project.id, { geojson: polygon, spacingMeters: spacing })
       setPreview([])
       onPointsGenerated({ autoStart: true })
     } catch (err) {
@@ -207,6 +339,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setPolygon(null)
     setPreview([])
     setPointCount(null)
+    setBoundaryInput('')
+    setBoundaryError(null)
+    setLargeArea(false)
+    setEstimatedCount(null)
+    setSpacing(MIN_SPACING_M)
   }
 
 
@@ -349,7 +486,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           </div>
 
           {/* Point count badge */}
-          {ptCount > 0 && (
+          {largeArea && estimatedCount != null ? (
+            <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
+              ~{estimatedCount.toLocaleString()} properties <span className="text-slate-500 ml-1">(estimated)</span>
+            </div>
+          ) : ptCount > 0 && (
             <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
               {ptCount.toLocaleString()} properties scan
               {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
@@ -393,8 +534,37 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Draw polygon */}
           {!polygon ? (
             <div>
-              {drawingMode !== 'polygon' ? (
+              {drawingMode !== 'polygon' && (
                 <>
+                  {/* Auto-draw boundary by ZIP, city, or county */}
+                  <p className="text-xs font-medium text-slate-400 mb-2">ZIP, city, or county</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={boundaryInput}
+                      onChange={e => { setBoundaryInput(e.target.value); setBoundaryError(null) }}
+                      onKeyDown={e => e.key === 'Enter' && handleBoundarySearch()}
+                      placeholder="e.g. 79761 or Travis County, TX"
+                      className="flex-1 px-3 py-2 text-xs bg-navy-900 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-600/50"
+                    />
+                    <button
+                      onClick={handleBoundarySearch}
+                      disabled={boundaryLoading || !boundaryInput.trim()}
+                      className="px-4 py-2 text-xs bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold transition disabled:opacity-40 shrink-0"
+                    >
+                      {boundaryLoading
+                        ? <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                        : 'Load'}
+                    </button>
+                  </div>
+                  {boundaryError && <p className="text-xs text-red-400 mt-1.5">{boundaryError}</p>}
+
+                  <div className="flex items-center gap-2 my-4">
+                    <div className="flex-1 h-px bg-white/[0.06]" />
+                    <span className="text-xs text-slate-600">or draw manually</span>
+                    <div className="flex-1 h-px bg-white/[0.06]" />
+                  </div>
+
                   <p className="text-xs text-slate-500 mb-3">
                     Click Draw, then click and drag on the map to outline your target area.
                   </p>
@@ -408,7 +578,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     Draw Area
                   </button>
                 </>
-              ) : (
+              )}
+              {drawingMode === 'polygon' && (
                 <div className="space-y-2">
                   <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg px-3 py-2">
                     <p className="text-xs text-brand-400 font-medium">
@@ -424,8 +595,10 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           ) : (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-slate-400">Polygon drawn</span>
-                <button onClick={handleClear} className="text-xs text-slate-500 hover:text-red-400 transition">Clear</button>
+                <span className="text-xs font-medium text-slate-400 truncate">
+                  {boundaryInput ? boundaryInput : 'Polygon drawn'}
+                </span>
+                <button onClick={handleClear} className="text-xs text-slate-500 hover:text-red-400 transition shrink-0 ml-2">Clear</button>
               </div>
               <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
                 <p className="text-xs text-green-400">Area selected</p>
@@ -436,17 +609,41 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Stats card */}
           {(ptCount > 0 || pointCount !== null) && (
             <div className="bg-navy-900 border border-white/[0.06] rounded-lg p-3 space-y-2">
-              {ptCount > 0 && (
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Property Count</span>
-                  <span className="text-slate-300 font-semibold">{ptCount.toLocaleString()}</span>
-                </div>
-              )}
-              {pointCount !== null && (
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-500">Total Points (draw)</span>
-                  <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
-                </div>
+              {largeArea ? (
+                <>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Est. Properties</span>
+                    <span className="text-brand-400 font-bold">~{(estimatedCount ?? 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Grid Spacing</span>
+                    <span className="text-slate-300">{spacing}m</span>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Large area — too big to scan directly. Search a smaller city/ZIP or draw a custom area to run a scan.
+                  </p>
+                </>
+              ) : (
+                <>
+                  {ptCount > 0 && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Property Count</span>
+                      <span className="text-slate-300 font-semibold">{ptCount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {pointCount !== null && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Total Points (draw)</span>
+                      <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {pointCount !== null && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Grid Spacing</span>
+                      <span className="text-slate-300">{spacing}m</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -458,19 +655,24 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
         {/* Run button */}
         <div className="p-4 border-t border-white/[0.06] space-y-2">
-          {noKeyBlocked && (
+          {noCreditsBlocked && (
             <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-              No Google Maps API key — go to Settings to add one
+              No credits remaining — contact your admin to add credits
             </p>
           )}
-          {scanPoints?.length > 0 && !generating && !noKeyBlocked && !keyLoading && (
+          {scanPoints?.length > 0 && !generating && !noCreditsBlocked && !keyLoading && (
             <p className="text-xs text-center text-slate-400">
               {scanPoints.length.toLocaleString()} points from previous scan — re-draw to run again
             </p>
           )}
+          {largeArea && (
+            <p className="text-xs text-center text-amber-500">
+              Area too large to scan — narrow your search to enable Run
+            </p>
+          )}
           <button
             onClick={handleGenerate}
-            disabled={!polygon || generating || noKeyBlocked || keyLoading}
+            disabled={!polygon || generating || noCreditsBlocked || keyLoading || largeArea}
             className="btn-primary w-full"
           >
             {keyLoading ? (

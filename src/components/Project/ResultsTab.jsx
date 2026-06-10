@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase, fetchAllRows } from '../../lib/supabase'
 import { collectImages, analyzePoints, geocodePoints, exportProject } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
@@ -116,13 +116,10 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
 export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
   const { usage, refreshUsage } = useAuth()
   const keyLoading   = usage === null
-  const noKeyBlocked = usage !== null && !usage.has_own_key
-
-  const RESULTS_LIMIT = 1000
+  const noCreditsBlocked = usage !== null && !usage.can_scan
 
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
-  const [totalComplete, setTotalComplete] = useState(0)
   const [resLoading, setResLoading] = useState(true)
   const [selected,   setSelected]   = useState(null)
   const [minScore,   setMinScore]   = useState(0)
@@ -144,8 +141,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   // ── Data fetching ──────────────────────────────────────────
   const fetchStats = async () => {
-    const { data } = await supabase.from('scan_points').select('status').eq('project_id', project.id)
-    if (!data) return
+    const data = await fetchAllRows((from, to) =>
+      supabase.from('scan_points').select('status').eq('project_id', project.id).range(from, to)
+    )
     const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
     setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
   }
@@ -153,20 +151,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const fetchResults = useCallback(async () => {
     setResLoading(true)
 
-    const { count } = await supabase
-      .from('scan_points')
-      .select('*', { count: 'exact', head: true })
-      .eq('project_id', project.id)
-      .eq('status', 'complete')
-    setTotalComplete(count || 0)
-
-    const { data: pts } = await supabase
-      .from('scan_points')
-      .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
-      .eq('project_id', project.id)
-      .eq('status', 'complete')
-      .order('created_at')
-      .limit(RESULTS_LIMIT)
+    const pts = await fetchAllRows((from, to) =>
+      supabase
+        .from('scan_points')
+        .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
+        .eq('project_id', project.id)
+        .eq('status', 'complete')
+        .order('created_at')
+        .range(from, to)
+    )
 
     // Normalize ai_analyses (Supabase returns object for one-to-one, not array)
     const normalized = (pts || []).map(pt => ({
@@ -197,28 +190,28 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   useEffect(() => {
     if (!autoStartInitialRef.current) return
     if (keyLoading) return
-    if (noKeyBlocked) return
+    if (noCreditsBlocked) return
     if (autoStarted.current) return
     autoStarted.current = true
     onAutoStartConsumed?.()       // signal parent only after committing
     const t = setTimeout(runScan, 300)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyLoading, noKeyBlocked])
+  }, [keyLoading, noCreditsBlocked])
 
   // Auto-start when returning to a project that has an incomplete scan.
   useEffect(() => {
     if (autoStarted.current) return
     if (running) return
     if (keyLoading) return
-    if (noKeyBlocked) return
+    if (noCreditsBlocked) return
     if (stats.total === 0) return
     const incomplete = (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0)
     if (incomplete === 0) return
     autoStarted.current = true
     runScan()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noKeyBlocked])
+  }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noCreditsBlocked])
 
   // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
@@ -236,11 +229,23 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setScanError(null)
     setRunning(true)
 
+    // Reset points left mid-flight by a previous run that was interrupted
+    // (closed tab, function timeout) so this run picks them back up.
+    await supabase.from('scan_points')
+      .update({ status: 'pending', updated_at: new Date().toISOString() })
+      .eq('project_id', project.id).eq('status', 'downloading')
+    await supabase.from('scan_points')
+      .update({ status: 'downloaded', updated_at: new Date().toISOString() })
+      .eq('project_id', project.id).eq('status', 'analyzing')
+
     // ── Phase 1: Collect Street View images ────────────────────
     setPhase('collecting')
     try {
-      const { data: pending } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).in('status', ['pending', 'failed'])
+      const pending = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).in('status', ['pending', 'failed'])
+          .range(from, to)
+      )
       if (pending?.length) {
         const chunks = chunkArray(pending.map(p => p.id), COLLECT_BATCH)
         let quotaHit = false
@@ -273,9 +278,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     // in gaps left from previous runs where the point already progressed.
     setPhase('geocoding')
     try {
-      const { data: dloaded } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).is('address', null)
-        .not('lat', 'is', null).not('lng', 'is', null)
+      const dloaded = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).is('address', null)
+          .not('lat', 'is', null).not('lng', 'is', null)
+          .range(from, to)
+      )
       if (dloaded?.length) {
         const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
         for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
@@ -292,11 +300,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
     // ── Phase 3: AI distress analysis ──────────────────────────
+    // Loops until nothing is left in downloaded/analyzing — re-fetching each
+    // pass picks up points left stuck in 'analyzing' by a function timeout
+    // during this run. Stops if a pass makes no progress (avoids looping
+    // forever on a point that fails the same way every time).
     setPhase('analyzing')
     try {
-      const { data: toAnalyze } = await supabase.from('scan_points').select('id')
-        .eq('project_id', project.id).in('status', ['downloaded', 'analyzing'])
-      if (toAnalyze?.length) {
+      const fetchToAnalyze = () => fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).in('status', ['downloaded', 'analyzing'])
+          .range(from, to)
+      )
+      let toAnalyze = await fetchToAnalyze()
+      let lastCount = Infinity
+      while (toAnalyze?.length && toAnalyze.length < lastCount && !abortRef.current) {
+        lastCount = toAnalyze.length
         const chunks = chunkArray(toAnalyze.map(p => p.id), AI_BATCH)
         for (let i = 0; i < chunks.length; i += AI_CONCUR) {
           if (abortRef.current) break
@@ -308,6 +326,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           await fetchStats()
           await fetchResults()
         }
+        if (abortRef.current) break
+        toAnalyze = await fetchToAnalyze()
       }
     } catch { /* continue */ }
 
@@ -444,7 +464,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   const hasFilters  = minScore > 0 || sigFilter.length > 0
-  const canStart    = stats.total > 0 && !running && !noKeyBlocked && !keyLoading
+  const canStart    = stats.total > 0 && !running && !noCreditsBlocked && !keyLoading
   const analysis    = selected?.ai_analyses?.[0]
   const score       = analysis?.overall_score
   const signals     = analysis?.signals || []
@@ -466,8 +486,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             {keyLoading && !running && (
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">Loading account…</p>
             )}
-            {noKeyBlocked && !running && (
-              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — contact your admin</p>
+            {noCreditsBlocked && !running && (
+              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No credits — contact your admin</p>
             )}
             {scanError && !running && (
               <p className="text-[11px] text-red-500 mt-0.5 truncate">{scanError}</p>
@@ -495,8 +515,29 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         {/* Progress bars — shown while running or when scan has started */}
         {stats.total > 0 && (
           <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
-            <ProgressBar label="Collecting Property Images" value={stats.downloaded + stats.analyzing + stats.complete} max={stats.total} />
-            <ProgressBar label="Atlas Analyzing" value={stats.complete} max={stats.total} color="bg-green-500" />
+            <ProgressBar label="Collecting Property Images" value={stats.total - stats.pending} max={stats.total} />
+            <ProgressBar label="Atlas Analyzing" value={stats.complete + stats.no_coverage + stats.failed} max={stats.total} color="bg-green-500" />
+          </div>
+        )}
+
+        {/* Status breakdown — explains any gap from stats.total */}
+        {(stats.no_coverage > 0 || stats.failed > 0 || stats.pending > 0) && (
+          <div className="px-4 pb-3 border-b border-white/[0.06] flex flex-wrap gap-1.5">
+            {stats.no_coverage > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-400">
+                {stats.no_coverage} no Street View coverage
+              </span>
+            )}
+            {stats.failed > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 border border-red-500/20 text-red-400">
+                {stats.failed} failed{!running && ' — will retry on next run'}
+              </span>
+            )}
+            {stats.pending > 0 && !running && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                {stats.pending} pending
+              </span>
+            )}
           </div>
         )}
 
@@ -566,11 +607,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             }
             {!resLoading && checkedCount === 0 && hasFilters && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
-            )}
-            {!resLoading && totalComplete > RESULTS_LIMIT && (
-              <span className="text-amber-500 ml-1" title={`Showing top ${RESULTS_LIMIT} by score. ${totalComplete.toLocaleString()} total.`}>
-                (top {RESULTS_LIMIT.toLocaleString()})
-              </span>
             )}
           </span>
           <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
