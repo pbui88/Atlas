@@ -229,6 +229,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setScanError(null)
     setRunning(true)
 
+    // Reset points left mid-flight by a previous run that was interrupted
+    // (closed tab, function timeout) so this run picks them back up.
+    await supabase.from('scan_points')
+      .update({ status: 'pending', updated_at: new Date().toISOString() })
+      .eq('project_id', project.id).eq('status', 'downloading')
+    await supabase.from('scan_points')
+      .update({ status: 'downloaded', updated_at: new Date().toISOString() })
+      .eq('project_id', project.id).eq('status', 'analyzing')
+
     // ── Phase 1: Collect Street View images ────────────────────
     setPhase('collecting')
     try {
@@ -291,14 +300,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
     // ── Phase 3: AI distress analysis ──────────────────────────
+    // Loops until nothing is left in downloaded/analyzing — re-fetching each
+    // pass picks up points left stuck in 'analyzing' by a function timeout
+    // during this run. Stops if a pass makes no progress (avoids looping
+    // forever on a point that fails the same way every time).
     setPhase('analyzing')
     try {
-      const toAnalyze = await fetchAllRows((from, to) =>
+      const fetchToAnalyze = () => fetchAllRows((from, to) =>
         supabase.from('scan_points').select('id')
           .eq('project_id', project.id).in('status', ['downloaded', 'analyzing'])
           .range(from, to)
       )
-      if (toAnalyze?.length) {
+      let toAnalyze = await fetchToAnalyze()
+      let lastCount = Infinity
+      while (toAnalyze?.length && toAnalyze.length < lastCount && !abortRef.current) {
+        lastCount = toAnalyze.length
         const chunks = chunkArray(toAnalyze.map(p => p.id), AI_BATCH)
         for (let i = 0; i < chunks.length; i += AI_CONCUR) {
           if (abortRef.current) break
@@ -310,6 +326,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           await fetchStats()
           await fetchResults()
         }
+        if (abortRef.current) break
+        toAnalyze = await fetchToAnalyze()
       }
     } catch { /* continue */ }
 
