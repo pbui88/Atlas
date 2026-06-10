@@ -5,12 +5,13 @@ import { getUserUsage } from './utils/usage.js'
 const PLATFORM_KEY = process.env.GOOGLE_MAPS_KEY
 const CAP          = 20
 
-// Resolves which Google API key to use for billing and whether to deduct purchased credits.
-// Admin           → platform key, no credit deduction.
-// Non-admin       → ALWAYS deducts purchased credits.
-//   Within 10k/month + has own key → own key (billed to user's Google account).
-//   Beyond 10k/month OR no own key → platform key (billed to platform).
+// Resolves Google API key(s) to use for billing and whether to deduct purchased credits.
+// Admin           → platform key for everything, no credit deduction.
+// Non-admin       → ALWAYS deducts purchased credits (lifetime balance, regardless of key).
 //   No purchased credits remaining → blocked.
+//   Own key covers up to (points_limit - used) downloads remaining this cycle;
+//   any points beyond that — even within the same batch — fall back to the
+//   platform key, so a batch straddling the monthly boundary is split correctly.
 async function resolveApiKeyAndMode(userId, supabase) {
   const [{ data: keyRow }, { data: profile }, usage] = await Promise.all([
     supabase.from('user_keys').select('google_maps_key').eq('user_id', userId).maybeSingle(),
@@ -19,21 +20,21 @@ async function resolveApiKeyAndMode(userId, supabase) {
   ])
 
   if (profile?.role === 'admin') {
-    return { apiKey: PLATFORM_KEY, deductPurchased: false, remaining: Infinity }
+    return { ownKey: null, ownKeyCapacity: 0, platformKey: PLATFORM_KEY, deductPurchased: false, remaining: Infinity }
   }
 
   const { used, limit, purchasedRemaining } = usage
 
   if (purchasedRemaining <= 0) {
-    return { apiKey: null, deductPurchased: false, remaining: 0 }
+    return { ownKey: null, ownKeyCapacity: 0, platformKey: null, deductPurchased: false, remaining: 0 }
   }
 
-  // Route to own key if within monthly 10k quota and key exists, else platform key
-  const useOwnKey = used < limit && !!keyRow?.google_maps_key
   return {
-    apiKey:           useOwnKey ? keyRow.google_maps_key : PLATFORM_KEY,
-    deductPurchased:  true,
-    remaining:        purchasedRemaining,
+    ownKey:          keyRow?.google_maps_key ?? null,
+    ownKeyCapacity:  keyRow?.google_maps_key ? Math.max(0, limit - used) : 0,
+    platformKey:     PLATFORM_KEY,
+    deductPurchased: true,
+    remaining:       purchasedRemaining,
   }
 }
 
@@ -189,8 +190,8 @@ export const handler = async (event) => {
     .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
   if (!project) return err('Project not found', 404)
 
-  const { apiKey, deductPurchased, remaining } = await resolveApiKeyAndMode(user.id, supabase)
-  if (!apiKey) return err('No API key or credits available. Contact your admin.', 503)
+  const { ownKey, ownKeyCapacity, platformKey, deductPurchased, remaining } = await resolveApiKeyAndMode(user.id, supabase)
+  if (!ownKey && !platformKey) return err('No API key or credits available. Contact your admin.', 503)
   if (remaining <= 0) return err('Insufficient credits — contact your admin to add more credits.', 429)
 
   const ids = validIds.slice(0, Math.min(CAP, remaining === Infinity ? CAP : remaining))
@@ -203,7 +204,7 @@ export const handler = async (event) => {
   if (!pts?.length) return ok({ results: [] })
 
   const settled = await Promise.allSettled(
-    pts.map(pt => processPoint(pt, projectId, user.id, apiKey, supabase))
+    pts.map((pt, i) => processPoint(pt, projectId, user.id, i < ownKeyCapacity ? ownKey : platformKey, supabase))
   )
 
   // Surface API key errors as 503 so the frontend scan aborts with a clear message
@@ -214,7 +215,9 @@ export const handler = async (event) => {
     s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
   )
 
-  // Only deduct purchased credits when using the platform key (beyond monthly quota).
+  // Non-admin users always deduct from their lifetime purchased/granted credit
+  // balance, regardless of which key was billed (deductPurchased is false only
+  // for admins — see resolveApiKeyAndMode).
   const downloadedCount = results.filter(r => r.status === 'downloaded').length
   if (deductPurchased && downloadedCount > 0) {
     await supabase.rpc('increment_purchased_credits_used', {

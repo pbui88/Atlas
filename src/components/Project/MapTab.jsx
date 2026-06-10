@@ -74,7 +74,7 @@ function computeSpacing(areaM2) {
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
   const { usage } = useAuth()
   const keyLoading   = usage === null
-  const noKeyBlocked = usage !== null && !usage.has_own_key
+  const noCreditsBlocked = usage !== null && !usage.can_scan
 
   const [showPanel,      setShowPanel]      = useState(false)
   const [drawingMode,    setDrawingMode]    = useState(null)
@@ -655,12 +655,12 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
 
         {/* Run button */}
         <div className="p-4 border-t border-white/[0.06] space-y-2">
-          {noKeyBlocked && (
+          {noCreditsBlocked && (
             <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-              No Google Maps API key — go to Settings to add one
+              No credits remaining — contact your admin to add credits
             </p>
           )}
-          {scanPoints?.length > 0 && !generating && !noKeyBlocked && !keyLoading && (
+          {scanPoints?.length > 0 && !generating && !noCreditsBlocked && !keyLoading && (
             <p className="text-xs text-center text-slate-400">
               {scanPoints.length.toLocaleString()} points from previous scan — re-draw to run again
             </p>
@@ -672,7 +672,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           )}
           <button
             onClick={handleGenerate}
-            disabled={!polygon || generating || noKeyBlocked || keyLoading || largeArea}
+            disabled={!polygon || generating || noCreditsBlocked || keyLoading || largeArea}
             className="btn-primary w-full"
           >
             {keyLoading ? (

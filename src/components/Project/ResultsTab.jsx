@@ -116,7 +116,7 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
 export default function ResultsTab({ project, onProjectUpdate, autoStart = false, onAutoStartConsumed }) {
   const { usage, refreshUsage } = useAuth()
   const keyLoading   = usage === null
-  const noKeyBlocked = usage !== null && !usage.has_own_key
+  const noCreditsBlocked = usage !== null && !usage.can_scan
 
   // ── Results state ──────────────────────────────────────────
   const [points,     setPoints]     = useState([])
@@ -190,28 +190,28 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   useEffect(() => {
     if (!autoStartInitialRef.current) return
     if (keyLoading) return
-    if (noKeyBlocked) return
+    if (noCreditsBlocked) return
     if (autoStarted.current) return
     autoStarted.current = true
     onAutoStartConsumed?.()       // signal parent only after committing
     const t = setTimeout(runScan, 300)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyLoading, noKeyBlocked])
+  }, [keyLoading, noCreditsBlocked])
 
   // Auto-start when returning to a project that has an incomplete scan.
   useEffect(() => {
     if (autoStarted.current) return
     if (running) return
     if (keyLoading) return
-    if (noKeyBlocked) return
+    if (noCreditsBlocked) return
     if (stats.total === 0) return
     const incomplete = (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0)
     if (incomplete === 0) return
     autoStarted.current = true
     runScan()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noKeyBlocked])
+  }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noCreditsBlocked])
 
   // ── Image fetch when property selected ─────────────────────
   useEffect(() => {
@@ -446,7 +446,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   const hasFilters  = minScore > 0 || sigFilter.length > 0
-  const canStart    = stats.total > 0 && !running && !noKeyBlocked && !keyLoading
+  const canStart    = stats.total > 0 && !running && !noCreditsBlocked && !keyLoading
   const analysis    = selected?.ai_analyses?.[0]
   const score       = analysis?.overall_score
   const signals     = analysis?.signals || []
@@ -468,8 +468,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             {keyLoading && !running && (
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">Loading account…</p>
             )}
-            {noKeyBlocked && !running && (
-              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No API key — contact your admin</p>
+            {noCreditsBlocked && !running && (
+              <p className="text-[11px] text-amber-500 mt-0.5 truncate">No credits — contact your admin</p>
             )}
             {scanError && !running && (
               <p className="text-[11px] text-red-500 mt-0.5 truncate">{scanError}</p>
@@ -497,8 +497,29 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         {/* Progress bars — shown while running or when scan has started */}
         {stats.total > 0 && (
           <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
-            <ProgressBar label="Collecting Property Images" value={stats.downloaded + stats.analyzing + stats.complete} max={stats.total} />
-            <ProgressBar label="Atlas Analyzing" value={stats.complete} max={stats.total} color="bg-green-500" />
+            <ProgressBar label="Collecting Property Images" value={stats.total - stats.pending} max={stats.total} />
+            <ProgressBar label="Atlas Analyzing" value={stats.complete + stats.no_coverage + stats.failed} max={stats.total} color="bg-green-500" />
+          </div>
+        )}
+
+        {/* Status breakdown — explains any gap from stats.total */}
+        {(stats.no_coverage > 0 || stats.failed > 0 || stats.pending > 0) && (
+          <div className="px-4 pb-3 border-b border-white/[0.06] flex flex-wrap gap-1.5">
+            {stats.no_coverage > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-400">
+                {stats.no_coverage} no Street View coverage
+              </span>
+            )}
+            {stats.failed > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 border border-red-500/20 text-red-400">
+                {stats.failed} failed{!running && ' — will retry on next run'}
+              </span>
+            )}
+            {stats.pending > 0 && !running && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                {stats.pending} pending
+              </span>
+            )}
           </div>
         )}
 
