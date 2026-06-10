@@ -39,6 +39,7 @@ export default function ProjectPage() {
     libraries: LIBRARIES,
   })
   const [project,        setProject]        = useState(null)
+  const [projectError,   setProjectError]   = useState(null)
   const [scanPoints,     setScanPoints]     = useState([])
   const [activeTab,      setActiveTab]      = useState('map')
   const [loading,        setLoading]        = useState(true)
@@ -46,7 +47,15 @@ export default function ProjectPage() {
   const hasAutoStartedRef = useRef(false)
 
   const loadProject = async () => {
-    const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
+    const { data: proj, error } = await supabase.from('projects').select('*').eq('id', id).single()
+    if (error) {
+      // PGRST116 = no matching row (project deleted or wrong id) — back to dashboard.
+      // Anything else (e.g. auth/connection errors) — surface it instead of silently redirecting.
+      if (error.code === 'PGRST116') { navigate('/dashboard'); return }
+      setProjectError(error.message)
+      setLoading(false)
+      return
+    }
     if (!proj) { navigate('/dashboard'); return }
     setProject(proj)
 
@@ -78,6 +87,18 @@ export default function ProjectPage() {
     return (
       <div className="flex h-screen items-center justify-center bg-navy-900">
         <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (projectError) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-navy-900 px-4">
+        <div className="max-w-sm text-center">
+          <p className="text-sm font-semibold text-red-400 mb-2">Failed to load project</p>
+          <p className="text-xs text-slate-500 mb-6 break-words">{projectError}</p>
+          <Link to="/dashboard" className="btn-outline text-xs">Back to Dashboard</Link>
+        </div>
       </div>
     )
   }
