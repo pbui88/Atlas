@@ -46,17 +46,31 @@ function clusterIcon(count, score) {
 
 const US_CENTER = { lat: 39.5, lng: -98.35 }
 
-// Above this estimated point count, a boundary is treated as "large scale"
-// (city/county) — too big to grid out or scan directly, so we show an
-// estimated property count instead of generating the full point preview.
-const LARGE_AREA_POINT_LIMIT = 5000
+// Grid spacing (meters) is adaptive: small areas get a fine grid, while
+// city/county-scale areas get a coarser grid so the point count stays
+// scannable. See computeSpacing().
+const MIN_SPACING_M      = 20
+const MAX_SPACING_M      = 200
+const TARGET_GRID_POINTS = 1500
+
+// Even at the coarsest spacing, areas with more than this many estimated
+// points are too large for a single scan — show an estimate and disable Run.
+const MAX_SCAN_POINTS = 15000
 
 // Boundaries with more vertices than this are simplified before rendering,
 // so large city/county polygons from OSM/Census don't bog down the map.
 const MAX_POLYGON_VERTICES = 2000
 
+// Pick a grid spacing that keeps the point count near TARGET_GRID_POINTS,
+// scaling from MIN_SPACING_M (small custom areas) up to MAX_SPACING_M
+// (city/county-scale boundaries).
+function computeSpacing(areaM2) {
+  const raw = Math.sqrt(areaM2 / TARGET_GRID_POINTS)
+  const clamped = Math.min(MAX_SPACING_M, Math.max(MIN_SPACING_M, raw))
+  return Math.round(clamped / 5) * 5
+}
+
 export default function MapTab({ project, scanPoints, onPointsGenerated, isLoaded, loadError }) {
-  const SPACING = 20
   const { usage } = useAuth()
   const keyLoading   = usage === null
   const noKeyBlocked = usage !== null && !usage.has_own_key
@@ -79,6 +93,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   const [boundaryError,  setBoundaryError]  = useState(null)
   const [largeArea,      setLargeArea]      = useState(false)
   const [estimatedCount, setEstimatedCount] = useState(null)
+  const [spacing,        setSpacing]        = useState(() =>
+    project.scan_area_geojson ? computeSpacing(turf.area(project.scan_area_geojson)) : MIN_SPACING_M
+  )
 
   const [zoom, setZoom] = useState(4)
 
@@ -139,6 +156,24 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     }
   }, [polygon])
 
+  // Compute adaptive grid spacing for a polygon and update the preview /
+  // large-area state accordingly. Shared by drawn and auto-loaded polygons.
+  const applySpacingAndPreview = (g) => {
+    const areaM2   = turf.area(g)
+    const sp       = computeSpacing(areaM2)
+    const estimate = Math.round(areaM2 / (sp * sp))
+    setSpacing(sp)
+    if (estimate > MAX_SCAN_POINTS) {
+      setLargeArea(true)
+      setEstimatedCount(estimate)
+      setPreview([])
+    } else {
+      setLargeArea(false)
+      setEstimatedCount(null)
+      setPreview(generateGridPoints(g, sp))
+    }
+  }
+
   const finishDrag = useCallback(() => {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
@@ -152,7 +187,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     const geoJson = { type: 'Polygon', coordinates: [coords] }
     setPolygon(geoJson)
     setDrawingMode(null)
-    setPreview(generateGridPoints(geoJson, SPACING))
+    applySpacingAndPreview(geoJson)
   }, [])
 
   const handleMapMouseDown = useCallback((e) => {
@@ -200,9 +235,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     if (largeArea) { setPointCount(estimatedCount); return }
     const count = scanPoints?.length > 0
       ? scanPoints.length
-      : (preview.length || generateGridPoints(polygon, SPACING).length)
+      : (preview.length || generateGridPoints(polygon, spacing).length)
     setPointCount(count)
-  }, [polygon, preview, scanPoints, largeArea, estimatedCount])
+  }, [polygon, preview, scanPoints, largeArea, estimatedCount, spacing])
 
   const applyBoundaryPolygon = (geo) => {
     let g = geo
@@ -226,19 +261,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
       mapRef.current.fitBounds(bounds, 40)
     }
 
-    // City/county boundaries can be huge — estimate the property count from
-    // area instead of generating (and rendering) every grid point.
-    const areaM2  = turf.area(g)
-    const estimate = Math.round(areaM2 / (SPACING * SPACING))
-    if (estimate > LARGE_AREA_POINT_LIMIT) {
-      setLargeArea(true)
-      setEstimatedCount(estimate)
-      setPreview([])
-    } else {
-      setLargeArea(false)
-      setEstimatedCount(null)
-      setPreview(generateGridPoints(g, SPACING))
-    }
+    // City/county boundaries can be huge — adaptive spacing keeps the grid
+    // (and point count) scannable, or flags the area as too large.
+    applySpacingAndPreview(g)
     return true
   }
 
@@ -299,7 +324,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setGenerating(true)
     setError(null)
     try {
-      await generatePoints(project.id, { geojson: polygon, spacingMeters: SPACING })
+      await generatePoints(project.id, { geojson: polygon, spacingMeters: spacing })
       setPreview([])
       onPointsGenerated({ autoStart: true })
     } catch (err) {
@@ -317,6 +342,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setBoundaryError(null)
     setLargeArea(false)
     setEstimatedCount(null)
+    setSpacing(MIN_SPACING_M)
   }
 
 
@@ -588,6 +614,10 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     <span className="text-slate-500">Est. Properties</span>
                     <span className="text-brand-400 font-bold">~{(estimatedCount ?? 0).toLocaleString()}</span>
                   </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Grid Spacing</span>
+                    <span className="text-slate-300">{spacing}m</span>
+                  </div>
                   <p className="text-xs text-slate-500 leading-relaxed">
                     Large area — too big to scan directly. Search a smaller city/ZIP or draw a custom area to run a scan.
                   </p>
@@ -604,6 +634,12 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Total Points (draw)</span>
                       <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {pointCount !== null && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Grid Spacing</span>
+                      <span className="text-slate-300">{spacing}m</span>
                     </div>
                   )}
                 </>
