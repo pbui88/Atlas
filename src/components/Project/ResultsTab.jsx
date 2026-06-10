@@ -132,6 +132,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   // ── Scan state ─────────────────────────────────────────────
   const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
+  const [failedErrors, setFailedErrors] = useState([])
   const [running,    setRunning]    = useState(false)
   const [phase,      setPhase]      = useState('')
   const [scanError,  setScanError]  = useState(null)
@@ -142,10 +143,16 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // ── Data fetching ──────────────────────────────────────────
   const fetchStats = async () => {
     const data = await fetchAllRows((from, to) =>
-      supabase.from('scan_points').select('status').eq('project_id', project.id).range(from, to)
+      supabase.from('scan_points').select('status, error_msg').eq('project_id', project.id).range(from, to)
     )
     const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
     setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
+
+    const errCounts = {}
+    for (const r of data) {
+      if (r.status === 'failed' && r.error_msg) errCounts[r.error_msg] = (errCounts[r.error_msg] || 0) + 1
+    }
+    setFailedErrors(Object.entries(errCounts).sort((a, b) => b[1] - a[1]))
   }
 
   const fetchResults = useCallback(async () => {
@@ -529,9 +536,16 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </span>
             )}
             {stats.failed > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 border border-red-500/20 text-red-400">
-                {stats.failed} failed{!running && ' — will retry on next run'}
-              </span>
+              <div className="w-full space-y-1">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 border border-red-500/20 text-red-400">
+                  {stats.failed} failed{!running && ' — will retry on next run'}
+                </span>
+                {failedErrors.map(([msg, count]) => (
+                  <p key={msg} className="text-[10px] text-red-400/70 leading-snug break-words">
+                    {count}× {msg}
+                  </p>
+                ))}
+              </div>
             )}
             {stats.pending > 0 && !running && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 border border-amber-500/20 text-amber-400">
