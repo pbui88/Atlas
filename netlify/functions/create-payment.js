@@ -67,6 +67,10 @@ export const handler = async (event) => {
           { settingName: 'hostedPaymentOrderOptions', settingValue: JSON.stringify({ show: true, merchantName: 'Atlas' }) },
           { settingName: 'hostedPaymentPaymentOptions', settingValue: JSON.stringify({ cardCodeRequired: true, showCreditCard: true, showBankAccount: false }) },
           { settingName: 'hostedPaymentBillingAddressOptions', settingValue: JSON.stringify({ show: true, required: false }) },
+          // Disable the saved-payment-profile (CIM) UI — without a linked
+          // customer profile, Accept Hosted's profile list panel throws
+          // (showPaymentProfileList on undefined) and renders a blank page.
+          { settingName: 'hostedPaymentCustomerOptions', settingValue: JSON.stringify({ showEmail: false, requiredEmail: false, addPaymentProfile: false }) },
         ],
       },
     },
