@@ -152,10 +152,9 @@ export default function BuyCreditsPage() {
             <div className="absolute inset-0 bg-gradient-to-r from-brand-600/5 via-transparent to-cyan-500/5 pointer-events-none" />
             <div className="relative">
               <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-4">Account Balance</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6">
                 <StatCard value={usage.remaining.toLocaleString()} label="Total remaining" accent />
                 <StatCard value={usage.used.toLocaleString()} label="Used this cycle" />
-                <StatCard value={usage.limit.toLocaleString()} label="Monthly quota" />
                 {usage.purchasedCredits > 0 && (
                   <StatCard value={usage.purchasedRemaining.toLocaleString()} label="Credits left" accent />
                 )}
