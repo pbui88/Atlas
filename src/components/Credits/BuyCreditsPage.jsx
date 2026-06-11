@@ -60,9 +60,9 @@ export default function BuyCreditsPage() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [successPts,  setSuccessPts]  = useState(0)
 
-  const success  = searchParams.get('success') === 'true'
-  const rawPts   = parseInt(searchParams.get('points') || '0', 10)
+  const rawPts   = parseInt(searchParams.get('purchase') || '0', 10)
   const addedPts = VALID_POINTS.has(rawPts) ? rawPts : 0
+  const success  = addedPts > 0
 
   useEffect(() => {
     if (!success || addedPts <= 0) return

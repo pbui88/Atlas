@@ -57,20 +57,17 @@ export const handler = async (event) => {
             settingName: 'hostedPaymentReturnOptions',
             settingValue: JSON.stringify({
               showReceipt: false,
-              url: `${siteUrl}/credits?success=true&points=${pkg.points}`,
+              // Sandbox's Order Summary / receipt redirect fails if the return
+              // URL has more than one query parameter — keep it to a single param.
+              url: `${siteUrl}/credits?purchase=${pkg.points}`,
               urlText: 'Continue to Atlas',
               cancelUrl: `${siteUrl}/credits`,
               cancelUrlText: 'Cancel',
             }),
           },
           { settingName: 'hostedPaymentButtonOptions', settingValue: JSON.stringify({ text: 'Pay' }) },
-          { settingName: 'hostedPaymentOrderOptions', settingValue: JSON.stringify({ show: true, merchantName: 'Atlas' }) },
           { settingName: 'hostedPaymentPaymentOptions', settingValue: JSON.stringify({ cardCodeRequired: true, showCreditCard: true, showBankAccount: false }) },
           { settingName: 'hostedPaymentBillingAddressOptions', settingValue: JSON.stringify({ show: true, required: false }) },
-          // Disable the saved-payment-profile (CIM) UI — without a linked
-          // customer profile, Accept Hosted's profile list panel throws
-          // (showPaymentProfileList on undefined) and renders a blank page.
-          { settingName: 'hostedPaymentCustomerOptions', settingValue: JSON.stringify({ showEmail: false, requiredEmail: false, addPaymentProfile: false }) },
         ],
       },
     },
