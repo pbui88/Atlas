@@ -208,21 +208,13 @@ The **usage widget** in the sidebar shows:
 - Credits used this cycle
 - Days until cycle resets
 
-### Purchase Additional Credits
-If you need more credits beyond your monthly quota, visit **Add Credits** in the sidebar. Purchased credits:
-- Are added instantly to your account after payment
+### Additional Credits
+If you need more credits beyond your monthly quota, contact your administrator to request a credit grant. Granted credits:
+- Are added to your account by an admin
 - Never expire — they carry over indefinitely
 - Are consumed only after your monthly quota is exhausted
 
-### Credit Packages
-
-| Package | Credits | Price | Per Credit |
-|---------|---------|-------|------------|
-| Starter | 10,000 | $140 | $0.014 |
-| Standard | 15,000 | $210 | $0.014 |
-| Pro | 20,000 | $280 | $0.014 |
-
-Payments are processed securely by Stripe. No card details are stored on Atlas servers.
+You can view your current balance and usage anytime under **Credits** in the sidebar.
 
 ### Cost Examples
 
@@ -372,7 +364,6 @@ Yes. Each user can only see their own scan projects and results. Administrators 
 |---------|------|
 | Netlify (hosting + functions) | $0–$25/month (free tier available) |
 | Supabase (database + storage) | $0–$25/month (free tier available) |
-| Stripe (payment processing) | 2.9% + $0.30 per transaction |
 
 ### Cost Example — 1,000 Point Scan
 

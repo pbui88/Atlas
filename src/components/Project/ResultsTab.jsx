@@ -16,7 +16,6 @@ const GEO_CONCUR        = 2    // parallel function calls during geocoding
 
 const PHASE_LABEL = {
   collecting: 'Collecting Street View images…',
-  geocoding:  'Reverse geocoding addresses…',
   analyzing:  'Running AI distress analysis…',
 }
 
@@ -480,7 +479,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-white">Results</h3>
-            {running && phase && (
+            {running && PHASE_LABEL[phase] && (
               <p className="text-[11px] text-brand-600 mt-0.5 truncate">{PHASE_LABEL[phase]}</p>
             )}
             {keyLoading && !running && (
