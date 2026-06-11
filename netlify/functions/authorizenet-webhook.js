@@ -7,7 +7,9 @@ const respond = (statusCode, body) => ({ statusCode, headers: CORS, body: JSON.s
 function isValidSignature(rawBody, header, signatureKey) {
   if (!header || !signatureKey) return false
   const provided = header.replace(/^sha512=/i, '').trim().toUpperCase()
-  const expected = createHmac('sha512', Buffer.from(signatureKey, 'hex'))
+  // Authorize.net uses the Signature Key as its literal string bytes (not
+  // hex-decoded) as the HMAC key.
+  const expected = createHmac('sha512', signatureKey)
     .update(rawBody, 'utf8')
     .digest('hex')
     .toUpperCase()
