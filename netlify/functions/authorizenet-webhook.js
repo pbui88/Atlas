@@ -48,7 +48,7 @@ export const handler = async (event) => {
   const supabase = adminSupabase()
   const { data: completed, error: rpcError } = await supabase.rpc('complete_payment_transaction', {
     p_ref_id:   refId,
-    p_trans_id: transId,
+    p_trans_id: transId ?? null,
   })
 
   if (rpcError) {
