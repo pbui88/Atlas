@@ -209,12 +209,24 @@ The **usage widget** in the sidebar shows:
 - Days until cycle resets
 
 ### Additional Credits
-If you need more credits beyond your monthly quota, contact your administrator to request a credit grant. Granted credits:
-- Are added to your account by an admin
+If you need more credits beyond your monthly quota, you can buy a top-up package yourself from the **Credits** page, or contact your administrator to request a credit grant. Either way, these credits:
+- Are added to your account instantly (purchases) or by an admin (grants)
 - Never expire — they carry over indefinitely
 - Are consumed only after your monthly quota is exhausted
 
 You can view your current balance and usage anytime under **Credits** in the sidebar.
+
+### Credit Packages
+
+| Package | Credits | Price | Per Credit |
+|---------|---------|-------|------------|
+| Starter | 2,500 | $35 | $0.014 |
+| Standard | 5,000 | $70 | $0.014 |
+| Plus | 10,000 | $140 | $0.014 |
+| Pro | 15,000 | $210 | $0.014 |
+| Max | 20,000 | $280 | $0.014 |
+
+Payments are processed securely by Authorize.net. No card details are stored on Atlas servers.
 
 ### Cost Examples
 
@@ -324,7 +336,7 @@ Approximately:
 A 500-point scan takes roughly 15 minutes. A 2,000-point scan takes about 1 hour. You can close the browser and the scan will resume automatically when you return.
 
 **What happens if my credits run out mid-scan?**
-The scan pauses and shows a "Credit limit reached" message. Purchase additional credits from the **Add Credits** page, then return to the project — the scan will resume automatically from where it stopped.
+The scan pauses and shows a "Credit limit reached" message. Purchase additional credits from the **Credits** page, then return to the project — the scan will resume automatically from where it stopped.
 
 **Can multiple users scan at the same time?**
 Yes, each user's scans run independently. Credit usage is tracked per user.
@@ -364,6 +376,7 @@ Yes. Each user can only see their own scan projects and results. Administrators 
 |---------|------|
 | Netlify (hosting + functions) | $0–$25/month (free tier available) |
 | Supabase (database + storage) | $0–$25/month (free tier available) |
+| Authorize.net (payment processing) | ~2.9% + $0.30 per transaction |
 
 ### Cost Example — 1,000 Point Scan
 

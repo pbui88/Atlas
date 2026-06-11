@@ -1,5 +1,17 @@
-import { useOutletContext } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useSearchParams, useOutletContext, useNavigate } from 'react-router-dom'
+import { createPayment } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
+
+const PACKAGES = [
+  { points:  2500, price:  35, perPoint: '1.4¢' },
+  { points:  5000, price:  70, perPoint: '1.4¢' },
+  { points: 10000, price: 140, perPoint: '1.4¢' },
+  { points: 15000, price: 210, perPoint: '1.4¢', popular: true },
+  { points: 20000, price: 280, perPoint: '1.4¢' },
+]
+
+const VALID_POINTS = new Set(PACKAGES.map(p => p.points))
 
 function CreditIcon() {
   return (
@@ -20,9 +32,57 @@ function StatCard({ value, label, accent = false }) {
   )
 }
 
+// Builds a hidden form and submits it, navigating the browser to
+// Authorize.net's hosted payment page (Accept Hosted).
+function redirectToHostedForm(formUrl, token) {
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = formUrl
+
+  const input = document.createElement('input')
+  input.type  = 'hidden'
+  input.name  = 'token'
+  input.value = token
+  form.appendChild(input)
+
+  document.body.appendChild(form)
+  form.submit()
+}
+
 export default function BuyCreditsPage() {
   const { openSidebar } = useOutletContext()
-  const { usage } = useAuth()
+  const { usage, refreshUsage } = useAuth()
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [loading,      setLoading]      = useState(null)
+  const [paymentError, setPaymentError] = useState(null)
+
+  const [showSuccess, setShowSuccess] = useState(false)
+  const [successPts,  setSuccessPts]  = useState(0)
+
+  const success  = searchParams.get('success') === 'true'
+  const rawPts   = parseInt(searchParams.get('points') || '0', 10)
+  const addedPts = VALID_POINTS.has(rawPts) ? rawPts : 0
+
+  useEffect(() => {
+    if (!success || addedPts <= 0) return
+    setShowSuccess(true)
+    setSuccessPts(addedPts)
+    refreshUsage()
+    navigate('/credits', { replace: true })
+  }, [success, addedPts, refreshUsage, navigate])
+
+  const handleBuy = async (points) => {
+    setLoading(points)
+    setPaymentError(null)
+    try {
+      const { token, formUrl } = await createPayment(points)
+      redirectToHostedForm(formUrl, token)
+    } catch (e) {
+      setPaymentError(e.message)
+      setLoading(null)
+    }
+  }
 
   return (
     <div className="min-h-full bg-slate-950">
@@ -46,9 +106,45 @@ export default function BuyCreditsPage() {
               </div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Credits</h1>
             </div>
-            <p className="text-sm text-slate-500">Track your scan credit balance and usage</p>
+            <p className="text-sm text-slate-500">Track your scan credit balance and buy more when you need them</p>
           </div>
         </div>
+
+        {/* Success banner */}
+        {showSuccess && successPts > 0 && (
+          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 mb-6">
+            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
+            <p className="text-sm text-emerald-300 font-medium flex-1">
+              Payment received — <span className="font-bold">{successPts.toLocaleString()} credits</span> will appear on your account shortly.
+            </p>
+            <button onClick={() => setShowSuccess(false)} className="text-emerald-600 hover:text-emerald-400 transition p-1">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Error banner */}
+        {paymentError && (
+          <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3.5 mb-6">
+            <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+            <p className="text-sm text-red-300 font-medium flex-1">{paymentError}</p>
+            <button onClick={() => setPaymentError(null)} className="text-red-500 hover:text-red-300 transition p-1">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Balance strip */}
         {usage && (
@@ -61,7 +157,7 @@ export default function BuyCreditsPage() {
                 <StatCard value={usage.used.toLocaleString()} label="Used this cycle" />
                 <StatCard value={usage.limit.toLocaleString()} label="Monthly quota" />
                 {usage.purchasedCredits > 0 && (
-                  <StatCard value={usage.purchasedRemaining.toLocaleString()} label="Granted left" accent />
+                  <StatCard value={usage.purchasedRemaining.toLocaleString()} label="Credits left" accent />
                 )}
               </div>
               {usage.purchasedCredits > 0 && (
@@ -84,17 +180,94 @@ export default function BuyCreditsPage() {
           </div>
         )}
 
-        {/* Need more credits */}
-        <div className="flex flex-col items-center text-center bg-slate-900 border border-white/[0.06] rounded-2xl px-6 py-10 sm:py-12">
-          <div className="w-12 h-12 rounded-xl bg-brand-600/15 border border-brand-600/25 flex items-center justify-center text-brand-400 mb-4">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-            </svg>
-          </div>
-          <h2 className="text-base font-semibold text-white mb-2">Need more credits?</h2>
-          <p className="text-sm text-slate-500 max-w-md">
-            Scan credits are granted by your administrator. Contact your admin to request additional credits for your account.
-          </p>
+        {/* Section label */}
+        <div className="flex items-center gap-3 mb-5">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">Buy more credits</p>
+          <div className="flex-1 h-px bg-white/[0.05]" />
+          <p className="text-[11px] text-slate-600">All at 1.4¢ per credit</p>
+        </div>
+
+        {/* Package cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 mb-8">
+          {PACKAGES.map((pkg) => (
+            <div
+              key={pkg.points}
+              className={`group relative flex flex-col rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 ${
+                pkg.popular
+                  ? 'bg-gradient-to-b from-brand-600/15 to-slate-900 border border-brand-500/40 shadow-lg shadow-brand-600/10'
+                  : 'bg-slate-900 border border-white/[0.06] hover:border-white/[0.12]'
+              }`}
+            >
+              {pkg.popular && (
+                <div className="bg-brand-600 px-3 py-1.5 text-center">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-white">Most Popular</span>
+                </div>
+              )}
+
+              <div className="flex flex-col flex-1 p-5">
+                {/* Credits */}
+                <div className="mb-4">
+                  <p className={`text-2xl sm:text-3xl font-bold tabular-nums tracking-tight mb-0.5 ${pkg.popular ? 'text-white' : 'text-slate-100'}`}>
+                    {pkg.points.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">scan credits</p>
+                </div>
+
+                {/* Price */}
+                <div className="mb-5">
+                  <p className={`text-xl font-bold ${pkg.popular ? 'text-brand-400' : 'text-slate-300'}`}>
+                    ${pkg.price}
+                  </p>
+                  <p className="text-[11px] text-slate-600 mt-0.5">{pkg.perPoint} per credit</p>
+                </div>
+
+                {/* Divider */}
+                <div className={`h-px mb-4 ${pkg.popular ? 'bg-brand-500/20' : 'bg-white/[0.05]'}`} />
+
+                {/* What you get */}
+                <div className="flex items-center gap-2 mb-5">
+                  <svg className={`w-3.5 h-3.5 shrink-0 ${pkg.popular ? 'text-brand-400' : 'text-slate-600'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                  </svg>
+                  <span className="text-xs text-slate-500">{pkg.points.toLocaleString()} property scans</span>
+                </div>
+
+                {/* Button */}
+                <button
+                  onClick={() => handleBuy(pkg.points)}
+                  disabled={!!loading}
+                  className={`mt-auto w-full py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+                    pkg.popular
+                      ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-600/30 hover:shadow-brand-600/50'
+                      : 'bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.08] text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {loading === pkg.points ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      Redirecting…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                      </svg>
+                      Buy for ${pkg.price}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
+          <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+          </svg>
+          Payments processed securely by Authorize.net · Credits never expire
         </div>
 
       </div>

@@ -62,6 +62,9 @@ export const exportProject    = (projectId, format, filters = {}) =>
 // ── Usage (current user) ─────────────────────────────────────
 export const getMyUsage = () => call('my-usage')
 
+// ── Credits / Authorize.net ───────────────────────────────────
+export const createPayment = (points) => call('create-payment', 'POST', { points })
+
 // ── User Keys (BYOK) ─────────────────────────────────────────
 export const getUserKeyStatus = ()    => call('user-keys')
 export const saveUserKey      = (key) => call('user-keys', 'POST', { google_maps_key: key })
