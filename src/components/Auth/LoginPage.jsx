@@ -39,21 +39,20 @@ function Field({ label, type = 'text', value, onChange, placeholder, autoComplet
   )
 }
 
-// ── Check email screen (after sign up) ───────────────────────
-function CheckEmailScreen({ email, onBack }) {
+// ── Pending approval screen (after sign up) ───────────────────
+function PendingApprovalScreen({ email, onBack }) {
   return (
     <div className="text-center">
-      <div className="w-14 h-14 rounded-2xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center mx-auto mb-5">
-        <svg className="w-7 h-7 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+      <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-5">
+        <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
-      <p className="text-sm text-slate-400 mb-1">We sent a confirmation link to</p>
-      <p className="text-sm font-semibold text-slate-200 mb-1">{email}</p>
-      <p className="text-xs text-slate-500 mb-6">From Supabase Auth</p>
+      <h2 className="text-xl font-bold text-white mb-2">Account pending approval</h2>
+      <p className="text-sm text-slate-400 mb-1">Thanks for signing up,</p>
+      <p className="text-sm font-semibold text-slate-200 mb-6">{email}</p>
       <p className="text-xs text-slate-500 mb-8 leading-relaxed">
-        Click the link in the email to verify your address. After confirming, your account will be reviewed by an admin before access is granted.
+        Your account is waiting for admin activation. You'll have full access once an admin reviews and activates your account — this usually happens within 24 hours.
       </p>
       <a
         href="https://api.leadconnectorhq.com/widget/bookings/atlas-set-up"
@@ -165,7 +164,7 @@ export default function LoginPage() {
 
   if (screen === 'verify') return (
     <PageShell>
-      <CheckEmailScreen email={email} onBack={() => { setScreen('form'); setTab('signin') }} />
+      <PendingApprovalScreen email={email} onBack={() => { setScreen('form'); setTab('signin') }} />
     </PageShell>
   )
 
