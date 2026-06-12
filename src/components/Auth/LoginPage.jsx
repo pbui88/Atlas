@@ -54,6 +54,14 @@ function CheckEmailScreen({ email, onBack }) {
       <p className="text-xs text-slate-500 mb-8 leading-relaxed">
         Click the link in the email to verify your address. After confirming, your account will be reviewed by an admin before access is granted.
       </p>
+      <a
+        href="https://api.leadconnectorhq.com/widget/bookings/atlas-set-up"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block w-full py-2.5 mb-4 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-lg transition text-sm"
+      >
+        Book your setup call
+      </a>
       <button onClick={onBack} className="text-sm text-brand-400 hover:text-brand-300 transition underline underline-offset-2">
         Back to sign in
       </button>
