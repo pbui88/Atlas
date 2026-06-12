@@ -50,7 +50,8 @@ function CheckEmailScreen({ email, onBack }) {
       </div>
       <h2 className="text-xl font-bold text-white mb-2">Check your email</h2>
       <p className="text-sm text-slate-400 mb-1">We sent a confirmation link to</p>
-      <p className="text-sm font-semibold text-slate-200 mb-6">{email}</p>
+      <p className="text-sm font-semibold text-slate-200 mb-1">{email}</p>
+      <p className="text-xs text-slate-500 mb-6">From Supabase Auth</p>
       <p className="text-xs text-slate-500 mb-8 leading-relaxed">
         Click the link in the email to verify your address. After confirming, your account will be reviewed by an admin before access is granted.
       </p>
