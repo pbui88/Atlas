@@ -133,8 +133,8 @@ export default function LoginPage() {
   const [error,    setError]    = useState('')
 
   useEffect(() => {
-    if (user) navigate('/dashboard')
-  }, [user, navigate])
+    if (user && screen !== 'verify') navigate('/dashboard')
+  }, [user, navigate, screen])
 
   const switchTab = (t) => { setTab(t); setError(''); setPassword(''); setConfirm('') }
 
