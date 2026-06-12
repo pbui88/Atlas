@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
-  adminSetUserLimit, adminResetUserCycle, adminSetUserKey, adminGrantCredits,
+  adminResetUserCycle, adminSetUserKey, adminGrantCredits,
 } from '../../lib/api'
 
 function fmtBytes(bytes) {
@@ -83,14 +83,16 @@ function RoleBadge({ role }) {
 }
 
 function UsageBar({ used, limit }) {
-  const safeLimit = limit || 10000
-  const pct  = Math.min(100, Math.round((used / safeLimit) * 100))
+  if (limit <= 0) {
+    return <span className="text-xs text-slate-600">No credits granted</span>
+  }
+  const pct  = Math.min(100, Math.round((used / limit) * 100))
   const over = pct >= 90
   return (
     <div className="w-full min-w-[120px]">
       <div className="flex items-center justify-between mb-1">
         <span className={`text-xs font-medium ${over ? 'text-red-400' : used > 0 ? 'text-slate-300' : 'text-slate-600'}`}>
-          {used.toLocaleString()} <span className="font-normal text-slate-600">/ {safeLimit.toLocaleString()}</span>
+          {used.toLocaleString()} <span className="font-normal text-slate-600">/ {limit.toLocaleString()}</span>
         </span>
         {used > 0 && <span className="text-xs text-slate-600 ml-2">{pct}%</span>}
       </div>
@@ -100,43 +102,6 @@ function UsageBar({ used, limit }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-    </div>
-  )
-}
-
-function LimitEditor({ user, onSave }) {
-  const [editing, setEditing] = useState(false)
-  const [value,   setValue]   = useState(String(user.points_limit ?? 10000))
-  const [saving,  setSaving]  = useState(false)
-
-  const save = async () => {
-    const num = parseInt(value, 10)
-    if (isNaN(num) || num < 0) return
-    setSaving(true)
-    try { await onSave(user.id, num); setEditing(false) }
-    catch (e) { alert(e.message) }
-    finally { setSaving(false) }
-  }
-
-  if (!editing) {
-    return (
-      <button
-        onClick={() => setEditing(true)}
-        className="text-xs text-slate-500 hover:text-brand-400 transition underline underline-offset-2"
-      >
-        {(user.points_limit ?? 10000).toLocaleString()} pts
-      </button>
-    )
-  }
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        type="number" value={value} onChange={e => setValue(e.target.value)} autoFocus
-        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
-        className="w-20 px-1.5 py-0.5 text-xs bg-navy-700 border border-brand-600/50 rounded text-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
-      />
-      <button onClick={save} disabled={saving} className="text-xs text-brand-400 hover:text-brand-300 font-medium disabled:opacity-50">{saving ? '…' : 'Save'}</button>
-      <button onClick={() => setEditing(false)} className="text-xs text-slate-600 hover:text-slate-400">✕</button>
     </div>
   )
 }
@@ -274,10 +239,6 @@ export default function AdminPanel() {
     try { await adminDeleteUser(user.id); setUsers(u => u.filter(x => x.id !== user.id)) }
     catch (err) { alert(err.message) }
   }
-  const updateLimit  = async (userId, points_limit) => {
-    await adminSetUserLimit(userId, points_limit)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, points_limit } : x))
-  }
   const updateKey    = async (userId, key) => {
     await adminSetUserKey(userId, key)
     setUsers(u => u.map(x => x.id === userId ? { ...x, has_own_key: !!key } : x))
@@ -372,7 +333,7 @@ export default function AdminPanel() {
             <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                {['User', 'Role', 'Status', 'Usage (cycle)', 'Limit', 'Credits', 'API Key', 'Joined', ''].map(h => (
+                {['User', 'Role', 'Status', 'Credits Used', 'Credits', 'API Key', 'Joined', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -402,9 +363,10 @@ export default function AdminPanel() {
                           </span>}
                     </td>
                     <td className="px-4 py-3.5 min-w-[160px]">
-                      <UsageBar used={user.points_used_cycle || 0} limit={user.points_limit ?? 10000} />
+                      {user.role === 'admin'
+                        ? <span className="text-xs text-slate-600">Unlimited</span>
+                        : <UsageBar used={user.purchased_credits_used ?? 0} limit={user.purchased_credits ?? 0} />}
                     </td>
-                    <td className="px-4 py-3.5"><LimitEditor user={user} onSave={updateLimit} /></td>
                     <td className="px-4 py-3.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
                     <td className="px-4 py-3.5"><KeyEditor user={user} onSave={updateKey} /></td>
                     <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>

@@ -77,7 +77,6 @@ export const adminGetUsage       = ()                      => call('admin?action
 export const adminGetMonitor     = ()                      => call('admin?action=monitor')
 export const adminDeleteUser     = (userId)                => call('admin', 'DELETE', { userId })
 export const adminGetUserUsage   = (userId)                => call(`admin?action=user-usage&userId=${userId}`)
-export const adminSetUserLimit   = (userId, points_limit)  => call('admin', 'PATCH', { userId, points_limit })
 export const adminResetUserCycle = (userId)                => call('admin', 'PATCH', { userId, cycle_anchor_date: new Date().toISOString().slice(0, 10) })
 export const adminSetUserKey     = (userId, key)           => call('admin', 'PATCH', { userId, googleMapsKey: key || null })
 export const adminGrantCredits   = (userId, points)        => call('admin', 'PATCH', { userId, grantCredits: points })
