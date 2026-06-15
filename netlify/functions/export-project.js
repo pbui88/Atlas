@@ -53,10 +53,13 @@ export const handler = async (event) => {
   if (!filtered.length) return err('No points match the current filters')
 
   if (format === 'CSV') {
-    const header = 'address,distress_score,confidence,signals,notes'
+    const header = 'id,lat,lng,address,distress_score,confidence,signals,notes'
     const rows = filtered.map(pt => {
       const a = pt.ai_analyses
       return [
+        pt.id,
+        pt.lat,
+        pt.lng,
         `"${(pt.address || '').replace(/"/g, '""')}"`,
         a.overall_score ?? '',
         a.confidence ?? '',

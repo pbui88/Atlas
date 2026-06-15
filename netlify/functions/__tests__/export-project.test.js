@@ -6,17 +6,17 @@ const COMPLETE_POINTS = [
   {
     id: 'pt-1', lat: 33.451, lng: -112.075, address: '123 Main St, Phoenix, AZ',
     status: 'complete',
-    ai_analyses: [{ overall_score: 0.80, confidence: 0.9, signals: ['boarded_windows', 'tall_grass'], notes: 'Severely distressed' }],
+    ai_analyses: { overall_score: 0.80, confidence: 0.9, signals: ['boarded_windows', 'tall_grass'], notes: 'Severely distressed' },
   },
   {
     id: 'pt-2', lat: 33.452, lng: -112.074, address: '456 Oak Ave, Phoenix, AZ',
     status: 'complete',
-    ai_analyses: [{ overall_score: 0.15, confidence: 0.95, signals: [], notes: 'Good condition' }],
+    ai_analyses: { overall_score: 0.15, confidence: 0.95, signals: [], notes: 'Good condition' },
   },
   {
     id: 'pt-3', lat: 33.453, lng: -112.073, address: '789 Elm Rd, Phoenix, AZ',
     status: 'complete',
-    ai_analyses: [{ overall_score: 0.50, confidence: 0.85, signals: ['junk_in_yard'], notes: 'Moderate issues' }],
+    ai_analyses: { overall_score: 0.50, confidence: 0.85, signals: ['junk_in_yard'], notes: 'Moderate issues' },
   },
 ]
 
@@ -34,7 +34,11 @@ function mockSupabase(points = COMPLETE_POINTS, projectExists = true) {
     if (table === 'scan_points') {
       return {
         select: () => ({
-          eq: () => ({ eq: () => ({ data: points, error: null }) }),
+          eq: () => ({
+            eq: () => ({
+              range: (from) => Promise.resolve({ data: from === 0 ? points : [], error: null }),
+            }),
+          }),
         }),
       }
     }
@@ -48,9 +52,22 @@ function mockSupabase(points = COMPLETE_POINTS, projectExists = true) {
 vi.mock('../utils/supabase.js', () => ({
   requireAuth:  vi.fn().mockResolvedValue({ user: { id: 'user-1' }, error: null }),
   adminSupabase: vi.fn(),
+  fetchAllRows: async (buildQuery) => {
+    let rows = []
+    let from = 0
+    const PAGE_SIZE = 1000
+    while (true) {
+      const { data, error } = await buildQuery(from, from + PAGE_SIZE - 1)
+      if (error || !data?.length) break
+      rows = rows.concat(data)
+      from += data.length
+    }
+    return rows
+  },
   ok:  (body)        => ({ statusCode: 200, body: JSON.stringify(body) }),
   err: (msg, code=400) => ({ statusCode: code, body: JSON.stringify({ error: msg }) }),
   options: () => ({ statusCode: 204 }),
+  isValidUUID: (id) => typeof id === 'string' && id.length > 0,
 }))
 
 import * as supabaseUtils from '../utils/supabase.js'
@@ -214,9 +231,10 @@ describe('export-project handler', () => {
       expect(parseBody(res).data.length).toBe(3)
     })
 
-    it('minScore 1 returns only perfect-score points', async () => {
+    it('minScore 1 returns no points match error', async () => {
       const res  = await handler(makeEvent({ projectId: 'proj-1', format: 'JSON', filters: { minScore: 1.0 } }))
-      expect(parseBody(res).data.length).toBe(0)
+      expect(res.statusCode).toBe(400)
+      expect(parseBody(res).error).toMatch(/no points match/i)
     })
   })
 

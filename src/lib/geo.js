@@ -10,6 +10,12 @@ export function generateGridPoints(polygonGeoJson, spacingMeters = 50) {
     // Convert meters → approximate degrees (1° ≈ 111,320 m at equator)
     const cellDegrees = spacingMeters / 111320
     const bbox = turf.bbox(polygonGeoJson)
+
+    // turf.pointGrid always emits at least one point (the bbox center), even
+    // when the polygon is smaller than a single grid cell. Treat that as "no
+    // grid points fit" rather than returning a single spurious point.
+    if ((bbox[2] - bbox[0]) < cellDegrees && (bbox[3] - bbox[1]) < cellDegrees) return []
+
     const grid = turf.pointGrid(bbox, cellDegrees, { units: 'degrees' })
 
     return grid.features
@@ -29,8 +35,8 @@ export function generateGridPoints(polygonGeoJson, spacingMeters = 50) {
  * Google Street View: $0.014/point (metadata + image).
  * Gemini AI: ~$0.0002/point, reduced by analysis cache hit rate.
  */
-export function estimateCost(pointCount) {
-  const streetView = (pointCount / 1000) * API_COSTS.streetViewPer1k
+export function estimateCost(pointCount, directions = 1) {
+  const streetView = (pointCount * directions / 1000) * API_COSTS.streetViewPer1k
   const geocoding  = (pointCount / 1000) * API_COSTS.geocodingPer1k
   const aiShare    = 1 - API_COSTS.analysisCacheHitRate
   const ai         = pointCount * API_COSTS.aiPerPoint * aiShare

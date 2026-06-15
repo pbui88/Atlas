@@ -8,6 +8,7 @@ vi.mock('../utils/supabase.js', () => ({
   ok:      (body)          => ({ statusCode: 200, body: JSON.stringify(body) }),
   err:     (msg, code=400) => ({ statusCode: code, body: JSON.stringify({ error: msg }) }),
   options: () => ({ statusCode: 204 }),
+  isValidUUID: (id) => typeof id === 'string' && id.length > 0,
 }))
 
 const fetchMock = vi.fn()
@@ -42,7 +43,7 @@ function makeOsmResponse() {
   }
 }
 
-function makeSupabase({ projectExists = true, insertError = null } = {}) {
+function makeSupabase({ projectExists = true, insertError = null, role = 'admin' } = {}) {
   return {
     from: vi.fn((table) => {
       if (table === 'projects') {
@@ -56,6 +57,27 @@ function makeSupabase({ projectExists = true, insertError = null } = {}) {
               })),
             })),
           })),
+          update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })),
+        }
+      }
+      if (table === 'profiles') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { role, purchased_credits: 100000, purchased_credits_used: 0 } }),
+            })),
+          })),
+        }
+      }
+      if (table === 'usage_logs') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              in: vi.fn(() => ({
+                gte: vi.fn().mockResolvedValue({ count: 0 }),
+              })),
+            })),
+          })),
         }
       }
       if (table === 'scan_points') {
@@ -64,10 +86,6 @@ function makeSupabase({ projectExists = true, insertError = null } = {}) {
           insert: vi.fn().mockResolvedValue({ error: insertError }),
         }
       }
-      if (table === 'projects') {
-        return { update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })) }
-      }
-      return { update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })) }
     }),
   }
 }
@@ -163,15 +181,14 @@ describe('generate-points handler', () => {
   })
 
   it('returns 400 when point count exceeds 10 000 limit', async () => {
-    // Use an unrealistically tiny spacing to force huge count — but since we clamp
-    // spacing at 20 m, use a very large polygon instead. We simulate by mocking
-    // the OSM empty response (forces grid) and a deliberately large polygon.
+    // Use a polygon large enough that a 20m grid produces >5000 points,
+    // while staying small enough that turf.pointGrid doesn't blow up memory.
     const bigPolygon = {
       type: 'Polygon',
       coordinates: [[
-        [-113.0, 32.0], [-110.0, 32.0],
-        [-110.0, 35.0], [-113.0, 35.0],
-        [-113.0, 32.0],
+        [-112.05, 33.40], [-112.02, 33.40],
+        [-112.02, 33.43], [-112.05, 33.43],
+        [-112.05, 33.40],
       ]],
     }
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ elements: [] }) })

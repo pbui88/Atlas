@@ -10,6 +10,7 @@ vi.mock('../utils/supabase.js', () => ({
   ok:      (body)          => ({ statusCode: 200, body: JSON.stringify(body) }),
   err:     (msg, code=400) => ({ statusCode: code, body: JSON.stringify({ error: msg }) }),
   options: () => ({ statusCode: 204 }),
+  isValidUUID: (id) => typeof id === 'string' && id.length > 0,
 }))
 
 // ── Mock global fetch ─────────────────────────────────────────────────────────
@@ -32,21 +33,23 @@ function makePositionstackResponse(results) {
 }
 
 function makeSupabase(points) {
-  const updateChain = { eq: vi.fn().mockReturnThis(), then: vi.fn() }
-  const update      = vi.fn(() => updateChain)
+  const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) }))
 
   const selectChain = {
-    in:  vi.fn().mockResolvedValue({ data: points }),
+    in: vi.fn().mockResolvedValue({ data: points }),
+    eq: vi.fn(() => ({ not: vi.fn().mockResolvedValue({ data: [] }) })),
   }
   const select = vi.fn(() => selectChain)
 
-  const insertChain = { then: vi.fn() }
-  const insert      = vi.fn().mockResolvedValue({ data: null })
+  const insert = vi.fn().mockResolvedValue({ data: null })
 
   return {
     from: vi.fn((table) => {
+      if (table === 'projects')    return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'p' } }) }) }) }) }
       if (table === 'scan_points') return { select, update }
       if (table === 'usage_logs')  return { insert }
+      if (table === 'user_keys')   return { select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }
+      if (table === 'profiles')    return { select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'user' } }) }) }) }
     }),
     _update: update,
     _insert: insert,
@@ -116,17 +119,6 @@ describe('geocode-points handler', () => {
       { name: '456 Oak Ave', locality: 'Phoenix', region_code: 'AZ', postal_code: '85001', number: '456', type: 'address' },
     ]))
 
-    // Mock the supabase update chain
-    sb.from = vi.fn((table) => {
-      if (table === 'scan_points') {
-        return {
-          select: vi.fn(() => ({ in: vi.fn().mockResolvedValue({ data: [pt] }) })),
-          update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })),
-        }
-      }
-      if (table === 'usage_logs') return { insert: vi.fn().mockResolvedValue({}) }
-    })
-
     const res = await handler(makeEvent({ projectId: 'p', pointIds: ['pt-2'] }))
     expect(res.statusCode).toBe(200)
     const results = parseBody(res).results
@@ -142,18 +134,7 @@ describe('geocode-points handler', () => {
       { name: 'North Oak Avenue', locality: 'Phoenix', region_code: 'AZ', number: null, type: 'street' },
     ]))
 
-    const supabaseMock = {
-      from: vi.fn((table) => {
-        if (table === 'scan_points') {
-          return {
-            select: vi.fn(() => ({ in: vi.fn().mockResolvedValue({ data: [pt] }) })),
-            update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })),
-          }
-        }
-        if (table === 'usage_logs') return { insert: vi.fn().mockResolvedValue({}) }
-      }),
-    }
-    supabaseUtils.adminSupabase.mockReturnValue(supabaseMock)
+    supabaseUtils.adminSupabase.mockReturnValue(makeSupabase([pt]))
 
     const res = await handler(makeEvent({ projectId: 'p', pointIds: ['pt-3'] }))
     expect(res.statusCode).toBe(200)
@@ -169,18 +150,7 @@ describe('geocode-points handler', () => {
       json: async () => ({ error: { message: 'Rate limit exceeded', code: 429 } }),
     })
 
-    const supabaseMock = {
-      from: vi.fn((table) => {
-        if (table === 'scan_points') {
-          return {
-            select: vi.fn(() => ({ in: vi.fn().mockResolvedValue({ data: [pt] }) })),
-            update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })),
-          }
-        }
-        if (table === 'usage_logs') return { insert: vi.fn().mockResolvedValue({}) }
-      }),
-    }
-    supabaseUtils.adminSupabase.mockReturnValue(supabaseMock)
+    supabaseUtils.adminSupabase.mockReturnValue(makeSupabase([pt]))
 
     const res = await handler(makeEvent({ projectId: 'p', pointIds: ['pt-4'] }))
     expect(res.statusCode).toBe(200)
@@ -193,18 +163,7 @@ describe('geocode-points handler', () => {
     const ids = Array.from({ length: 60 }, (_, i) => `pt-${i}`)
     const pts = ids.slice(0, 50).map(id => ({ id, lat: 33, lng: -112, address: 'Pre-filled' }))
 
-    const supabaseMock = {
-      from: vi.fn((table) => {
-        if (table === 'scan_points') {
-          return {
-            select: vi.fn(() => ({ in: vi.fn().mockResolvedValue({ data: pts }) })),
-            update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({}) })),
-          }
-        }
-        if (table === 'usage_logs') return { insert: vi.fn().mockResolvedValue({}) }
-      }),
-    }
-    supabaseUtils.adminSupabase.mockReturnValue(supabaseMock)
+    supabaseUtils.adminSupabase.mockReturnValue(makeSupabase(pts))
 
     const res = await handler(makeEvent({ projectId: 'p', pointIds: ids }))
     expect(res.statusCode).toBe(200)

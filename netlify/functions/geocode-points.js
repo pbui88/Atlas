@@ -1,8 +1,6 @@
 import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 
-const POSITIONSTACK_KEY = process.env.POSITIONSTACK_API_KEY
-const PLATFORM_KEY      = process.env.GOOGLE_MAPS_KEY
-const CAP               = 50   // points geocoded in parallel per function call
+const CAP = 50   // points geocoded in parallel per function call
 
 // Fetch the actual Street View panorama location (free metadata call).
 // The panorama is where the camera physically was — offset from here gives
@@ -23,7 +21,7 @@ async function resolveGoogleKey(userId, supabase) {
     supabase.from('user_keys').select('google_maps_key').eq('user_id', userId).maybeSingle(),
     supabase.from('profiles').select('role').eq('id', userId).maybeSingle(),
   ])
-  return keyRow?.google_maps_key || (profile?.role === 'admin' ? PLATFORM_KEY : null)
+  return keyRow?.google_maps_key || (profile?.role === 'admin' ? process.env.GOOGLE_MAPS_KEY : null)
 }
 
 // Offset lat/lng by distanceMeters in the given compass heading (degrees).
@@ -75,7 +73,7 @@ function extractAddress(results) {
 // Returns a property-level address or null.
 // Retries once with a wider candidate pool if the first pass yields nothing.
 async function reverseGeocode(lat, lng) {
-  const base = `https://api.positionstack.com/v1/reverse?access_key=${POSITIONSTACK_KEY}&query=${lat},${lng}&output=json`
+  const base = `https://api.positionstack.com/v1/reverse?access_key=${process.env.POSITIONSTACK_API_KEY}&query=${lat},${lng}&output=json`
 
   // First attempt — tight limit
   const res1  = await fetch(`${base}&limit=10`)
@@ -154,7 +152,7 @@ export const handler = async (event) => {
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
 
-  if (!POSITIONSTACK_KEY) return err('POSITIONSTACK_API_KEY not configured', 503)
+  if (!process.env.POSITIONSTACK_API_KEY) return err('POSITIONSTACK_API_KEY not configured', 503)
 
   const { projectId, pointIds } = JSON.parse(event.body || '{}')
   if (!isValidUUID(projectId) || !Array.isArray(pointIds) || !pointIds.length) {
