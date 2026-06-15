@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { calculateTax } from '../../shared/taxRates.js'
 
 const PACKAGES = {
    2500: { points:  2500, amount: '35.00',  label:  '2,500 Credits' },
@@ -30,9 +31,33 @@ export const handler = async (event) => {
   const refId   = randomBytes(10).toString('hex') // 20 chars — Authorize.net's refId max length
 
   const supabase = adminSupabase()
+  const { data: profile } = await supabase.from('profiles').select('role, state').eq('id', user.id).single()
+
+  const subtotal = parseFloat(pkg.amount)
+  let taxAmount  = 0
+  let taxState   = null
+
+  if (profile?.role !== 'admin') {
+    if (!profile?.state) {
+      return err('Please set your billing state in Account Settings before purchasing credits.', 400)
+    }
+    taxState  = profile.state
+    taxAmount = calculateTax(subtotal, taxState)
+  }
+
+  const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100
+
   const { error: insertError } = await supabase
     .from('payment_transactions')
-    .insert({ ref_id: refId, user_id: user.id, points: pkg.points, amount_usd: pkg.amount })
+    .insert({
+      ref_id:       refId,
+      user_id:      user.id,
+      points:       pkg.points,
+      amount_usd:   totalAmount.toFixed(2),
+      subtotal_usd: subtotal.toFixed(2),
+      tax_usd:      taxAmount.toFixed(2),
+      state:        taxState,
+    })
 
   if (insertError) {
     console.error('Failed to record pending payment:', insertError.message)
@@ -48,7 +73,8 @@ export const handler = async (event) => {
       refId,
       transactionRequest: {
         transactionType: 'authCaptureTransaction',
-        amount: pkg.amount,
+        amount: totalAmount.toFixed(2),
+        ...(taxAmount > 0 ? { tax: { amount: taxAmount.toFixed(2), name: 'Sales Tax', description: `${taxState} sales tax` } } : {}),
         order: { description: `Atlas ${pkg.label}` },
       },
       hostedPaymentSettings: {

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { getUserKeyStatus, saveUserKey, deleteUserKey } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
+import { supabase } from '../../lib/supabase'
+import { US_STATES, OUTSIDE_US, getTaxRate } from '../../../shared/taxRates'
 
 function KeyIcon() {
   return (
@@ -19,9 +21,18 @@ function CheckIcon() {
   )
 }
 
+function LocationIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+    </svg>
+  )
+}
+
 export default function SettingsPage() {
   const { openSidebar } = useOutletContext()
-  const { refreshUsage } = useAuth()
+  const { user, profile, isAdmin, fetchProfile, refreshUsage } = useAuth()
 
   const [hasKey,     setHasKey]     = useState(null)   // null = loading
   const [updatedAt,  setUpdatedAt]  = useState(null)
@@ -31,6 +42,15 @@ export default function SettingsPage() {
   const [removing,   setRemoving]   = useState(false)
   const [error,      setError]      = useState(null)
   const [saved,      setSaved]      = useState(false)
+
+  const [stateValue,  setStateValue]  = useState('')
+  const [stateSaving, setStateSaving] = useState(false)
+  const [stateError,  setStateError]  = useState(null)
+  const [stateSaved,  setStateSaved]  = useState(false)
+
+  useEffect(() => {
+    setStateValue(profile?.state || '')
+  }, [profile?.state])
 
   useEffect(() => {
     getUserKeyStatus()
@@ -89,6 +109,27 @@ export default function SettingsPage() {
     setEditing(false)
     setKeyInput('')
     setError(null)
+  }
+
+  const handleStateSave = async (e) => {
+    e.preventDefault()
+    setStateError(null)
+    if (!stateValue) return setStateError('Please select your state.')
+    setStateSaving(true)
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ state: stateValue })
+        .eq('id', user.id)
+      if (updateError) throw updateError
+      await fetchProfile(user.id)
+      setStateSaved(true)
+      setTimeout(() => setStateSaved(false), 3000)
+    } catch (err) {
+      setStateError(err.message)
+    } finally {
+      setStateSaving(false)
+    }
   }
 
   return (
@@ -238,6 +279,68 @@ export default function SettingsPage() {
         </div>
 
       </div>
+
+      {/* Billing State Card */}
+      {!isAdmin && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-6 mt-6">
+
+          <div className="flex items-start gap-3 mb-5">
+            <div className="w-9 h-9 rounded-xl bg-brand-600/15 border border-brand-600/25 flex items-center justify-center shrink-0 text-brand-400">
+              <LocationIcon />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Billing State</h2>
+              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                Used to calculate sales tax when you purchase credits. Required before buying credits.
+              </p>
+            </div>
+          </div>
+
+          {stateSaved && (
+            <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 mb-4">
+              <span className="text-emerald-400"><CheckIcon /></span>
+              <span className="text-sm text-emerald-400 font-medium">Billing state saved.</span>
+            </div>
+          )}
+
+          {stateError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-4">
+              <p className="text-sm text-red-400">{stateError}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleStateSave} className="space-y-3">
+            <div>
+              <label className="label mb-1.5 block">State / location</label>
+              <select
+                value={stateValue}
+                onChange={e => setStateValue(e.target.value)}
+                className="input w-full"
+              >
+                <option value="" disabled>Select a state…</option>
+                {US_STATES.map(s => (
+                  <option key={s.code} value={s.code}>{s.name}</option>
+                ))}
+              </select>
+              {stateValue && (
+                <p className="text-xs text-slate-600 mt-1.5">
+                  {stateValue === OUTSIDE_US
+                    ? 'No US sales tax applies.'
+                    : `Sales tax rate: ${(getTaxRate(stateValue) * 100).toFixed(2)}%`}
+                </p>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={stateSaving || stateValue === (profile?.state || '')}
+              className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+            >
+              {stateSaving ? 'Saving…' : 'Save'}
+            </button>
+          </form>
+        </div>
+      )}
+
     </div>
   )
 }

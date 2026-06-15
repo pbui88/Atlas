@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams, useOutletContext, useNavigate } from 'react-router-dom'
+import { useSearchParams, useOutletContext, useNavigate, Link } from 'react-router-dom'
 import { createPayment } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
+import { calculateTax, getTaxRate } from '../../../shared/taxRates'
 
 const PACKAGES = [
   { points:  2500, price:  35, perPoint: '1.4¢' },
@@ -17,6 +18,15 @@ function CreditIcon() {
   return (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  )
+}
+
+function LocationIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
     </svg>
   )
 }
@@ -51,9 +61,10 @@ function redirectToHostedForm(formUrl, token) {
 
 export default function BuyCreditsPage() {
   const { openSidebar } = useOutletContext()
-  const { usage, refreshUsage } = useAuth()
+  const { usage, refreshUsage, profile, isAdmin } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const needsState = !isAdmin && !profile?.state
   const [loading,      setLoading]      = useState(null)
   const [paymentError, setPaymentError] = useState(null)
 
@@ -146,6 +157,20 @@ export default function BuyCreditsPage() {
           </div>
         )}
 
+        {/* Missing billing state — required to calculate tax */}
+        {needsState && (
+          <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3.5 mb-6">
+            <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0 text-amber-400">
+              <LocationIcon />
+            </div>
+            <p className="text-sm text-amber-300 font-medium flex-1">
+              Set your billing state in{' '}
+              <Link to="/settings" className="underline font-semibold hover:text-amber-200">Settings</Link>
+              {' '}to calculate sales tax and purchase credits.
+            </p>
+          </div>
+        )}
+
         {/* Balance strip */}
         {usage && (
           <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-navy-900 border border-white/[0.07] rounded-2xl p-5 sm:p-6 mb-8 sm:mb-10">
@@ -187,7 +212,11 @@ export default function BuyCreditsPage() {
 
         {/* Package cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 mb-8">
-          {PACKAGES.map((pkg) => (
+          {PACKAGES.map((pkg) => {
+            const tax   = !isAdmin && profile?.state ? calculateTax(pkg.price, profile.state) : 0
+            const rate  = !isAdmin && profile?.state ? getTaxRate(profile.state) : 0
+            const total = pkg.price + tax
+            return (
             <div
               key={pkg.points}
               className={`group relative flex flex-col rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 ${
@@ -214,9 +243,14 @@ export default function BuyCreditsPage() {
                 {/* Price */}
                 <div className="mb-5">
                   <p className={`text-xl font-bold ${pkg.popular ? 'text-brand-400' : 'text-slate-300'}`}>
-                    ${pkg.price}
+                    ${total.toFixed(2)}
                   </p>
                   <p className="text-[11px] text-slate-600 mt-0.5">{pkg.perPoint} per credit</p>
+                  {tax > 0 && (
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      ${pkg.price.toFixed(2)} + ${tax.toFixed(2)} tax ({(rate * 100).toFixed(2)}%)
+                    </p>
+                  )}
                 </div>
 
                 {/* Divider */}
@@ -234,7 +268,7 @@ export default function BuyCreditsPage() {
                 {/* Button */}
                 <button
                   onClick={() => handleBuy(pkg.points)}
-                  disabled={!!loading}
+                  disabled={!!loading || needsState}
                   className={`mt-auto w-full py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
                     pkg.popular
                       ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-600/30 hover:shadow-brand-600/50'
@@ -251,13 +285,14 @@ export default function BuyCreditsPage() {
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
                       </svg>
-                      Buy for ${pkg.price}
+                      Buy for ${total.toFixed(2)}
                     </>
                   )}
                 </button>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Footer */}
