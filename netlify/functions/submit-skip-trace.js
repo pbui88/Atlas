@@ -65,23 +65,21 @@ export const handler = async (event) => {
       zip:     r.zip     || '',
     }))
 
-    const payload = {
-      json_data:      JSON.stringify(rows),
-      address_column: 'address',
-      city_column:    'city',
-      state_column:   'state',
-      zip_column:     'zip',
-      trace_type:     traceType,
-    }
+    // Tracerfy requires multipart/form-data — do NOT set Content-Type manually
+    // so fetch can attach the correct boundary for the FormData body.
+    const form = new FormData()
+    form.append('json_data',      JSON.stringify(rows))
+    form.append('address_column', 'address')
+    form.append('city_column',    'city')
+    form.append('state_column',   'state')
+    form.append('zip_column',     'zip')
+    form.append('trace_type',     traceType)
 
     try {
       const res = await fetch(`${TRACERFY_BASE}/trace/`, {
         method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${TRACERFY_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
+        headers: { 'Authorization': `Bearer ${TRACERFY_API_KEY}` },
+        body:    form,
       })
       const data = await res.json().catch(() => ({}))
 
