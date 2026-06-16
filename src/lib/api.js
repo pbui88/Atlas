@@ -74,7 +74,7 @@ export const deleteUserKey    = ()    => call('user-keys', 'DELETE')
 export const getSkipTraceRecords   = ()          => call('skip-trace')
 export const saveSkipTraceRecords  = (records)   => call('skip-trace', 'POST', { records })
 export const deleteSkipTraceRecord = (id)        => call(`skip-trace?id=${id}`, 'DELETE')
-export const submitSkipTrace       = (recordIds) => call('submit-skip-trace', 'POST', { recordIds })
+export const submitSkipTrace       = (recordIds, traceType = 'advanced') => call('submit-skip-trace', 'POST', { recordIds, traceType })
 
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')

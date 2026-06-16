@@ -7,43 +7,20 @@ import {
   submitSkipTrace,
 } from '../../lib/api'
 
-const PRICE_PER_RECORD = parseFloat(import.meta.env.VITE_TRACERFY_PRICE_PER_RECORD || '0.18')
-
-// ── Address parser ────────────────────────────────────────────
-// Splits "123 Main St, Phoenix, AZ 85001, USA" into components.
-function parseAddress(full) {
-  if (!full) return { address: '', city: null, state_code: null, zip: null }
-  const parts = full.split(',').map(s => s.trim()).filter(s => s && s !== 'USA' && s !== 'US')
-  if (parts.length < 2) return { address: full, city: null, state_code: null, zip: null }
-  const stateZipPart = parts[parts.length - 1]
-  const m = stateZipPart.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
-  if (m) {
-    return {
-      address:    parts[0],
-      city:       parts.length >= 3 ? parts[parts.length - 2] : null,
-      state_code: m[1],
-      zip:        m[2],
-    }
-  }
-  return { address: parts[0], city: parts[1] || null, state_code: null, zip: null }
-}
-
 // ── CSV parser ────────────────────────────────────────────────
-// Expected columns (case-insensitive): address, city, state, zip, first_name, last_name
+// Accepts columns: address, city, state, zip (all case-insensitive)
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
-  const col = (name, aliases = []) => {
-    const idx = headers.findIndex(h => h === name || aliases.includes(h))
+  const col = (...names) => {
+    const idx = headers.findIndex(h => names.includes(h))
     return idx >= 0 ? idx : -1
   }
-  const addrIdx  = col('address', ['street', 'property_address'])
-  const cityIdx  = col('city', ['property_city'])
-  const stateIdx = col('state', ['state_code', 'property_state'])
-  const zipIdx   = col('zip', ['zip_code', 'postal_code', 'property_zip'])
-  const fnIdx    = col('first_name', ['firstname', 'fname'])
-  const lnIdx    = col('last_name',  ['lastname', 'lname'])
+  const addrIdx  = col('address', 'street', 'property_address')
+  const cityIdx  = col('city', 'property_city')
+  const stateIdx = col('state', 'state_code', 'property_state')
+  const zipIdx   = col('zip', 'zip_code', 'postal_code', 'property_zip')
 
   return lines.slice(1).map(line => {
     const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
@@ -52,8 +29,6 @@ function parseCSV(text) {
       city:       cityIdx  >= 0 ? cols[cityIdx]  || null : null,
       state_code: stateIdx >= 0 ? cols[stateIdx] || null : null,
       zip:        zipIdx   >= 0 ? cols[zipIdx]   || null : null,
-      first_name: fnIdx    >= 0 ? cols[fnIdx]    || null : null,
-      last_name:  lnIdx    >= 0 ? cols[lnIdx]    || null : null,
     }
   }).filter(r => r.address)
 }
@@ -82,6 +57,7 @@ export default function SkipTracePage() {
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
   const [checkedIds,   setCheckedIds]   = useState(new Set())
+  const [traceType,    setTraceType]    = useState('advanced')
   const [submitting,   setSubmitting]   = useState(false)
   const [submitResult, setSubmitResult] = useState(null)
   const [submitError,  setSubmitError]  = useState(null)
@@ -111,6 +87,7 @@ export default function SkipTracePage() {
   const savedIds        = new Set(savedRecords.map(r => r.id))
   const checkedSaved    = [...checkedIds].filter(id => savedIds.has(id))
   const allSavedChecked = savedRecords.length > 0 && checkedSaved.length === savedRecords.length
+  const creditsPerLead  = traceType === 'advanced' ? 2 : 1
 
   const toggleCheck = (id) => {
     setCheckedIds(prev => {
@@ -141,8 +118,6 @@ export default function SkipTracePage() {
       if (!parsed.length) throw new Error('No valid records found. Check that your CSV has an "address" column.')
       const { count } = await saveSkipTraceRecords(parsed)
       await load()
-      setUploadError(null)
-      // Flash success inline
       setSubmitResult({ message: `${count} record${count !== 1 ? 's' : ''} added from CSV.` })
     } catch (e) {
       setUploadError(e.message)
@@ -173,7 +148,7 @@ export default function SkipTracePage() {
     setSubmitError(null)
     setSubmitResult(null)
     try {
-      const res = await submitSkipTrace(checkedSaved)
+      const res = await submitSkipTrace(checkedSaved, traceType)
       setSubmitResult(res)
       setCheckedIds(new Set())
       await load()
@@ -183,8 +158,6 @@ export default function SkipTracePage() {
       setSubmitting(false)
     }
   }
-
-  const costPreview = +(checkedSaved.length * PRICE_PER_RECORD).toFixed(2)
 
   return (
     <div className="min-h-full bg-slate-950">
@@ -210,7 +183,7 @@ export default function SkipTracePage() {
               </div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Skip Trace</h1>
             </div>
-            <p className="text-sm text-slate-500">Find contact information for property owners via Tracerfy</p>
+            <p className="text-sm text-slate-500">Find property owner contact info — powered by Tracerfy</p>
           </div>
 
           {/* Upload CSV */}
@@ -236,65 +209,44 @@ export default function SkipTracePage() {
         {/* Banners */}
         {submitResult?.message && (
           <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 mb-5">
-            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
+            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
             <p className="text-sm text-emerald-300 font-medium flex-1">{submitResult.message}</p>
-            <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+            <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
         {submitResult && !submitResult.message && (
-          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 mb-5">
-            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
-            <p className="text-sm text-emerald-300 font-medium flex-1">
-              <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted for skip tracing.
-              Total cost: <span className="font-bold">${submitResult.costUsd?.toFixed(2)}</span>.
-              Results will appear here once processed.
-            </p>
-            <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+          <div className="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 mb-5">
+            <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            <div className="flex-1">
+              <p className="text-sm text-emerald-300 font-medium">
+                <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted to Tracerfy ({submitResult.traceType}).
+              </p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                Results will appear here once Tracerfy finishes processing. This typically takes a few minutes.
+              </p>
+            </div>
+            <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1 shrink-0"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
-        {submitError && (
+        {(submitError || uploadError) && (
           <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3.5 mb-5">
-            <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            <p className="text-sm text-red-300 font-medium flex-1">{submitError}</p>
-            <button onClick={() => setSubmitError(null)} className="text-red-500 hover:text-red-300 p-1">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-        )}
-        {uploadError && (
-          <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3.5 mb-5">
-            <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            <p className="text-sm text-red-300 font-medium flex-1">{uploadError}</p>
-            <button onClick={() => setUploadError(null)} className="text-red-500 hover:text-red-300 p-1">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+            <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            <p className="text-sm text-red-300 font-medium flex-1">{submitError || uploadError}</p>
+            <button onClick={() => { setSubmitError(null); setUploadError(null) }} className="text-red-500 hover:text-red-300 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
 
         {/* CSV format hint */}
         <div className="flex items-start gap-2.5 bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3 mb-6 text-xs text-slate-500">
-          <svg className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-          </svg>
+          <svg className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
           <span>
-            CSV columns: <span className="text-slate-400 font-mono">address</span>, <span className="text-slate-400 font-mono">city</span>, <span className="text-slate-400 font-mono">state</span>, <span className="text-slate-400 font-mono">zip</span>, <span className="text-slate-400 font-mono">first_name</span>, <span className="text-slate-400 font-mono">last_name</span>.
-            Only <span className="text-slate-400 font-mono">address</span> is required. Records saved from scan results are added automatically.
+            CSV columns: <span className="text-slate-400 font-mono">address</span>, <span className="text-slate-400 font-mono">city</span>, <span className="text-slate-400 font-mono">state</span>, <span className="text-slate-400 font-mono">zip</span>.
+            Only <span className="text-slate-400 font-mono">address</span> is required.
+            Records saved from scan results are added automatically via the Results tab.
           </span>
         </div>
 
-        {/* Cost preview + submit bar */}
+        {/* Trace type + submit bar when records selected */}
         {checkedSaved.length > 0 && (
           <div className="sticky top-4 z-10 flex items-center justify-between gap-4 bg-navy-900/95 backdrop-blur border border-brand-600/30 rounded-2xl px-5 py-3.5 mb-6 shadow-lg shadow-brand-600/10">
             <div>
@@ -302,21 +254,40 @@ export default function SkipTracePage() {
                 {checkedSaved.length} record{checkedSaved.length !== 1 ? 's' : ''} selected
               </p>
               <p className="text-xs text-slate-400 mt-0.5">
-                Estimated cost: <span className="text-brand-400 font-bold">${costPreview.toFixed(2)}</span>
-                <span className="text-slate-600 ml-1">@ ${PRICE_PER_RECORD.toFixed(2)}/record via Tracerfy</span>
+                <span className="text-brand-400 font-bold">{creditsPerLead} Tracerfy credit{creditsPerLead > 1 ? 's' : ''}</span> per record
+                {traceType === 'advanced' && <span className="text-slate-600"> · includes owner name</span>}
+                <span className="text-slate-600"> · ~{creditsPerLead * checkedSaved.length} credits total</span>
               </p>
             </div>
-            <button
-              onClick={() => setShowConfirm(true)}
-              disabled={submitting}
-              className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {submitting ? (
-                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Submitting…</>
-              ) : (
-                <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>Run Skip Trace</>
-              )}
-            </button>
+            <div className="shrink-0 flex items-center gap-3">
+              {/* Trace type toggle */}
+              <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.08] rounded-lg p-1">
+                {['normal', 'advanced'].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setTraceType(t)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all capitalize ${
+                      traceType === t
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowConfirm(true)}
+                disabled={submitting}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? (
+                  <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Submitting…</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>Run Skip Trace</>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -324,22 +295,32 @@ export default function SkipTracePage() {
         {showConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
             <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-              <h3 className="text-base font-bold text-white mb-2">Confirm Submission</h3>
-              <p className="text-sm text-slate-400 mb-1">
-                You are submitting <span className="text-white font-semibold">{checkedSaved.length} record{checkedSaved.length !== 1 ? 's' : ''}</span> to Tracerfy.
-              </p>
-              <p className="text-sm text-slate-400 mb-5">
-                Estimated cost: <span className="text-brand-400 font-bold">${costPreview.toFixed(2)}</span> at ${PRICE_PER_RECORD.toFixed(2)} per record.
-              </p>
+              <h3 className="text-base font-bold text-white mb-3">Confirm Skip Trace</h3>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Records</span>
+                  <span className="text-white font-semibold">{checkedSaved.length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Type</span>
+                  <span className="text-white font-semibold capitalize">{traceType}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Cost</span>
+                  <span className="text-brand-400 font-bold">~{creditsPerLead * checkedSaved.length} Tracerfy credits</span>
+                </div>
+                <div className="pt-1 border-t border-white/[0.06]">
+                  <p className="text-[11px] text-slate-600">
+                    {traceType === 'advanced'
+                      ? 'Advanced returns owner name, phones & emails (2 credits/lead).'
+                      : 'Normal returns phones & emails only (1 credit/lead).'}
+                    {' '}Credits charged per matched lead — no charge on misses.
+                  </p>
+                </div>
+              </div>
               <div className="flex gap-3">
-                <button
-                  onClick={() => setShowConfirm(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition"
-                >Cancel</button>
-                <button
-                  onClick={handleSubmit}
-                  className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30"
-                >Confirm</button>
+                <button onClick={() => setShowConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
+                <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30">Confirm</button>
               </div>
             </div>
           </div>
@@ -359,7 +340,6 @@ export default function SkipTracePage() {
           <EmptyState />
         ) : (
           <div className="bg-slate-900/50 border border-white/[0.06] rounded-2xl overflow-hidden">
-            {/* Table header row */}
             <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-3">
               {savedRecords.length > 0 && (
                 <input
@@ -370,16 +350,14 @@ export default function SkipTracePage() {
                   title={allSavedChecked ? 'Deselect all' : 'Select all saved'}
                 />
               )}
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex-1">
                 {records.length} record{records.length !== 1 ? 's' : ''}
                 {savedRecords.length > 0 && (
-                  <span className="ml-2 text-slate-600">· {savedRecords.length} ready to submit</span>
+                  <span className="ml-2 text-slate-600 normal-case font-normal">· {savedRecords.length} ready</span>
                 )}
               </span>
-              <button onClick={load} className="ml-auto text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
+              <button onClick={load} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
             </div>
-
-            {/* Rows */}
             <div className="divide-y divide-white/[0.04]">
               {records.map(record => (
                 <RecordRow
@@ -400,26 +378,17 @@ export default function SkipTracePage() {
 }
 
 function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
-  const isSaved   = record.status === 'saved'
+  const isSaved    = record.status === 'saved'
   const isDeleting = deletingId === record.id
 
   return (
     <div className={`flex items-start gap-3 px-4 py-3 transition-colors ${isSaved && checked ? 'bg-brand-600/5' : 'hover:bg-white/[0.02]'}`}>
-      {/* Checkbox — only for 'saved' records */}
       <div className="shrink-0 pt-0.5 w-4">
         {isSaved ? (
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={() => onCheck(record.id)}
-            className="accent-brand-600 cursor-pointer"
-          />
-        ) : (
-          <span />
-        )}
+          <input type="checkbox" checked={checked} onChange={() => onCheck(record.id)} className="accent-brand-600 cursor-pointer" />
+        ) : <span />}
       </div>
 
-      {/* Address + meta */}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-200 truncate font-medium">
           {record.address || <span className="text-slate-500 italic">No address</span>}
@@ -430,22 +399,14 @@ function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
               {[record.city, record.state_code, record.zip].filter(Boolean).join(', ')}
             </span>
           )}
-          {(record.first_name || record.last_name) && (
-            <span className="text-xs text-slate-500">
-              · {[record.first_name, record.last_name].filter(Boolean).join(' ')}
-            </span>
-          )}
-          <span className="text-[10px] text-slate-700">
-            {new Date(record.created_at).toLocaleDateString()}
-          </span>
+          <span className="text-[10px] text-slate-700">{new Date(record.created_at).toLocaleDateString()}</span>
         </div>
-        {/* Results preview if completed */}
+        {/* Contact results when completed */}
         {record.status === 'completed' && record.result && (
-          <ResultPreview result={record.result} />
+          <ContactResult result={record.result} />
         )}
       </div>
 
-      {/* Status + actions */}
       <div className="shrink-0 flex items-center gap-2">
         <StatusBadge status={record.status} />
         {isSaved && (
@@ -469,29 +430,37 @@ function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
   )
 }
 
-function ResultPreview({ result }) {
-  const phones  = result.phones  || result.phone_numbers  || []
-  const emails  = result.emails  || result.email_addresses || []
-  const name    = result.full_name || result.name || null
-
-  if (!phones.length && !emails.length && !name) return null
+// Shows owner name, phones, emails from completed Tracerfy result
+function ContactResult({ result }) {
+  const phones = result.phones || []
+  const emails = result.emails || []
+  if (!result.full_name && !phones.length && !emails.length) {
+    return <p className="text-xs text-slate-600 mt-1.5 italic">No contact data found</p>
+  }
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {name && (
-        <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-          {name}
-        </span>
+    <div className="mt-2 space-y-1.5">
+      {result.full_name && (
+        <div className="flex items-center gap-1.5">
+          <svg className="w-3 h-3 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+          <span className="text-xs text-slate-300 font-medium">{result.full_name}</span>
+        </div>
       )}
-      {phones.slice(0, 2).map((p, i) => (
-        <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
-          {typeof p === 'object' ? p.number || JSON.stringify(p) : p}
-        </span>
-      ))}
-      {emails.slice(0, 2).map((e, i) => (
-        <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/20">
-          {typeof e === 'object' ? e.email || JSON.stringify(e) : e}
-        </span>
-      ))}
+      {phones.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {phones.slice(0, 4).map((p, i) => (
+            <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">{p}</span>
+          ))}
+          {phones.length > 4 && <span className="text-[11px] text-slate-600">+{phones.length - 4} more</span>}
+        </div>
+      )}
+      {emails.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {emails.slice(0, 3).map((e, i) => (
+            <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/20">{e}</span>
+          ))}
+          {emails.length > 3 && <span className="text-[11px] text-slate-600">+{emails.length - 3} more</span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -506,7 +475,7 @@ function EmptyState() {
       </div>
       <h3 className="text-base font-semibold text-white mb-2">No skip trace records yet</h3>
       <p className="text-sm text-slate-500 max-w-xs">
-        Save properties from your scan results or upload a CSV file to get started.
+        Save properties from your scan results or upload a CSV to get started.
       </p>
     </div>
   )
