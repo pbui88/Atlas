@@ -58,7 +58,7 @@ export const handler = async (event) => {
 
   if (insertError) {
     console.error('Failed to record pending payment:', insertError.message)
-    return err('Failed to start payment. Please try again.', 500)
+    return err(`DB error: ${insertError.message}`, 500)
   }
 
   const payload = {
@@ -109,8 +109,9 @@ export const handler = async (event) => {
     const data = JSON.parse(text)
 
     if (data.messages?.resultCode !== 'Ok' || !data.token) {
-      console.error('Authorize.net error:', JSON.stringify(data.messages))
-      return err('Failed to create payment session. Please try again.', 500)
+      const detail = data.messages?.message?.[0]?.text || JSON.stringify(data.messages)
+      console.error('Authorize.net error:', detail)
+      return err(`Payment gateway error: ${detail}`, 500)
     }
 
     return ok({ token: data.token, formUrl: FORM_URL })
