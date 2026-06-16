@@ -73,6 +73,14 @@ export default function BuyCreditsPage() {
     navigate('/credits', { replace: true })
   }, [success, addedPts, refreshUsage, navigate])
 
+  // Reset loading when the user navigates back from the Authorize.net page
+  // via the browser Back button (page is restored from bfcache with stale state).
+  useEffect(() => {
+    const handlePageShow = (e) => { if (e.persisted) setLoading(null) }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
+  }, [])
+
   const handleBuy = async (points) => {
     setLoading(points)
     setPaymentError(null)
