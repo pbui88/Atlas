@@ -71,8 +71,8 @@ export const handler = async (event) => {
       transactionRequest: {
         transactionType: 'authCaptureTransaction',
         amount: totalAmount.toFixed(2),
-        ...(taxAmount > 0 ? { tax: { amount: taxAmount.toFixed(2), name: 'Sales Tax', description: `${taxState} state sales tax` } } : {}),
         order: { description: `Atlas ${pkg.label}` },
+        ...(taxAmount > 0 ? { tax: { amount: taxAmount.toFixed(2), name: 'Sales Tax', description: `${taxState} state sales tax` } } : {}),
       },
       hostedPaymentSettings: {
         setting: [
