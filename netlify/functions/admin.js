@@ -195,7 +195,7 @@ export const handler = async (event) => {
     // Fix 2: guard against malformed request body
     let patchBody = {}
     try { patchBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
-    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits } = patchBody
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, billing_state } = patchBody
     if (!isValidUUID(userId)) return err('userId required')
 
     // Handle manual credit grant — increments purchased_credits via RPC
@@ -231,6 +231,7 @@ export const handler = async (event) => {
     if (is_active          !== undefined) updates.is_active          = is_active
     if (points_limit       !== undefined) updates.points_limit       = Math.max(0, parseInt(points_limit, 10))
     if (cycle_anchor_date  !== undefined) updates.cycle_anchor_date  = cycle_anchor_date
+    if (billing_state      !== undefined) updates.billing_state      = billing_state || null
     if (!Object.keys(updates).length) return err('Nothing to update')
 
     const { data, error: dbErr } = await supabase

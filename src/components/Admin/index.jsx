@@ -7,6 +7,7 @@ import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits,
 } from '../../lib/api'
+import { US_STATES } from '../../../shared/taxRates.js'
 
 function fmtBytes(bytes) {
   if (!bytes) return '0 B'
@@ -153,6 +154,32 @@ function KeyEditor({ user, onSave }) {
   )
 }
 
+function BillingStateEditor({ user, onSave }) {
+  const [saving, setSaving] = useState(false)
+
+  const handleChange = async (e) => {
+    const val = e.target.value
+    setSaving(true)
+    try { await onSave(user.id, val || null) }
+    catch (err) { alert(err.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <select
+      value={user.billing_state || ''}
+      onChange={handleChange}
+      disabled={saving}
+      className="text-xs bg-navy-700 border border-white/[0.08] rounded-md px-2 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50 max-w-[140px]"
+    >
+      <option value="">— not set —</option>
+      {US_STATES.map(s => (
+        <option key={s.code} value={s.code}>{s.code} — {s.name}</option>
+      ))}
+    </select>
+  )
+}
+
 function GrantCreditsEditor({ user, onGrant }) {
   const [editing, setEditing] = useState(false)
   const [value,   setValue]   = useState('')
@@ -242,6 +269,10 @@ export default function AdminPanel() {
   const updateKey    = async (userId, key) => {
     await adminSetUserKey(userId, key)
     setUsers(u => u.map(x => x.id === userId ? { ...x, has_own_key: !!key } : x))
+  }
+  const updateBillingState = async (userId, state) => {
+    await adminUpdateUser(userId, { billing_state: state })
+    setUsers(u => u.map(x => x.id === userId ? { ...x, billing_state: state } : x))
   }
   const grantCredits = async (userId, points) => {
     const { purchased_credits } = await adminGrantCredits(userId, points)
@@ -369,7 +400,7 @@ export default function AdminPanel() {
                     </td>
                     <td className="px-4 py-3.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
                     <td className="px-4 py-3.5"><KeyEditor user={user} onSave={updateKey} /></td>
-                    <td className="px-4 py-3.5 text-xs text-slate-400 whitespace-nowrap">{user.billing_state || '—'}</td>
+                    <td className="px-4 py-3.5"><BillingStateEditor user={user} onSave={updateBillingState} /></td>
                     <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-2">

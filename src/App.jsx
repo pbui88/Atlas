@@ -8,7 +8,6 @@ import AppLayout           from './components/Layout/AppLayout'
 import Dashboard           from './components/Dashboard/index'
 import ProjectPage         from './components/Project/index'
 import BuyCreditsPage      from './components/Credits/BuyCreditsPage'
-import SettingsPage        from './components/Settings/SettingsPage'
 
 // Lazy-loaded: pulls in recharts, only needed by admins
 const AdminPanel = lazy(() => import('./components/Admin/index'))
@@ -59,9 +58,6 @@ export default function App() {
           </Route>
           <Route path="/credits" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
             <Route index element={<BuyCreditsPage />} />
-          </Route>
-          <Route path="/settings" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
-            <Route index element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
