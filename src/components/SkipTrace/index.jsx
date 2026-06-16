@@ -5,6 +5,7 @@ import {
   saveSkipTraceRecords,
   deleteSkipTraceRecord,
   submitSkipTrace,
+  checkSkipTraceResults,
 } from '../../lib/api'
 
 // ── CSV parser ────────────────────────────────────────────────
@@ -89,6 +90,8 @@ export default function SkipTracePage() {
   const [uploadError,  setUploadError]  = useState(null)
   const [deletingId,   setDeletingId]   = useState(null)
   const [showConfirm,  setShowConfirm]  = useState(false)
+  const [checking,     setChecking]     = useState(false)
+  const [checkResult,  setCheckResult]  = useState(null)
   const fileRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -164,6 +167,21 @@ export default function SkipTracePage() {
     }
   }
 
+  // ── Check Results ─────────────────────────────────────────
+  const handleCheckResults = async () => {
+    setChecking(true)
+    setCheckResult(null)
+    try {
+      const res = await checkSkipTraceResults()
+      setCheckResult(res)
+      if (res.recordsUpdated > 0) await load()
+    } catch (e) {
+      setCheckResult({ error: e.message })
+    } finally {
+      setChecking(false)
+    }
+  }
+
   // ── Submit ────────────────────────────────────────────────
   const handleSubmit = async () => {
     setShowConfirm(false)
@@ -210,8 +228,26 @@ export default function SkipTracePage() {
             <p className="text-sm text-slate-500">Find property owner contact info — powered by Tracerfy</p>
           </div>
 
-          {/* Upload CSV */}
+          {/* Action buttons */}
           <div className="shrink-0 flex items-center gap-2">
+            {/* Check Results — only when processing orders exist */}
+            {records.some(r => r.status === 'submitted') && (
+              <button
+                onClick={handleCheckResults}
+                disabled={checking}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600/10 border border-emerald-600/25 text-sm text-emerald-400 hover:bg-emerald-600/20 hover:text-emerald-300 transition disabled:opacity-50"
+              >
+                {checking ? (
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                )}
+                Check Results
+              </button>
+            )}
+
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
             <button
               onClick={() => fileRef.current?.click()}
@@ -257,6 +293,31 @@ export default function SkipTracePage() {
             <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
             <p className="text-sm text-red-300 font-medium flex-1">{submitError || uploadError}</p>
             <button onClick={() => { setSubmitError(null); setUploadError(null) }} className="text-red-500 hover:text-red-300 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+          </div>
+        )}
+
+        {/* Check results banner */}
+        {checkResult && !checkResult.error && (
+          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 mb-5">
+            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            <p className="text-sm text-emerald-300 font-medium flex-1">
+              {checkResult.completed === 0
+                ? 'No completed batches yet — Tracerfy is still processing. Try again in a few minutes.'
+                : <>
+                    <span className="font-bold">{checkResult.completed} batch{checkResult.completed !== 1 ? 'es' : ''}</span> completed.
+                    {checkResult.recordsUpdated > 0
+                      ? <> <span className="font-bold">{checkResult.recordsUpdated} record{checkResult.recordsUpdated !== 1 ? 's' : ''}</span> updated with owner info.</>
+                      : ' No contact matches found for these properties.'}
+                  </>}
+            </p>
+            <button onClick={() => setCheckResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1 shrink-0"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+          </div>
+        )}
+        {checkResult?.error && (
+          <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3.5 mb-5">
+            <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            <p className="text-sm text-red-300 font-medium flex-1">{checkResult.error}</p>
+            <button onClick={() => setCheckResult(null)} className="text-red-500 hover:text-red-300 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
 
