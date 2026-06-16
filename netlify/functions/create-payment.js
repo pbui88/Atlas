@@ -71,8 +71,18 @@ export const handler = async (event) => {
       transactionRequest: {
         transactionType: 'authCaptureTransaction',
         amount: totalAmount.toFixed(2),
-        ...(taxAmount > 0 ? { tax: { amount: taxAmount.toFixed(2), name: 'Sales Tax', description: `${taxState} sales tax` } } : {}),
+        ...(taxAmount > 0 ? { tax: { amount: taxAmount.toFixed(2), name: 'Sales Tax', description: `${taxState} state sales tax` } } : {}),
         order: { description: `Atlas ${pkg.label}` },
+        lineItems: {
+          lineItem: [{
+            itemId:      '1',
+            name:        pkg.label,
+            description: `${pkg.points.toLocaleString()} scan credits`,
+            quantity:    '1',
+            unitPrice:   subtotal.toFixed(2),
+            taxable:     taxAmount > 0 ? 'true' : 'false',
+          }],
+        },
       },
       hostedPaymentSettings: {
         setting: [
@@ -88,6 +98,7 @@ export const handler = async (event) => {
               cancelUrlText: 'Cancel',
             }),
           },
+          { settingName: 'hostedPaymentOrderOptions',   settingValue: JSON.stringify({ show: true, merchantName: 'Atlas' }) },
           { settingName: 'hostedPaymentButtonOptions', settingValue: JSON.stringify({ text: 'Pay' }) },
           { settingName: 'hostedPaymentPaymentOptions', settingValue: JSON.stringify({ cardCodeRequired: true, showCreditCard: true, showBankAccount: false }) },
           { settingName: 'hostedPaymentBillingAddressOptions', settingValue: JSON.stringify({ show: true, required: false }) },
