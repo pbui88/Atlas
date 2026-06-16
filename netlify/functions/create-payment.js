@@ -31,7 +31,7 @@ export const handler = async (event) => {
   const refId   = randomBytes(10).toString('hex') // 20 chars — Authorize.net's refId max length
 
   const supabase = adminSupabase()
-  const { data: profile } = await supabase.from('profiles').select('role, state').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('role, billing_state').eq('id', user.id).single()
 
   const subtotal = parseFloat(pkg.amount)
   let taxAmount  = 0
