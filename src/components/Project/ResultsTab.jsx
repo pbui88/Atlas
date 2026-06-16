@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase, fetchAllRows } from '../../lib/supabase'
-import { collectImages, analyzePoints, geocodePoints, exportProject } from '../../lib/api'
+import { collectImages, analyzePoints, geocodePoints, exportProject, saveSkipTraceRecords } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
@@ -123,10 +123,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [selected,   setSelected]   = useState(null)
   const [minScore,   setMinScore]   = useState(0)
   const [sigFilter,  setSigFilter]  = useState([])
-  const [exporting,  setExporting]  = useState(false)
-  const [selImages,  setSelImages]  = useState([])
-  const [imgLoading, setImgLoading] = useState(false)
-  const [checkedIds, setCheckedIds] = useState(new Set())
+  const [exporting,    setExporting]    = useState(false)
+  const [selImages,    setSelImages]    = useState([])
+  const [imgLoading,   setImgLoading]   = useState(false)
+  const [checkedIds,   setCheckedIds]   = useState(new Set())
+  const [savingTrace,  setSavingTrace]  = useState(false)
+  const [traceSaved,   setTraceSaved]   = useState(null)
   const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
@@ -462,6 +464,35 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     finally { setExporting(false) }
   }
 
+  // ── Save to Skip Trace ────────────────────────────────────
+  const handleSaveToSkipTrace = async (pointsToSave) => {
+    setSavingTrace(true)
+    setTraceSaved(null)
+    try {
+      const records = pointsToSave.map(pt => {
+        const full = pt.address || ''
+        const parts = full.split(',').map(s => s.trim()).filter(s => s && s !== 'USA' && s !== 'US')
+        const stateZip = parts[parts.length - 1] || ''
+        const m = stateZip.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
+        return {
+          source_point_id: pt.id,
+          project_id:      project.id,
+          address:         parts[0] || full,
+          city:            parts.length >= 3 ? parts[parts.length - 2] : null,
+          state_code:      m ? m[1] : null,
+          zip:             m ? m[2] : null,
+        }
+      })
+      const { count } = await saveSkipTraceRecords(records)
+      setTraceSaved(count)
+      setTimeout(() => setTraceSaved(null), 4000)
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setSavingTrace(false)
+    }
+  }
+
   const hasFilters  = minScore > 0 || sigFilter.length > 0
   const canStart    = stats.total > 0 && !running && !noCreditsBlocked && !keyLoading
   const analysis    = selected?.ai_analyses?.[0]
@@ -673,6 +704,28 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </div>
           {checkedCount === 0 && sorted.length > 0 && (
             <p className="text-[10px] text-slate-400 mt-1.5">Check rows to export a subset</p>
+          )}
+
+          {/* Save to Skip Trace */}
+          {sorted.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/[0.05]">
+              <button
+                onClick={() => {
+                  const pts = checkedCount > 0 ? sorted.filter(pt => checkedIds.has(pt.id)) : sorted
+                  handleSaveToSkipTrace(pts)
+                }}
+                disabled={savingTrace}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-brand-600/10 border border-brand-600/20 text-brand-400 hover:bg-brand-600/20 hover:text-brand-300 transition text-xs font-medium disabled:opacity-50"
+              >
+                {savingTrace ? (
+                  <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Saving…</>
+                ) : traceSaved != null ? (
+                  <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>{traceSaved} saved to Skip Trace</>
+                ) : (
+                  <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>Save {checkedCount > 0 ? `${checkedCount} selected` : 'all'} to Skip Trace</>
+                )}
+              </button>
+            </div>
           )}
         </div>
       </div>

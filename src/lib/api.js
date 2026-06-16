@@ -70,6 +70,12 @@ export const getUserKeyStatus = ()    => call('user-keys')
 export const saveUserKey      = (key) => call('user-keys', 'POST', { google_maps_key: key })
 export const deleteUserKey    = ()    => call('user-keys', 'DELETE')
 
+// ── Skip Trace ───────────────────────────────────────────────
+export const getSkipTraceRecords   = ()          => call('skip-trace')
+export const saveSkipTraceRecords  = (records)   => call('skip-trace', 'POST', { records })
+export const deleteSkipTraceRecord = (id)        => call(`skip-trace?id=${id}`, 'DELETE')
+export const submitSkipTrace       = (recordIds) => call('submit-skip-trace', 'POST', { recordIds })
+
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })
