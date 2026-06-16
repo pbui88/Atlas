@@ -37,11 +37,8 @@ export const handler = async (event) => {
   let taxAmount  = 0
   let taxState   = null
 
-  if (profile?.role !== 'admin') {
-    if (!profile?.state) {
-      return err('Please set your billing state in Account Settings before purchasing credits.', 400)
-    }
-    taxState  = profile.state
+  if (profile?.role !== 'admin' && profile?.billing_state) {
+    taxState  = profile.billing_state
     taxAmount = calculateTax(subtotal, taxState)
   }
 
@@ -56,7 +53,7 @@ export const handler = async (event) => {
       amount_usd:   totalAmount.toFixed(2),
       subtotal_usd: subtotal.toFixed(2),
       tax_usd:      taxAmount.toFixed(2),
-      state:        taxState,
+      billing_state: taxState,
     })
 
   if (insertError) {
