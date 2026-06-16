@@ -399,7 +399,7 @@ export default function AdminPanel() {
                     </td>
                     <td className="px-2 py-2.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
                     <td className="px-2 py-2.5"><KeyEditor user={user} onSave={updateKey} /></td>
-                    <td className="px-2 py-2.5"><BillingStateEditor user={user} onSave={updateBillingState} /></td>
+                    <td className="px-2 py-2.5">{user.role !== 'admin' && <BillingStateEditor user={user} onSave={updateBillingState} />}</td>
                     <td className="px-2 py-2.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
                     <td className="px-2 py-2.5 whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
