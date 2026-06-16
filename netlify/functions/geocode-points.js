@@ -54,17 +54,31 @@ function extractAddress(results) {
   const property = results.find(r => r.number != null && String(r.number).trim() !== '')
   if (!property) return null
 
-  // Use Positionstack's own formatted label — it includes number, street, city, state, zip
-  if (property.label && !looksLikeLatLng(property.label)) return property.label
+  const postal     = (property.postal_code || '').trim()
+  const regionCode = (property.region_code || property.region || '').trim()
 
-  // Fallback: build manually with house number first
+  // Use Positionstack's formatted label as the base.
+  // If the zip is available but not already in the label, splice it in after the
+  // state abbreviation so we always produce "..., City, ST 12345" format.
+  if (property.label && !looksLikeLatLng(property.label)) {
+    let label = property.label
+    if (postal && !label.includes(postal)) {
+      // Try to insert after a 2-letter state code: ", AZ," → ", AZ 85001,"
+      const patched = label.replace(/(,\s*)([A-Z]{2})(,)/, `$1$2 ${postal}$3`)
+      label = (patched !== label) ? patched : `${label} ${postal}`
+    }
+    // Strip trailing country tokens so the stored address is clean
+    label = label.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+    return looksLikeLatLng(label) ? null : label
+  }
+
+  // Fallback: build manually — join state and zip together ("AZ 85001")
   const houseNum   = String(property.number).trim()
   const street     = property.street || property.name || ''
   const locality   = property.locality || property.county || ''
-  const regionCode = property.region_code || property.region || ''
-  const postal     = property.postal_code || ''
   const streetAddr = [houseNum, street].filter(Boolean).join(' ')
-  const parts      = [streetAddr, locality, regionCode, postal].filter(Boolean)
+  const stateZip   = [regionCode, postal].filter(Boolean).join(' ')
+  const parts      = [streetAddr, locality, stateZip].filter(Boolean)
 
   const address = parts.join(', ')
   return (!address || looksLikeLatLng(address)) ? null : address

@@ -79,7 +79,9 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-200 font-medium truncate leading-snug">
-            {point.address || <span className="text-slate-500 italic">Address pending</span>}
+            {point.address
+              ? point.address.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+              : <span className="text-slate-500 italic">Address pending</span>}
           </p>
           {signals.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
@@ -384,6 +386,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     }
   }
 
+  // Strip trailing country token from geocoded addresses for clean exports
+  const cleanAddress = (addr) =>
+    (addr || '').replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+
   // Build export payload from local data (used for selected-only exports)
   const buildLocalExport = (pts, format) => {
     if (format === 'CSV') {
@@ -391,7 +397,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       const rows = pts.map(pt => {
         const a = pt.ai_analyses?.[0] || {}
         return [
-          `"${(pt.address || '').replace(/"/g, '""')}"`,
+          `"${cleanAddress(pt.address).replace(/"/g, '""')}"`,
           a.overall_score ?? '', a.confidence ?? '',
           `"${(a.signals || []).join('; ')}"`,
           `"${(a.notes || '').replace(/"/g, '""')}"`,
@@ -471,13 +477,16 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     try {
       const records = pointsToSave.map(pt => {
         const full = pt.address || ''
-        const parts = full.split(',').map(s => s.trim()).filter(s => s && s !== 'USA' && s !== 'US')
+        // Strip country suffixes before splitting so they don't corrupt field parsing
+        const cleaned = full.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+        const parts = cleaned.split(',').map(s => s.trim()).filter(Boolean)
+        // Last part is either "AZ 85001" or just "AZ" (when zip was already stripped)
         const stateZip = parts[parts.length - 1] || ''
         const m = stateZip.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
         return {
           source_point_id: pt.id,
           project_id:      project.id,
-          address:         parts[0] || full,
+          address:         parts[0] || full,      // street only (sent to Tracerfy)
           city:            parts.length >= 3 ? parts[parts.length - 2] : null,
           state_code:      m ? m[1] : null,
           zip:             m ? m[2] : null,
@@ -742,7 +751,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">
-                  {selected.address || <span className="text-slate-400 italic font-normal">Address pending</span>}
+                  {selected.address
+                    ? selected.address.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+                    : <span className="text-slate-400 italic font-normal">Address pending</span>}
                 </p>
                 {signals.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">

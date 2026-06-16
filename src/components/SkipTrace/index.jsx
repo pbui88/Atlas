@@ -8,7 +8,22 @@ import {
 } from '../../lib/api'
 
 // ── CSV parser ────────────────────────────────────────────────
-// Accepts columns: address, city, state, zip (all case-insensitive)
+// Accepts columns: address, city, state, zip (all case-insensitive).
+// When only a single "address" column is present (full address string),
+// it splits it into components automatically.
+function splitFullAddress(full) {
+  const cleaned = full.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+  const parts   = cleaned.split(',').map(s => s.trim()).filter(Boolean)
+  const stateZip = parts[parts.length - 1] || ''
+  const m = stateZip.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
+  return {
+    address:    parts[0] || full,
+    city:       m && parts.length >= 3 ? parts[parts.length - 2] : (parts[1] || null),
+    state_code: m ? m[1] : null,
+    zip:        m ? m[2] : null,
+  }
+}
+
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
@@ -24,13 +39,22 @@ function parseCSV(text) {
 
   return lines.slice(1).map(line => {
     const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-    return {
-      address:    addrIdx  >= 0 ? cols[addrIdx]  || '' : '',
-      city:       cityIdx  >= 0 ? cols[cityIdx]  || null : null,
-      state_code: stateIdx >= 0 ? cols[stateIdx] || null : null,
-      zip:        zipIdx   >= 0 ? cols[zipIdx]   || null : null,
+    const rawAddr = addrIdx >= 0 ? cols[addrIdx] || '' : ''
+    if (!rawAddr) return null
+
+    // If we have explicit city/state/zip columns, use them directly
+    if (cityIdx >= 0 || stateIdx >= 0 || zipIdx >= 0) {
+      return {
+        address:    rawAddr,
+        city:       cityIdx  >= 0 ? cols[cityIdx]  || null : null,
+        state_code: stateIdx >= 0 ? cols[stateIdx] || null : null,
+        zip:        zipIdx   >= 0 ? cols[zipIdx]   || null : null,
+      }
     }
-  }).filter(r => r.address)
+
+    // Single address column — try to split it into components
+    return splitFullAddress(rawAddr)
+  }).filter(Boolean).filter(r => r.address)
 }
 
 // ── Status badge ──────────────────────────────────────────────
@@ -391,14 +415,11 @@ function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
 
       <div className="flex-1 min-w-0">
         <p className="text-sm text-slate-200 truncate font-medium">
-          {record.address || <span className="text-slate-500 italic">No address</span>}
+          {record.address
+            ? [record.address, record.city, record.state_code && record.zip ? `${record.state_code} ${record.zip}` : (record.state_code || record.zip)].filter(Boolean).join(', ')
+            : <span className="text-slate-500 italic">No address</span>}
         </p>
-        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-          {(record.city || record.state_code || record.zip) && (
-            <span className="text-xs text-slate-500">
-              {[record.city, record.state_code, record.zip].filter(Boolean).join(', ')}
-            </span>
-          )}
+        <div className="flex items-center gap-1 mt-0.5">
           <span className="text-[10px] text-slate-700">{new Date(record.created_at).toLocaleDateString()}</span>
         </div>
         {/* Contact results when completed */}
