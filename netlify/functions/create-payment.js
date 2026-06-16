@@ -73,16 +73,6 @@ export const handler = async (event) => {
         amount: totalAmount.toFixed(2),
         ...(taxAmount > 0 ? { tax: { amount: taxAmount.toFixed(2), name: 'Sales Tax', description: `${taxState} state sales tax` } } : {}),
         order: { description: `Atlas ${pkg.label}` },
-        lineItems: {
-          lineItem: [{
-            itemId:      '1',
-            name:        pkg.label,
-            description: `${pkg.points.toLocaleString()} scan credits`,
-            quantity:    '1',
-            unitPrice:   subtotal.toFixed(2),
-            taxable:     taxAmount > 0 ? 'true' : 'false',
-          }],
-        },
       },
       hostedPaymentSettings: {
         setting: [
