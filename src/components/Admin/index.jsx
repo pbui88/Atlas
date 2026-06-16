@@ -170,7 +170,7 @@ function BillingStateEditor({ user, onSave }) {
       value={user.billing_state || ''}
       onChange={handleChange}
       disabled={saving}
-      className="text-xs bg-navy-700 border border-white/[0.08] rounded-md px-2 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50 max-w-[140px]"
+      className="text-xs bg-navy-700 border border-white/[0.08] rounded-md px-2 py-1 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50 w-[100px]"
     >
       <option value="">— not set —</option>
       {US_STATES.map(s => (
@@ -364,7 +364,7 @@ export default function AdminPanel() {
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
                 {['User', 'Role', 'Status', 'Credits Used', 'Credits', 'API Key', 'State', 'Joined', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+                  <th key={h} className="text-left px-2 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -373,7 +373,7 @@ export default function AdminPanel() {
                 const initial = (user.full_name || user.email || 'U')[0].toUpperCase()
                 return (
                   <tr key={user.id} className={`transition-colors ${!user.is_active ? 'bg-amber-500/5' : 'hover:bg-white/[0.02]'}`}>
-                    <td className="px-4 py-3.5">
+                    <td className="px-2 py-2.5">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
                           <span className="text-xs font-bold text-brand-400">{initial}</span>
@@ -384,25 +384,25 @@ export default function AdminPanel() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3.5"><RoleBadge role={user.role} /></td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-2 py-2.5"><RoleBadge role={user.role} /></td>
+                    <td className="px-2 py-2.5">
                       {user.is_active
                         ? <span className="badge-green">Active</span>
                         : <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
                             <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />Pending
                           </span>}
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-2 py-2.5">
                       {user.role === 'admin'
                         ? <span className="text-xs text-slate-600">Unlimited</span>
                         : <UsageBar used={user.purchased_credits_used ?? 0} limit={user.purchased_credits ?? 0} />}
                     </td>
-                    <td className="px-4 py-3.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
-                    <td className="px-4 py-3.5"><KeyEditor user={user} onSave={updateKey} /></td>
-                    <td className="px-4 py-3.5"><BillingStateEditor user={user} onSave={updateBillingState} /></td>
-                    <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="px-2 py-2.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
+                    <td className="px-2 py-2.5"><KeyEditor user={user} onSave={updateKey} /></td>
+                    <td className="px-2 py-2.5"><BillingStateEditor user={user} onSave={updateBillingState} /></td>
+                    <td className="px-2 py-2.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
+                    <td className="px-2 py-2.5 whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button onClick={() => toggleRole(user)}   className="text-xs text-slate-600 hover:text-slate-300 transition font-medium">{user.role === 'admin' ? 'Demote' : 'Promote'}</button>
                         <button onClick={() => toggleActive(user)} className="text-xs text-slate-600 hover:text-amber-400 transition font-medium">{user.is_active ? 'Suspend' : 'Activate'}</button>
                         <button onClick={() => resetCycle(user)}   className="text-xs text-slate-600 hover:text-brand-400 transition font-medium">Reset</button>
