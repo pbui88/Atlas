@@ -333,7 +333,7 @@ export default function AdminPanel() {
             <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                {['User', 'Role', 'Status', 'Credits Used', 'Credits', 'API Key', 'Joined', ''].map(h => (
+                {['User', 'Role', 'Status', 'Credits Used', 'Credits', 'API Key', 'State', 'Joined', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -369,6 +369,7 @@ export default function AdminPanel() {
                     </td>
                     <td className="px-4 py-3.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
                     <td className="px-4 py-3.5"><KeyEditor user={user} onSave={updateKey} /></td>
+                    <td className="px-4 py-3.5 text-xs text-slate-400 whitespace-nowrap">{user.billing_state || '—'}</td>
                     <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center justify-end gap-2">

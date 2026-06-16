@@ -172,7 +172,7 @@ export default function Sidebar({ open, onClose }) {
               }
             />
           )}
-          <NavItem
+          {isAdmin && <NavItem
             to="/settings"
             label="Settings"
             icon={
@@ -181,7 +181,7 @@ export default function Sidebar({ open, onClose }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             }
-          />
+          />}
         </nav>
 
         {/* Usage */}
