@@ -90,7 +90,7 @@ function UsageBar({ used, limit }) {
   const pct  = Math.min(100, Math.round((used / limit) * 100))
   const over = pct >= 90
   return (
-    <div className="w-full min-w-[120px]">
+    <div className="w-full">
       <div className="flex items-center justify-between mb-1">
         <span className={`text-xs font-medium ${over ? 'text-red-400' : used > 0 ? 'text-slate-300' : 'text-slate-600'}`}>
           {used.toLocaleString()} <span className="font-normal text-slate-600">/ {limit.toLocaleString()}</span>
@@ -360,7 +360,6 @@ export default function AdminPanel() {
         </div>
       ) : tab === 'users' ? (
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
             <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
@@ -393,7 +392,7 @@ export default function AdminPanel() {
                             <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />Pending
                           </span>}
                     </td>
-                    <td className="px-4 py-3.5 min-w-[160px]">
+                    <td className="px-4 py-3.5">
                       {user.role === 'admin'
                         ? <span className="text-xs text-slate-600">Unlimited</span>
                         : <UsageBar used={user.purchased_credits_used ?? 0} limit={user.purchased_credits ?? 0} />}
@@ -415,7 +414,6 @@ export default function AdminPanel() {
               })}
             </tbody>
             </table>
-          </div>
           {users.length === 0 && (
             <p className="text-center text-sm text-slate-600 py-10">No users found.</p>
           )}
