@@ -187,9 +187,14 @@ export default function SkipTracePage() {
   const checkedSaved     = [...checkedIds].filter(id => savedIds.has(id))
   const checkedCompleted = [...checkedIds].filter(id => completedIds.has(id))
 
-  // Completed records selected that haven't been DNC scrubbed yet
+  // Completed records selected that haven't been DNC scrubbed, OR were scrubbed with old
+  // code that didn't capture per-flag columns (national_dnc === undefined on any phone)
+  const needsDnc = (r) => {
+    if (!r.result?.dnc_scrubbed) return true
+    return r.result.phones?.some(ph => ph.national_dnc === undefined) ?? false
+  }
   const dncCandidates     = records.filter(r =>
-    checkedIds.has(r.id) && r.status === 'completed' && r.result && !r.result.dnc_scrubbed
+    checkedIds.has(r.id) && r.status === 'completed' && r.result && needsDnc(r)
   )
   const totalPhonesForDnc = dncCandidates.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
 
@@ -846,8 +851,9 @@ function PhoneTag({ type }) {
 }
 
 function DncFlag({ value }) {
-  if (value) return <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">Y</span>
-  return            <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">N</span>
+  if (value === true)      return <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">Y</span>
+  if (value === false)     return <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">N</span>
+  return                          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-600">–</span>
 }
 
 const CSV_HEADER = ['List Name','Address','City','State','Zip','Owner Name','Primary Phone','Mobile 1','Mobile 2','Mobile 3','Landline 1','Landline 2','Email 1','Email 2','Email 3']

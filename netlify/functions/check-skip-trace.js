@@ -144,20 +144,39 @@ async function parseDncCsv(url) {
     const lines = text.split(/\r?\n/).filter(l => l.trim())
     if (lines.length < 2) return new Map()
 
-    const strip   = s => s.trim().replace(/^"|"$/g, '')
-    const parseBool = s => { const v = strip(s).toLowerCase(); return v === 'true' || v === '1' || v === 'yes' }
-    const headers = splitCsvLine(lines[0]).map(h => strip(h).toLowerCase())
+    const strip     = s => s.trim().replace(/^"|"$/g, '')
+    const parseBool = s => { const v = strip(s || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes' }
 
-    const col = name => headers.indexOf(name)
-    const phoneIdx       = col('phone')
-    const isCleanIdx     = col('is_clean')
-    const nationalDncIdx = col('national_dnc')
-    const stateDncIdx    = col('state_dnc')
-    const dmaIdx         = col('dma')
-    const litigatorIdx   = col('litigator')
+    // Normalise headers: lowercase + collapse spaces/hyphens to underscores
+    // so "National DNC", "national-dnc", "national_dnc" all become "national_dnc"
+    const normaliseHeader = h => strip(h).toLowerCase().replace(/[\s\-]+/g, '_')
+    const headers = splitCsvLine(lines[0]).map(normaliseHeader)
+
+    console.log('parseDncCsv: headers =', JSON.stringify(headers))
+    if (lines.length > 1) {
+      console.log('parseDncCsv: first data row =', JSON.stringify(splitCsvLine(lines[1])))
+    }
+
+    // Accept multiple possible header names for each field
+    const col = (...names) => {
+      for (const n of names) {
+        const i = headers.indexOf(n)
+        if (i >= 0) return i
+      }
+      return -1
+    }
+
+    const phoneIdx       = col('phone', 'phone_number', 'number')
+    const isCleanIdx     = col('is_clean', 'isclean', 'clean')
+    const nationalDncIdx = col('national_dnc', 'national', 'federal_dnc', 'federal')
+    const stateDncIdx    = col('state_dnc', 'state')
+    const dmaIdx         = col('dma', 'do_not_mail')
+    const litigatorIdx   = col('litigator', 'tcpa_litigator', 'tcpa')
+
+    console.log('parseDncCsv: column indices =', { phoneIdx, isCleanIdx, nationalDncIdx, stateDncIdx, dmaIdx, litigatorIdx })
 
     if (phoneIdx < 0 || isCleanIdx < 0) {
-      console.error('parseDncCsv: expected columns not found. headers:', headers)
+      console.error('parseDncCsv: required columns not found in headers:', headers)
       return new Map()
     }
 
@@ -167,12 +186,22 @@ async function parseDncCsv(url) {
       const key  = normPhone(strip(cols[phoneIdx] || ''))
       if (!key) continue
       map.set(key, {
-        isClean:     parseBool(cols[isCleanIdx]     || ''),
-        national_dnc: parseBool(cols[nationalDncIdx] || ''),
-        state_dnc:   parseBool(cols[stateDncIdx]    || ''),
-        dma:         parseBool(cols[dmaIdx]          || ''),
-        litigator:   parseBool(cols[litigatorIdx]    || ''),
+        isClean:      parseBool(nationalDncIdx >= 0 ? cols[isCleanIdx]     : ''),
+        national_dnc: nationalDncIdx >= 0 ? parseBool(cols[nationalDncIdx]) : false,
+        state_dnc:    stateDncIdx    >= 0 ? parseBool(cols[stateDncIdx])    : false,
+        dma:          dmaIdx         >= 0 ? parseBool(cols[dmaIdx])         : false,
+        litigator:    litigatorIdx   >= 0 ? parseBool(cols[litigatorIdx])   : false,
       })
+    }
+
+    // Re-derive isClean from flags when the column was found
+    for (const [key, entry] of map) {
+      if (isCleanIdx >= 0) {
+        // Already set from CSV — leave as-is
+      } else {
+        // Fall back: clean if none of the flags are set
+        entry.isClean = !entry.national_dnc && !entry.state_dnc && !entry.dma && !entry.litigator
+      }
     }
 
     console.log(`parseDncCsv: parsed ${map.size} phone entries from ${lines.length - 1} rows`)
