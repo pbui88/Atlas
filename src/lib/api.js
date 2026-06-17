@@ -89,5 +89,4 @@ export const adminDeleteUser     = (userId)                => call('admin', 'DEL
 export const adminGetUserUsage   = (userId)                => call(`admin/user-usage/${userId}`)
 export const adminResetUserCycle = (userId)                => call('admin', 'PATCH', { userId, cycle_anchor_date: new Date().toISOString().slice(0, 10) })
 export const adminSetUserKey     = (userId, key)           => call('admin', 'PATCH', { userId, googleMapsKey: key || null })
-export const adminGrantCredits          = (userId, points) => call('admin', 'PATCH', { userId, grantCredits: points })
-export const adminGrantSkipTraceBalance = (userId, amount) => call('admin', 'PATCH', { userId, grantSkipTrace: amount })
+export const adminGrantCredits   = (userId, points) => call('admin', 'PATCH', { userId, grantCredits: points })
