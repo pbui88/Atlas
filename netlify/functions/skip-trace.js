@@ -50,17 +50,37 @@ export const handler = async (event) => {
     return ok({ records: data || [], count: data?.length || 0 })
   }
 
-  // ── DELETE: remove a single record (must be 'saved' status) ─
+  // ── DELETE: single record or entire group ────────────────────
   if (event.httpMethod === 'DELETE') {
-    const id = new URL(event.rawUrl, 'http://localhost').searchParams.get('id')
-    if (!isValidUUID(id)) return err('Valid record id required', 400)
+    const params   = new URL(event.rawUrl, 'http://localhost').searchParams
+    const id       = params.get('id')
+    const listName = params.get('listName')   // group delete: pass group key
 
+    // Group delete
+    if (listName !== null) {
+      let q = supabase
+        .from('skip_trace_records')
+        .delete()
+        .eq('user_id', user.id)
+        .in('status', ['saved', 'completed'])
+
+      q = listName === '__uncategorized__'
+        ? q.is('list_name', null)
+        : q.eq('list_name', listName)
+
+      const { error: dbErr } = await q
+      if (dbErr) return err(dbErr.message, 500)
+      return ok({ deleted: true })
+    }
+
+    // Single record delete (saved or completed)
+    if (!isValidUUID(id)) return err('Valid record id or listName required', 400)
     const { error: dbErr } = await supabase
       .from('skip_trace_records')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id)
-      .eq('status', 'saved')
+      .in('status', ['saved', 'completed'])
     if (dbErr) return err(dbErr.message, 500)
     return ok({ deleted: true })
   }

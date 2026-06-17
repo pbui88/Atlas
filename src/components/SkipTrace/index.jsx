@@ -6,6 +6,7 @@ import {
   getSkipTraceRecords,
   saveSkipTraceRecords,
   deleteSkipTraceRecord,
+  deleteSkipTraceGroup,
   submitSkipTrace,
   checkSkipTraceResults,
 } from '../../lib/api'
@@ -24,10 +25,31 @@ function splitFullAddress(full) {
   }
 }
 
+// Proper CSV line parser — handles quoted fields containing commas
+function parseCSVLine(line) {
+  const cols = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { field += '"'; i++ }
+      else inQuotes = !inQuotes
+    } else if (ch === ',' && !inQuotes) {
+      cols.push(field.trim())
+      field = ''
+    } else {
+      field += ch
+    }
+  }
+  cols.push(field.trim())
+  return cols
+}
+
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (lines.length < 2) return []
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'))
   const col = (...names) => {
     const idx = headers.findIndex(h => names.includes(h))
     return idx >= 0 ? idx : -1
@@ -38,7 +60,7 @@ function parseCSV(text) {
   const zipIdx   = col('zip', 'zip_code', 'postal_code', 'property_zip')
 
   return lines.slice(1).map(line => {
-    const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+    const cols    = parseCSVLine(line)
     const rawAddr = addrIdx >= 0 ? cols[addrIdx] || '' : ''
     if (!rawAddr) return null
     if (cityIdx >= 0 || stateIdx >= 0 || zipIdx >= 0) {
@@ -88,7 +110,8 @@ export default function SkipTracePage() {
   const [showConfirm,     setShowConfirm]     = useState(false)
   const [checking,        setChecking]        = useState(false)
   const [checkResult,     setCheckResult]     = useState(null)
-  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [expandedGroups,  setExpandedGroups]  = useState(new Set())
+  const [deletingGroup,   setDeletingGroup]   = useState(null)
   const fileRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -174,7 +197,7 @@ export default function SkipTracePage() {
     URL.revokeObjectURL(url)
   }
 
-  // ── Grouping ──────────────────────────────────────────────
+  // ── Grouping — sorted newest-first by most recent record ─────
   const groups = (() => {
     const map = new Map()
     for (const r of records) {
@@ -182,28 +205,44 @@ export default function SkipTracePage() {
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(r)
     }
-    const entries = [...map.entries()]
-    entries.sort(([a], [b]) => {
-      if (a === '__uncategorized__') return 1
-      if (b === '__uncategorized__') return -1
-      return a.localeCompare(b)
-    })
-    return entries.map(([key, recs]) => ({
-      key,
-      name:           key === '__uncategorized__' ? 'Uncategorized' : key,
-      records:        recs,
-      savedCount:     recs.filter(r => r.status === 'saved').length,
-      completedCount: recs.filter(r => r.status === 'completed').length,
-      submittedCount: recs.filter(r => ['submitted', 'processing'].includes(r.status)).length,
-    }))
+    return [...map.entries()]
+      .map(([key, recs]) => ({
+        key,
+        name:           key === '__uncategorized__' ? 'Uncategorized' : key,
+        records:        recs,
+        latestAt:       recs[0]?.created_at || '',   // records come in DESC order
+        savedCount:     recs.filter(r => r.status === 'saved').length,
+        completedCount: recs.filter(r => r.status === 'completed').length,
+        submittedCount: recs.filter(r => ['submitted', 'processing'].includes(r.status)).length,
+      }))
+      .sort((a, b) => b.latestAt.localeCompare(a.latestAt))  // newest group first
   })()
 
-  const toggleGroupCollapse = (key) => {
-    setCollapsedGroups(prev => {
+  const toggleGroupExpand = (key) => {
+    setExpandedGroups(prev => {
       const next = new Set(prev)
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
+  }
+
+  const handleDeleteGroup = async (group) => {
+    if (!window.confirm(`Delete all ${group.records.length} record${group.records.length !== 1 ? 's' : ''} in "${group.name}"? This cannot be undone.`)) return
+    setDeletingGroup(group.key)
+    try {
+      await deleteSkipTraceGroup(group.key)
+      setRecords(prev => prev.filter(r => (r.list_name || '__uncategorized__') !== group.key))
+      setCheckedIds(prev => {
+        const next = new Set(prev)
+        group.records.forEach(r => next.delete(r.id))
+        return next
+      })
+      setExpandedGroups(prev => { const n = new Set(prev); n.delete(group.key); return n })
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setDeletingGroup(null)
+    }
   }
 
   const toggleGroupAll = (group) => {
@@ -552,15 +591,16 @@ export default function SkipTracePage() {
         ) : (
           <div className="space-y-4">
             {groups.map(group => {
-              const isCollapsed   = collapsedGroups.has(group.key)
-              const selectable    = group.records.filter(r => r.status === 'saved' || r.status === 'completed').map(r => r.id)
-              const allGroupChecked = selectable.length > 0 && selectable.every(id => checkedIds.has(id))
+              const isExpanded       = expandedGroups.has(group.key)
+              const selectable       = group.records.filter(r => r.status === 'saved' || r.status === 'completed').map(r => r.id)
+              const allGroupChecked  = selectable.length > 0 && selectable.every(id => checkedIds.has(id))
               const someGroupChecked = selectable.some(id => checkedIds.has(id))
+              const isDeletingThis   = deletingGroup === group.key
 
               return (
                 <div key={group.key} className="bg-slate-900/50 border border-white/[0.06] rounded-2xl overflow-hidden">
                   {/* Group header */}
-                  <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-3">
+                  <div className="px-4 py-3 flex items-center gap-3">
                     {selectable.length > 0 && (
                       <input
                         type="checkbox"
@@ -571,10 +611,18 @@ export default function SkipTracePage() {
                         title={allGroupChecked ? 'Deselect all in list' : 'Select all in list'}
                       />
                     )}
+
+                    {/* Expand toggle — fills remaining space */}
                     <button
-                      onClick={() => toggleGroupCollapse(group.key)}
+                      onClick={() => toggleGroupExpand(group.key)}
                       className="flex-1 flex items-center gap-2.5 text-left min-w-0"
                     >
+                      <svg
+                        className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                      </svg>
                       <span className="text-sm font-semibold text-white truncate">{group.name}</span>
                       <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                         <span className="text-[10px] text-slate-600">{group.records.length} record{group.records.length !== 1 ? 's' : ''}</span>
@@ -588,18 +636,24 @@ export default function SkipTracePage() {
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">{group.completedCount} done</span>
                         )}
                       </div>
-                      <svg
-                        className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ml-auto ${isCollapsed ? '' : 'rotate-180'}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                      </svg>
+                    </button>
+
+                    {/* Delete group */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteGroup(group) }}
+                      disabled={isDeletingThis}
+                      className="shrink-0 p-1.5 rounded-lg text-slate-600 hover:text-red-400 transition disabled:opacity-40"
+                      title="Delete this list"
+                    >
+                      {isDeletingThis
+                        ? <span className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin block" />
+                        : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>}
                     </button>
                   </div>
 
-                  {/* Records */}
-                  {!isCollapsed && (
-                    <div className="divide-y divide-white/[0.04]">
+                  {/* Records — only shown when expanded */}
+                  {isExpanded && (
+                    <div className="border-t border-white/[0.05] divide-y divide-white/[0.04]">
                       {group.records.map(record => (
                         <RecordRow
                           key={record.id}
