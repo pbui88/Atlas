@@ -717,7 +717,13 @@ export default function SkipTracePage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
             <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
               <h3 className="text-base font-bold text-white mb-1">Confirm DNC Scrub</h3>
-              <p className="text-xs text-slate-500 mb-4">Checks phone numbers against Federal DNC, State DNC, DMA, and TCPA litigator databases.</p>
+              <p className="text-xs text-slate-500 mb-2">Checks phone numbers against these databases:</p>
+              <div className="space-y-2 mb-4">
+                <DncInfoRow label="National DNC" info="Federal Do Not Call Registry managed by the FTC. Calling registered numbers without consent risks fines up to $51,744 per violation." />
+                <DncInfoRow label="State DNC" info="State-level Do Not Call registries. These may include numbers not on the federal list; rules and penalties vary by state." />
+                <DncInfoRow label="DMA" info="Direct Marketing Association Telephone Preference Service — an industry opt-out list for consumers who have requested no telemarketing calls." />
+                <DncInfoRow label="Litigator" info="Known TCPA serial litigators who have previously filed or threatened lawsuits for unsolicited calls. Contacting these numbers carries significant legal risk." />
+              </div>
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">Records</span>
@@ -841,6 +847,27 @@ export default function SkipTracePage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function DncInfoRow({ label, info }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-violet-500 shrink-0" />
+        <span className="text-xs text-slate-300 flex-1">{label}</span>
+        <button
+          onClick={() => setOpen(v => !v)}
+          title={open ? 'Hide info' : 'What is this?'}
+          className={`w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center transition shrink-0
+            ${open ? 'bg-violet-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white'}`}
+        >?</button>
+      </div>
+      {open && (
+        <p className="text-[11px] text-slate-400 leading-relaxed mt-1.5 pl-3.5 pr-1">{info}</p>
+      )}
     </div>
   )
 }
