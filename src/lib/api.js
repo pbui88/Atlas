@@ -63,7 +63,8 @@ export const exportProject    = (projectId, format, filters = {}) =>
 export const getMyUsage = () => call('my-usage')
 
 // ── Credits / Authorize.net ───────────────────────────────────
-export const createPayment = (points) => call('create-payment', 'POST', { points })
+export const createPayment          = (points) => call('create-payment', 'POST', { points })
+export const createSkipTracePayment = (amount) => call('create-skip-trace-payment', 'POST', { amount })
 
 // ── User Keys (BYOK) ─────────────────────────────────────────
 export const getUserKeyStatus = ()    => call('user-keys')
