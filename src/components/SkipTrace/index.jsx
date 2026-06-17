@@ -109,6 +109,7 @@ export default function SkipTracePage() {
   const [uploadError,     setUploadError]     = useState(null)
   const [deletingId,      setDeletingId]      = useState(null)
   const [showConfirm,     setShowConfirm]     = useState(false)
+  const [scrubDnc,        setScrubDnc]        = useState(false)
   const [checking,        setChecking]        = useState(false)
   const [checkResult,     setCheckResult]     = useState(null)
   const [expandedGroups,  setExpandedGroups]  = useState(new Set())
@@ -320,7 +321,7 @@ export default function SkipTracePage() {
     setSubmitError(null)
     setSubmitResult(null)
     try {
-      const res = await submitSkipTrace(checkedSaved, TRACE_TYPE)
+      const res = await submitSkipTrace(checkedSaved, TRACE_TYPE, scrubDnc)
       setSubmitResult(res)
       setCheckedIds(new Set())
       await load()
@@ -545,6 +546,20 @@ export default function SkipTracePage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">Est. Cost</span>
                   <span className="text-brand-400 font-bold">${(COST_PER_RECORD * checkedSaved.length).toFixed(2)}</span>
+                </div>
+                <div className="pt-2 border-t border-white/[0.06]">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={scrubDnc}
+                      onChange={e => setScrubDnc(e.target.checked)}
+                      className="mt-0.5 accent-brand-600 cursor-pointer shrink-0"
+                    />
+                    <div>
+                      <p className="text-xs text-slate-300 font-medium">Scrub DNC (Do Not Call)</p>
+                      <p className="text-[11px] text-slate-600 mt-0.5">Phone numbers on the Do Not Call registry will be flagged. Additional charge may apply.</p>
+                    </div>
+                  </label>
                 </div>
                 <div className="pt-1 border-t border-white/[0.06]">
                   <p className="text-[11px] text-slate-600">

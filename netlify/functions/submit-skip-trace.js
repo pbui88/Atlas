@@ -13,7 +13,7 @@ export const handler = async (event) => {
   let body
   try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
 
-  const { recordIds, traceType = 'advanced' } = body
+  const { recordIds, traceType = 'advanced', scrubDnc = false } = body
   if (!Array.isArray(recordIds) || recordIds.length === 0) return err('recordIds required', 400)
   if (recordIds.some(id => !isValidUUID(id))) return err('Invalid record id', 400)
   if (recordIds.length > 500) return err('Maximum 500 records per submission', 400)
@@ -74,6 +74,7 @@ export const handler = async (event) => {
     form.append('state_column',   'state')
     form.append('zip_column',     'zip')
     form.append('trace_type',     traceType)
+    if (scrubDnc) form.append('scrub_dnc', '1')
 
     try {
       const res = await fetch(`${TRACERFY_BASE}/trace/`, {
