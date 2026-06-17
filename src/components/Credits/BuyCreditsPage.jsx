@@ -65,6 +65,7 @@ export default function BuyCreditsPage() {
   const [depositAmount,     setDepositAmount]     = useState('')
   const [depositLoading,    setDepositLoading]    = useState(false)
   const [depositError,      setDepositError]      = useState(null)
+  const [stPolling,         setStPolling]         = useState(false)
 
   const rawPts       = parseInt(searchParams.get('purchase') || '0', 10)
   const addedPts     = VALID_POINTS.has(rawPts) ? rawPts : 0
@@ -84,9 +85,26 @@ export default function BuyCreditsPage() {
     if (!stSuccess || rawStDeposit <= 0) return
     setShowStSuccess(true)
     setSuccessStAmount(rawStDeposit)
-    refreshUsage()
+    setStPolling(true)
     navigate('/credits', { replace: true })
-  }, [stSuccess, rawStDeposit, refreshUsage, navigate])
+  }, [stSuccess, rawStDeposit, navigate])
+
+  // Poll refreshUsage every 3s for up to ~30s after a skip trace deposit return.
+  // The Authorize.net webhook fires asynchronously after the redirect, so the
+  // balance may not be updated yet on the first render.
+  useEffect(() => {
+    if (!stPolling) return
+    refreshUsage()
+    let count = 0
+    const id = setInterval(() => {
+      refreshUsage()
+      if (++count >= 9) {
+        clearInterval(id)
+        setStPolling(false)
+      }
+    }, 3000)
+    return () => clearInterval(id)
+  }, [stPolling, refreshUsage])
 
   // Reset loading when the user navigates back from the Authorize.net page
   // via the browser Back button (page is restored from bfcache with stale state).
@@ -371,8 +389,9 @@ export default function BuyCreditsPage() {
         <div className="bg-slate-900/60 border border-white/[0.06] rounded-2xl p-5 mb-8">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-slate-400">Skip Trace Balance</p>
-            <p className="text-lg font-bold text-white tabular-nums">
+            <p className="text-lg font-bold text-white tabular-nums flex items-center gap-2">
               ${(usage?.skipTraceBalance ?? 0).toFixed(2)}
+              {stPolling && <span className="w-3.5 h-3.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />}
             </p>
           </div>
 
