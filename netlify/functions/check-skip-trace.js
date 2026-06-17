@@ -1,4 +1,5 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { normalizeResult, matchRecord } from './utils/tracerfy.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -35,61 +36,7 @@ async function fetchQueueResults(queueId) {
   return rows
 }
 
-// Build normalised result object stored per skip_trace_record
-function normalizeResult(row) {
-  const makePhone = (number, type, field) => {
-    if (!number) return null
-    const dncKey = `${field}_dnc`
-    return dncKey in row ? { number, type, dnc: !!row[dncKey] } : { number, type }
-  }
-
-  const phoneFields = [
-    ['primary_phone', 'primary',  'primary_phone'],
-    ['mobile_1',      'mobile',   'mobile_1'],
-    ['mobile_2',      'mobile',   'mobile_2'],
-    ['mobile_3',      'mobile',   'mobile_3'],
-    ['mobile_4',      'mobile',   'mobile_4'],
-    ['mobile_5',      'mobile',   'mobile_5'],
-    ['landline_1',    'landline', 'landline_1'],
-    ['landline_2',    'landline', 'landline_2'],
-    ['landline_3',    'landline', 'landline_3'],
-  ]
-  const phones = phoneFields.map(([f, t, k]) => makePhone(row[f], t, k)).filter(Boolean)
-
-  const dncScrubbed = phoneFields.some(([,, k]) => `${k}_dnc` in row)
-
-  const emails = [row.email_1, row.email_2, row.email_3, row.email_4, row.email_5].filter(Boolean)
-
-  return {
-    first_name:   row.first_name  || null,
-    last_name:    row.last_name   || null,
-    full_name:    [row.first_name, row.last_name].filter(Boolean).join(' ') || null,
-    phones,
-    emails,
-    mail_address: row.mail_address || null,
-    address:      row.address      || null,
-    city:         row.city         || null,
-    state:        row.state        || null,
-    ...(dncScrubbed ? { dnc_scrubbed: true } : {}),
-  }
-}
-
-// Match a Tracerfy result row back to one of our saved records by address
-function matchRecord(tracerfyRow, records) {
-  const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  const rowKey = norm(tracerfyRow.address)
-  if (!rowKey) return null
-  return records.find(r => {
-    const recKey = norm(r.address)
-    return recKey && (
-      rowKey.startsWith(recKey.slice(0, 8)) ||
-      recKey.startsWith(rowKey.slice(0, 8))
-    )
-  }) || null
-}
-
 // Normalize a phone string to its last 10 digits for consistent matching.
-// Handles formats like "+15551234567", "(555) 123-4567", "5551234567".
 const normPhone = (s) => (s || '').replace(/\D/g, '').slice(-10)
 
 // Minimal CSV line parser — handles double-quoted fields containing commas.
@@ -130,7 +77,6 @@ async function parseDncCsv(url) {
     const parseBool = s => { const v = strip(s || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes' || v === 'y' }
 
     // Normalise headers: lowercase + collapse spaces/hyphens to underscores
-    // so "National DNC", "national-dnc", "national_dnc" all become "national_dnc"
     const normaliseHeader = h => strip(h).toLowerCase().replace(/[\s\-]+/g, '_')
     const headers = splitCsvLine(lines[0]).map(normaliseHeader)
 
@@ -139,7 +85,6 @@ async function parseDncCsv(url) {
       console.log('parseDncCsv: first data row =', JSON.stringify(splitCsvLine(lines[1])))
     }
 
-    // Accept multiple possible header names for each field
     const col = (...names) => {
       for (const n of names) {
         const i = headers.indexOf(n)
@@ -173,7 +118,6 @@ async function parseDncCsv(url) {
       const dma          = dmaIdx         >= 0 ? parseBool(cols[dmaIdx])         : undefined
       const litigator    = litigatorIdx   >= 0 ? parseBool(cols[litigatorIdx])   : undefined
 
-      // is_clean from CSV, or fall back to: clean when none of the flags are set
       const isClean = isCleanIdx >= 0
         ? parseBool(cols[isCleanIdx])
         : !national_dnc && !state_dnc && !dma && !litigator
@@ -190,9 +134,6 @@ async function parseDncCsv(url) {
 }
 
 // Apply DNC flags from dncMap to every record in the order.
-// Sets phone.dnc and result.dnc_scrubbed = true.
-// Only marks a phone dnc:true/false if it was found in the DNC map;
-// phones not found in the map are left with dnc:false (conservatively clean).
 async function applyDncToRecords(supabase, orderId, dncMap) {
   if (!dncMap.size) {
     console.error('applyDncToRecords: dncMap is empty — skipping to avoid false results')
@@ -206,8 +147,8 @@ async function applyDncToRecords(supabase, orderId, dncMap) {
     .not('result', 'is', null)
 
   if (!records?.length) return 0
-  let updated = 0
 
+  const updates = []
   for (const record of records) {
     if (!record.result?.phones?.length) continue
 
@@ -215,7 +156,7 @@ async function applyDncToRecords(supabase, orderId, dncMap) {
       const key   = normPhone(ph.number)
       if (!key) return ph
       const entry = dncMap.get(key)
-      if (!entry) return { ...ph, dnc: false }  // not returned by DNC scrub → treat as clean
+      if (!entry) return { ...ph, dnc: false }
       return {
         ...ph,
         dnc:          !entry.isClean,
@@ -226,13 +167,13 @@ async function applyDncToRecords(supabase, orderId, dncMap) {
       }
     })
 
-    await supabase.from('skip_trace_records')
-      .update({ result: { ...record.result, phones, dnc_scrubbed: true } })
-      .eq('id', record.id)
-
-    updated++
+    updates.push({ id: record.id, result: { ...record.result, phones, dnc_scrubbed: true } })
   }
-  return updated
+
+  await Promise.all(updates.map(({ id, result }) =>
+    supabase.from('skip_trace_records').update({ result }).eq('id', id)
+  ))
+  return updates.length
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,6 +188,29 @@ export const handler = async (event) => {
   if (!TRACERFY_API_KEY) return err('TRACERFY_API_KEY not configured', 503)
 
   const supabase = adminSupabase()
+
+  // Clean up orphaned orders: stuck in 'processing' with no tracerfy_order_id for > 10 min.
+  // These occur when a Netlify function timeout fires after balance deduction but before the
+  // Tracerfy API call completes. Reset records to 'saved' so the user can resubmit.
+  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  const { data: orphaned } = await supabase
+    .from('skip_trace_orders')
+    .select('id, cost_usd')
+    .eq('user_id', user.id)
+    .eq('status', 'processing')
+    .is('tracerfy_order_id', null)
+    .lt('created_at', tenMinAgo)
+
+  if (orphaned?.length) {
+    await Promise.all(orphaned.map(async o => {
+      await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', o.id)
+      await supabase.from('skip_trace_records').update({ status: 'saved' }).eq('order_id', o.id)
+      if ((o.cost_usd || 0) > 0) {
+        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: o.cost_usd })
+          .catch(e => console.error('Failed to refund orphaned order balance:', e.message))
+      }
+    }))
+  }
 
   // ── Phase 1: check pending trace orders ─────────────────────────────────
 
@@ -275,9 +239,9 @@ export const handler = async (event) => {
 
   for (const order of (orders || [])) {
     const queueStatus = statusMap[order.tracerfy_order_id]
-    if (!queueStatus || queueStatus.pending !== false) continue
+    // Use loose equality so pending: 0 (number) is treated the same as pending: false (boolean)
+    if (!queueStatus || queueStatus.pending != false) continue
 
-    // Queue is done — fetch results
     let results = []
     try {
       results = await fetchQueueResults(order.tracerfy_order_id)
@@ -286,7 +250,6 @@ export const handler = async (event) => {
       continue
     }
 
-    // Mark order complete
     await supabase
       .from('skip_trace_orders')
       .update({ status: 'completed', completed_at: new Date().toISOString() })
@@ -294,10 +257,12 @@ export const handler = async (event) => {
 
     completed++
 
+    const now = new Date().toISOString()
+
     if (!results.length) {
       await supabase
         .from('skip_trace_records')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .update({ status: 'completed', completed_at: now })
         .eq('order_id', order.id)
     } else {
       const { data: records } = await supabase
@@ -306,34 +271,32 @@ export const handler = async (event) => {
         .eq('order_id', order.id)
 
       if (records?.length) {
-        const updatedIds = new Set()
+        const updatedIds   = new Set()
+        const matchUpdates = []
         for (const row of results) {
           const match = matchRecord(row, records)
           if (!match || updatedIds.has(match.id)) continue
           updatedIds.add(match.id)
-
-          await supabase
-            .from('skip_trace_records')
-            .update({
-              status:       'completed',
-              completed_at: new Date().toISOString(),
-              result:       normalizeResult(row),
-            })
-            .eq('id', match.id)
-
-          recordsUpdated++
+          matchUpdates.push({ id: match.id, result: normalizeResult(row) })
         }
+
+        // Parallel writes for matched records
+        await Promise.all(matchUpdates.map(({ id, result }) =>
+          supabase.from('skip_trace_records')
+            .update({ status: 'completed', completed_at: now, result })
+            .eq('id', id)
+        ))
+        recordsUpdated += matchUpdates.length
 
         const unmatchedIds = records.map(r => r.id).filter(id => !updatedIds.has(id))
         if (unmatchedIds.length) {
           await supabase
             .from('skip_trace_records')
-            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .update({ status: 'completed', completed_at: now })
             .in('id', unmatchedIds)
         }
       }
     }
-
   }
 
   // ── Phase 2: check pending DNC queues ────────────────────────────────────
@@ -354,17 +317,18 @@ export const handler = async (event) => {
       })
       const dncStatus = await res.json().catch(() => null)
 
-      if (!dncStatus || dncStatus.pending !== false) continue  // still processing
+      // Use loose equality so pending: 0 (number) is treated the same as pending: false (boolean)
+      if (!dncStatus || dncStatus.pending != false) continue
       if (!dncStatus.download_url) continue
 
-      // DNC complete — parse full-results CSV and apply flags
       const dncMap = await parseDncCsv(dncStatus.download_url)
       dncRecordsUpdated += await applyDncToRecords(supabase, dncOrder.id, dncMap)
 
       // Clear queue ID so we don't reprocess on the next check
-      await supabase.from('skip_trace_orders')
+      const { error: clearErr } = await supabase.from('skip_trace_orders')
         .update({ dnc_queue_id: null })
         .eq('id', dncOrder.id)
+      if (clearErr) console.error(`Failed to clear dnc_queue_id for order ${dncOrder.id}:`, clearErr.message)
     } catch (e) {
       console.error(`Failed to check DNC queue ${dncOrder.dnc_queue_id}:`, e.message)
     }

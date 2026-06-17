@@ -85,8 +85,16 @@ export const handler = async (event) => {
     return err(ordErr.message, 500)
   }
 
-  let started = 0
-  const errs  = []
+  // Build per-order phone counts so we can issue a partial refund for any orders that fail
+  const phonesPerOrder = {}
+  for (const record of records) {
+    if (!record.order_id) continue
+    phonesPerOrder[record.order_id] = (phonesPerOrder[record.order_id] || 0) + (record.result?.phones?.length || 0)
+  }
+
+  let started      = 0
+  let failedPhones = 0
+  const errs       = []
 
   for (const order of (orders || [])) {
     if (!order.tracerfy_order_id) continue
@@ -111,10 +119,12 @@ export const handler = async (event) => {
           .eq('id', order.id)
         started++
       } else {
+        failedPhones += phonesPerOrder[order.id] || 0
         errs.push(data.error || data.detail || `Order ${order.id}: unknown error`)
       }
     } catch (e) {
       console.error(`scrub-dnc: failed for order ${order.id}:`, e.message)
+      failedPhones += phonesPerOrder[order.id] || 0
       errs.push(e.message)
     }
   }
@@ -122,6 +132,13 @@ export const handler = async (event) => {
   if (!started) {
     await refund()
     return err(errs[0] || 'Failed to start DNC scrub', 400)
+  }
+
+  // Partial refund for any orders that failed to start — user should not pay for unscubbed phones
+  if (failedPhones > 0 && !isAdmin) {
+    const partialRefund = Math.round(failedPhones * COST_PER_PHONE * 100) / 100
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: partialRefund })
+      .catch(e => console.error('Failed to refund partial DNC balance:', e.message))
   }
 
   return ok({

@@ -67,7 +67,17 @@ export const handler = async (event) => {
     .select()
     .single()
 
-  if (orderErr) return err(orderErr.message, 500)
+  // Define refund before INSERT so it is callable in all failure paths
+  const refund = () => {
+    if (isAdmin) return Promise.resolve()
+    return supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+      .catch(e => console.error('Failed to refund skip trace balance:', e.message))
+  }
+
+  if (orderErr) {
+    await refund()
+    return err(orderErr.message, 500)
+  }
 
   // Mark records as submitted immediately so they can't be double-submitted
   await supabase
@@ -96,12 +106,6 @@ export const handler = async (event) => {
     form.append('zip_column',     'zip')
     form.append('trace_type',     traceType)
     // DNC scrub is a separate Tracerfy step (dnc/scrub-from-queue/) run after trace completes
-
-    const refund = () => {
-      if (isAdmin) return Promise.resolve()
-      return supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
-        .catch(e => console.error('Failed to refund skip trace balance:', e.message))
-    }
 
     try {
       const res = await fetch(`${TRACERFY_BASE}/trace/`, {
