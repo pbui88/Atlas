@@ -26,6 +26,9 @@ export const handler = async (event) => {
     if (!Array.isArray(records) || records.length === 0) return err('records array required', 400)
     if (records.length > 500) return err('Maximum 500 records per save', 400)
 
+    const { list_name } = body
+    const listNameVal = list_name ? String(list_name).slice(0, 200) : null
+
     const rows = records.map(r => ({
       user_id:         user.id,
       source_point_id: isValidUUID(r.source_point_id) ? r.source_point_id : null,
@@ -36,6 +39,7 @@ export const handler = async (event) => {
       zip:             r.zip        ? String(r.zip).slice(0, 20)         : null,
       first_name:      r.first_name ? String(r.first_name).slice(0, 100) : null,
       last_name:       r.last_name  ? String(r.last_name).slice(0, 100)  : null,
+      list_name:       listNameVal,
     }))
 
     const { data, error: dbErr } = await supabase

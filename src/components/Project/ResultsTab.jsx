@@ -131,6 +131,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [checkedIds,   setCheckedIds]   = useState(new Set())
   const [savingTrace,  setSavingTrace]  = useState(false)
   const [traceSaved,   setTraceSaved]   = useState(null)
+  const [showTraceModal, setShowTraceModal] = useState(false)
+  const [traceListName,  setTraceListName]  = useState('')
+  const [traceModalPts,  setTraceModalPts]  = useState([])
   const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
@@ -471,28 +474,33 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   // ── Save to Skip Trace ────────────────────────────────────
-  const handleSaveToSkipTrace = async (pointsToSave) => {
+  const openSaveModal = (pts) => {
+    setTraceModalPts(pts)
+    setTraceListName(project.name || '')
+    setShowTraceModal(true)
+  }
+
+  const handleSaveToSkipTrace = async () => {
+    setShowTraceModal(false)
     setSavingTrace(true)
     setTraceSaved(null)
     try {
-      const records = pointsToSave.map(pt => {
+      const records = traceModalPts.map(pt => {
         const full = pt.address || ''
-        // Strip country suffixes before splitting so they don't corrupt field parsing
         const cleaned = full.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
         const parts = cleaned.split(',').map(s => s.trim()).filter(Boolean)
-        // Last part is either "AZ 85001" or just "AZ" (when zip was already stripped)
         const stateZip = parts[parts.length - 1] || ''
         const m = stateZip.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
         return {
           source_point_id: pt.id,
           project_id:      project.id,
-          address:         parts[0] || full,      // street only (sent to Tracerfy)
+          address:         parts[0] || full,
           city:            parts.length >= 3 ? parts[parts.length - 2] : null,
           state_code:      m ? m[1] : null,
           zip:             m ? m[2] : null,
         }
       })
-      const { count } = await saveSkipTraceRecords(records)
+      const { count } = await saveSkipTraceRecords(records, traceListName.trim() || project.name || 'Unnamed List')
       setTraceSaved(count)
       setTimeout(() => setTraceSaved(null), 4000)
     } catch (e) {
@@ -721,7 +729,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               <button
                 onClick={() => {
                   const pts = checkedCount > 0 ? sorted.filter(pt => checkedIds.has(pt.id)) : sorted
-                  handleSaveToSkipTrace(pts)
+                  openSaveModal(pts)
                 }}
                 disabled={savingTrace}
                 className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-brand-600/10 border border-brand-600/20 text-brand-400 hover:bg-brand-600/20 hover:text-brand-300 transition text-xs font-medium disabled:opacity-50"
@@ -842,6 +850,43 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </div>
         )}
       </div>
+
+      {/* ── Save-to-Skip-Trace modal ── */}
+      {showTraceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+            <h2 className="text-base font-semibold text-white mb-1">Save to Skip Trace</h2>
+            <p className="text-xs text-slate-400 mb-4">
+              {traceModalPts.length} record{traceModalPts.length !== 1 ? 's' : ''} will be saved. Give this list a name so you can find it later.
+            </p>
+            <label className="block text-xs font-medium text-slate-300 mb-1">List name</label>
+            <input
+              type="text"
+              value={traceListName}
+              onChange={e => setTraceListName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveToSkipTrace() }}
+              placeholder="e.g. Phoenix Q1 Leads"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-5"
+              autoFocus
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowTraceModal(false)}
+                className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveToSkipTrace}
+                disabled={!traceListName.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 text-white transition disabled:opacity-40"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
