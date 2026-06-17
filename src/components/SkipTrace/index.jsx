@@ -100,7 +100,8 @@ export default function SkipTracePage() {
   const [loading,         setLoading]         = useState(true)
   const [error,           setError]           = useState(null)
   const [checkedIds,      setCheckedIds]      = useState(new Set())
-  const [traceType,       setTraceType]       = useState('advanced')
+  const TRACE_TYPE = 'advanced'
+  const COST_PER_RECORD = 0.08
   const [submitting,      setSubmitting]      = useState(false)
   const [submitResult,    setSubmitResult]    = useState(null)
   const [submitError,     setSubmitError]     = useState(null)
@@ -152,7 +153,6 @@ export default function SkipTracePage() {
   const completedIds     = new Set(completedRecords.map(r => r.id))
   const checkedSaved     = [...checkedIds].filter(id => savedIds.has(id))
   const checkedCompleted = [...checkedIds].filter(id => completedIds.has(id))
-  const creditsPerLead   = traceType === 'advanced' ? 2 : 1
 
   const toggleCheck = (id) => {
     setCheckedIds(prev => {
@@ -320,7 +320,7 @@ export default function SkipTracePage() {
     setSubmitError(null)
     setSubmitResult(null)
     try {
-      const res = await submitSkipTrace(checkedSaved, traceType)
+      const res = await submitSkipTrace(checkedSaved, TRACE_TYPE)
       setSubmitResult(res)
       setCheckedIds(new Set())
       await load()
@@ -408,7 +408,7 @@ export default function SkipTracePage() {
             <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
             <div className="flex-1">
               <p className="text-sm text-emerald-300 font-medium">
-                <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted ({submitResult.traceType} trace).
+                <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted for skip trace.
               </p>
               <p className="text-xs text-emerald-600 mt-0.5">
                 Results will appear here once processing is complete. This typically takes a few minutes.
@@ -496,23 +496,10 @@ export default function SkipTracePage() {
                     {checkedSaved.length} record{checkedSaved.length !== 1 ? 's' : ''} to trace
                   </p>
                   <p className="text-xs text-slate-500">
-                    ~{creditsPerLead * checkedSaved.length} credits
+                    ${(COST_PER_RECORD * checkedSaved.length).toFixed(2)} estimated cost
                   </p>
                 </div>
                 <div className="shrink-0 flex items-center gap-2">
-                  <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.08] rounded-lg p-1">
-                    {['normal', 'advanced'].map(t => (
-                      <button
-                        key={t}
-                        onClick={() => setTraceType(t)}
-                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all capitalize ${
-                          traceType === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
                   <button
                     onClick={() => setShowConfirm(true)}
                     disabled={submitting}
@@ -552,19 +539,16 @@ export default function SkipTracePage() {
                   <span className="text-white font-semibold">{checkedSaved.length}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Type</span>
-                  <span className="text-white font-semibold capitalize">{traceType}</span>
+                  <span className="text-slate-500">Rate</span>
+                  <span className="text-white font-semibold">$0.08 / record</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Cost</span>
-                  <span className="text-brand-400 font-bold">~{creditsPerLead * checkedSaved.length} credits</span>
+                  <span className="text-slate-500">Est. Cost</span>
+                  <span className="text-brand-400 font-bold">${(COST_PER_RECORD * checkedSaved.length).toFixed(2)}</span>
                 </div>
                 <div className="pt-1 border-t border-white/[0.06]">
                   <p className="text-[11px] text-slate-600">
-                    {traceType === 'advanced'
-                      ? 'Advanced returns owner name, phones & emails (2 credits/lead).'
-                      : 'Normal returns phones & emails only (1 credit/lead).'}
-                    {' '}Credits charged per matched lead — no charge on misses.
+                    Returns owner name, phones &amp; emails. Charged per matched record only — no charge on misses.
                   </p>
                 </div>
               </div>
