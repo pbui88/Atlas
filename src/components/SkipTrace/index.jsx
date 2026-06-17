@@ -557,7 +557,7 @@ export default function SkipTracePage() {
                     />
                     <div>
                       <p className="text-xs text-slate-300 font-medium">Scrub DNC (Do Not Call)</p>
-                      <p className="text-[11px] text-slate-600 mt-0.5">$0.02 per phone number returned. Numbers on the Do Not Call registry will be flagged.</p>
+                      <p className="text-[11px] text-slate-600 mt-0.5">$0.02 per phone number checked — e.g. if a record returns 3 phones, DNC scrub adds $0.06 for that record. Numbers on the registry will be flagged.</p>
                     </div>
                   </label>
                 </div>
