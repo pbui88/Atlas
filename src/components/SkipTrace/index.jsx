@@ -9,6 +9,7 @@ import {
   deleteSkipTraceGroup,
   submitSkipTrace,
   checkSkipTraceResults,
+  submitDncScrub,
 } from '../../lib/api'
 
 // ── CSV parser ────────────────────────────────────────────────
@@ -25,7 +26,6 @@ function splitFullAddress(full) {
   }
 }
 
-// Proper CSV line parser — handles quoted fields containing commas
 function parseCSVLine(line) {
   const cols = []
   let field = ''
@@ -96,25 +96,31 @@ export default function SkipTracePage() {
   const { openSidebar } = useOutletContext()
   const { user } = useAuth()
 
-  const [records,         setRecords]         = useState([])
-  const [loading,         setLoading]         = useState(true)
-  const [error,           setError]           = useState(null)
-  const [checkedIds,      setCheckedIds]      = useState(new Set())
-  const TRACE_TYPE = 'advanced'
+  const [records,          setRecords]          = useState([])
+  const [loading,          setLoading]          = useState(true)
+  const [error,            setError]            = useState(null)
+  const [checkedIds,       setCheckedIds]       = useState(new Set())
+  const TRACE_TYPE     = 'advanced'
   const COST_PER_RECORD = 0.08
-  const [submitting,      setSubmitting]      = useState(false)
-  const [submitResult,    setSubmitResult]    = useState(null)
-  const [submitError,     setSubmitError]     = useState(null)
-  const [uploading,       setUploading]       = useState(false)
-  const [uploadError,     setUploadError]     = useState(null)
-  const [deletingId,      setDeletingId]      = useState(null)
-  const [showConfirm,     setShowConfirm]     = useState(false)
-  const [scrubDnc,        setScrubDnc]        = useState(false)
-  const [checking,        setChecking]        = useState(false)
-  const [checkResult,     setCheckResult]     = useState(null)
-  const [expandedGroups,  setExpandedGroups]  = useState(new Set())
-  const [deletingGroup,   setDeletingGroup]   = useState(null)
-  const fileRef = useRef(null)
+  const [submitting,       setSubmitting]       = useState(false)
+  const [submitResult,     setSubmitResult]     = useState(null)
+  const [submitError,      setSubmitError]      = useState(null)
+  const [uploading,        setUploading]        = useState(false)
+  const [uploadError,      setUploadError]      = useState(null)
+  const [deletingId,       setDeletingId]       = useState(null)
+  const [showConfirm,      setShowConfirm]      = useState(false)
+  const [checking,         setChecking]         = useState(false)
+  const [checkResult,      setCheckResult]      = useState(null)
+  const [expandedGroups,   setExpandedGroups]   = useState(new Set())
+  const [deletingGroup,    setDeletingGroup]    = useState(null)
+  // DNC scrub state
+  const [showDncConfirm,   setShowDncConfirm]   = useState(false)
+  const [submittingDnc,    setSubmittingDnc]    = useState(false)
+  const [dncSubmitResult,  setDncSubmitResult]  = useState(null)
+  const [dncSubmitError,   setDncSubmitError]   = useState(null)
+  const [dncPolling,       setDncPolling]       = useState(false)
+  const dncPollRef = useRef(null)
+  const fileRef    = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -147,6 +153,32 @@ export default function SkipTracePage() {
     return () => { supabase.removeChannel(channel) }
   }, [user?.id])
 
+  // ── DNC auto-poll until results arrive ────────────────────
+  useEffect(() => {
+    if (!dncPolling) return
+    let attempts = 0
+    const MAX = 24  // 2 min at 5s intervals
+
+    const poll = async () => {
+      try {
+        const res = await checkSkipTraceResults()
+        if ((res.dncRecordsUpdated || 0) > 0) {
+          setDncPolling(false)
+          return
+        }
+      } catch {}
+      attempts++
+      if (attempts < MAX) {
+        dncPollRef.current = setTimeout(poll, 5000)
+      } else {
+        setDncPolling(false)
+      }
+    }
+
+    dncPollRef.current = setTimeout(poll, 3000)
+    return () => { if (dncPollRef.current) clearTimeout(dncPollRef.current) }
+  }, [dncPolling])
+
   // ── Selection helpers ─────────────────────────────────────
   const savedRecords     = records.filter(r => r.status === 'saved')
   const completedRecords = records.filter(r => r.status === 'completed')
@@ -154,7 +186,17 @@ export default function SkipTracePage() {
   const completedIds     = new Set(completedRecords.map(r => r.id))
   const checkedSaved     = [...checkedIds].filter(id => savedIds.has(id))
   const checkedCompleted = [...checkedIds].filter(id => completedIds.has(id))
-  const selectedHasDnc   = records.some(r => checkedIds.has(r.id) && r.status === 'completed' && r.result?.dnc_scrubbed)
+
+  // Completed records selected that haven't been DNC scrubbed yet
+  const dncCandidates     = records.filter(r =>
+    checkedIds.has(r.id) && r.status === 'completed' && r.result && !r.result.dnc_scrubbed
+  )
+  const totalPhonesForDnc = dncCandidates.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
+
+  // Any selected completed record has DNC data (for download buttons)
+  const selectedHasDnc = records.some(r =>
+    checkedIds.has(r.id) && r.status === 'completed' && r.result?.dnc_scrubbed
+  )
 
   const toggleCheck = (id) => {
     setCheckedIds(prev => {
@@ -164,33 +206,29 @@ export default function SkipTracePage() {
     })
   }
 
-  // ── Download CSV ──────────────────────────────────────────
+  // ── Download CSV (batch) ──────────────────────────────────
   const downloadResults = (cleanOnly = false) => {
     const selected = records.filter(r => checkedIds.has(r.id) && r.status === 'completed')
     const header = ['List Name','Address','City','State','Zip','Owner Name','Primary Phone','Mobile 1','Mobile 2','Mobile 3','Landline 1','Landline 2','Email 1','Email 2','Email 3']
     const rows = selected.map(r => {
-      const res      = r.result || {}
+      const res       = r.result || {}
       const rawPhones = (res.phones || []).map(p => typeof p === 'string' ? { number: p, type: 'mobile', dnc: false } : { ...p, dnc: p.dnc ?? false })
-      const phones   = cleanOnly ? rawPhones.filter(p => !p.dnc) : rawPhones
-      const primary  = phones.find(p => p.type === 'primary')?.number  || ''
-      const mobiles  = phones.filter(p => p.type === 'mobile').map(p => p.number)
-      const landlines= phones.filter(p => p.type === 'landline').map(p => p.number)
-      const emails   = res.emails || []
+      const phones    = cleanOnly ? rawPhones.filter(p => !p.dnc) : rawPhones
+      const primary   = phones.find(p => p.type === 'primary')?.number  || ''
+      const mobiles   = phones.filter(p => p.type === 'mobile').map(p => p.number)
+      const landlines = phones.filter(p => p.type === 'landline').map(p => p.number)
+      const emails    = res.emails || []
       return [
-        r.list_name   || '',
-        r.address     || '',
-        r.city        || '',
-        r.state_code  || '',
-        r.zip         || '',
-        res.full_name || '',
+        r.list_name   || '', r.address    || '', r.city       || '',
+        r.state_code  || '', r.zip        || '', res.full_name || '',
         primary,
-        mobiles[0]    || '', mobiles[1]   || '', mobiles[2]   || '',
-        landlines[0]  || '', landlines[1] || '',
-        emails[0]     || '', emails[1]    || '', emails[2]    || '',
+        mobiles[0]  || '', mobiles[1]   || '', mobiles[2]   || '',
+        landlines[0]|| '', landlines[1] || '',
+        emails[0]   || '', emails[1]    || '', emails[2]    || '',
       ]
     })
     const escape = v => `"${String(v).replace(/"/g, '""')}"`
-    const csv = [header, ...rows].map(r => r.map(escape).join(',')).join('\n')
+    const csv  = [header, ...rows].map(r => r.map(escape).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
@@ -213,12 +251,12 @@ export default function SkipTracePage() {
         key,
         name:           key === '__uncategorized__' ? 'Uncategorized' : key,
         records:        recs,
-        latestAt:       recs[0]?.created_at || '',   // records come in DESC order
+        latestAt:       recs[0]?.created_at || '',
         savedCount:     recs.filter(r => r.status === 'saved').length,
         completedCount: recs.filter(r => r.status === 'completed').length,
         submittedCount: recs.filter(r => ['submitted', 'processing'].includes(r.status)).length,
       }))
-      .sort((a, b) => b.latestAt.localeCompare(a.latestAt))  // newest group first
+      .sort((a, b) => b.latestAt.localeCompare(a.latestAt))
   })()
 
   const toggleGroupExpand = (key) => {
@@ -255,11 +293,8 @@ export default function SkipTracePage() {
     const allChecked = selectable.length > 0 && selectable.every(id => checkedIds.has(id))
     setCheckedIds(prev => {
       const next = new Set(prev)
-      if (allChecked) {
-        selectable.forEach(id => next.delete(id))
-      } else {
-        selectable.forEach(id => next.add(id))
-      }
+      if (allChecked) { selectable.forEach(id => next.delete(id)) }
+      else            { selectable.forEach(id => next.add(id)) }
       return next
     })
   }
@@ -307,7 +342,7 @@ export default function SkipTracePage() {
     try {
       const res = await checkSkipTraceResults()
       setCheckResult(res)
-      if (res.recordsUpdated > 0) await load()
+      if ((res.recordsUpdated || 0) + (res.dncRecordsUpdated || 0) > 0) await load()
     } catch (e) {
       setCheckResult({ error: e.message })
     } finally {
@@ -315,7 +350,7 @@ export default function SkipTracePage() {
     }
   }
 
-  // ── Submit ────────────────────────────────────────────────
+  // ── Submit skip trace ─────────────────────────────────────
   const handleSubmit = async () => {
     setShowConfirm(false)
     if (!checkedSaved.length) return
@@ -323,7 +358,7 @@ export default function SkipTracePage() {
     setSubmitError(null)
     setSubmitResult(null)
     try {
-      const res = await submitSkipTrace(checkedSaved, TRACE_TYPE, scrubDnc)
+      const res = await submitSkipTrace(checkedSaved, TRACE_TYPE)
       setSubmitResult(res)
       setCheckedIds(new Set())
       await load()
@@ -331,6 +366,25 @@ export default function SkipTracePage() {
       setSubmitError(e.message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // ── Submit DNC scrub ──────────────────────────────────────
+  const handleScrubDnc = async () => {
+    setShowDncConfirm(false)
+    if (!dncCandidates.length) return
+    setSubmittingDnc(true)
+    setDncSubmitError(null)
+    setDncSubmitResult(null)
+    try {
+      const res = await submitDncScrub(dncCandidates.map(r => r.id))
+      setDncSubmitResult(res)
+      setCheckedIds(new Set())
+      setDncPolling(true)  // auto-poll until DNC flags appear via realtime
+    } catch (e) {
+      setDncSubmitError(e.message)
+    } finally {
+      setSubmittingDnc(false)
     }
   }
 
@@ -413,31 +467,43 @@ export default function SkipTracePage() {
               <p className="text-sm text-emerald-300 font-medium">
                 <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted for skip trace.
               </p>
-              <p className="text-xs text-emerald-600 mt-0.5">
-                Results will appear here once processing is complete. This typically takes a few minutes.
-              </p>
+              <p className="text-xs text-emerald-600 mt-0.5">Results will appear here once processing is complete. This typically takes a few minutes.</p>
             </div>
             <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1 shrink-0"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
-        {(submitError || uploadError) && (
+        {dncSubmitResult?.message && (
+          <div className="flex items-center gap-3 bg-violet-500/10 border border-violet-500/20 rounded-xl px-4 py-3.5 mb-5">
+            {dncPolling ? (
+              <span className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin shrink-0" />
+            ) : (
+              <svg className="w-4 h-4 text-violet-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            )}
+            <p className="text-sm text-violet-300 font-medium flex-1">
+              {dncPolling ? 'DNC scrub in progress — results will appear automatically…' : dncSubmitResult.message}
+            </p>
+            {!dncPolling && (
+              <button onClick={() => setDncSubmitResult(null)} className="text-violet-600 hover:text-violet-400 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            )}
+          </div>
+        )}
+        {(submitError || uploadError || dncSubmitError) && (
           <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3.5 mb-5">
             <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-            <p className="text-sm text-red-300 font-medium flex-1">{submitError || uploadError}</p>
-            <button onClick={() => { setSubmitError(null); setUploadError(null) }} className="text-red-500 hover:text-red-300 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            <p className="text-sm text-red-300 font-medium flex-1">{submitError || uploadError || dncSubmitError}</p>
+            <button onClick={() => { setSubmitError(null); setUploadError(null); setDncSubmitError(null) }} className="text-red-500 hover:text-red-300 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
         {checkResult && !checkResult.error && (
           <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3.5 mb-5">
             <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
             <p className="text-sm text-emerald-300 font-medium flex-1">
-              {checkResult.completed === 0
+              {checkResult.completed === 0 && !checkResult.dncRecordsUpdated
                 ? 'No completed batches yet — still processing. Try again in a few minutes.'
                 : <>
-                    <span className="font-bold">{checkResult.completed} batch{checkResult.completed !== 1 ? 'es' : ''}</span> completed.
-                    {checkResult.recordsUpdated > 0
-                      ? <> <span className="font-bold">{checkResult.recordsUpdated} record{checkResult.recordsUpdated !== 1 ? 's' : ''}</span> updated with owner info.</>
-                      : ' No contact matches found for these properties.'}
+                    {checkResult.completed > 0 && <><span className="font-bold">{checkResult.completed} batch{checkResult.completed !== 1 ? 'es' : ''}</span> completed. </>}
+                    {checkResult.recordsUpdated > 0 && <><span className="font-bold">{checkResult.recordsUpdated} record{checkResult.recordsUpdated !== 1 ? 's' : ''}</span> updated with contact info. </>}
+                    {checkResult.dncRecordsUpdated > 0 && <><span className="font-bold">{checkResult.dncRecordsUpdated} record{checkResult.dncRecordsUpdated !== 1 ? 's' : ''}</span> updated with DNC flags.</>}
                   </>}
             </p>
             <button onClick={() => setCheckResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1 shrink-0"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
@@ -461,19 +527,20 @@ export default function SkipTracePage() {
           </span>
         </div>
 
-        {/* Sticky action bar — appears when any records are checked */}
+        {/* Sticky action bar */}
         {(checkedSaved.length > 0 || checkedCompleted.length > 0) && (
           <div className="sticky top-4 z-10 flex flex-wrap items-center gap-3 bg-slate-900/95 backdrop-blur border border-white/[0.10] rounded-2xl px-5 py-3.5 mb-6 shadow-xl">
 
-            {/* Download section — completed records */}
+            {/* Download + DNC scrub — completed records */}
             {checkedCompleted.length > 0 && (
-              <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap">
+              <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white">
                     {checkedCompleted.length} result{checkedCompleted.length !== 1 ? 's' : ''} selected
                   </p>
                   <p className="text-xs text-slate-500">Ready to export</p>
                 </div>
+
                 <button
                   onClick={() => downloadResults(false)}
                   className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition shadow-md"
@@ -483,6 +550,7 @@ export default function SkipTracePage() {
                   </svg>
                   {selectedHasDnc ? 'Download All' : 'Download CSV'}
                 </button>
+
                 {selectedHasDnc && (
                   <button
                     onClick={() => downloadResults(true)}
@@ -494,10 +562,23 @@ export default function SkipTracePage() {
                     Download Clean
                   </button>
                 )}
+
+                {dncCandidates.length > 0 && (
+                  <button
+                    onClick={() => setShowDncConfirm(true)}
+                    disabled={submittingDnc || dncPolling}
+                    className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition shadow-md shadow-violet-600/20 disabled:opacity-50"
+                  >
+                    {submittingDnc ? (
+                      <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Starting…</>
+                    ) : (
+                      <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Scrub DNC</>
+                    )}
+                  </button>
+                )}
               </div>
             )}
 
-            {/* Divider between sections when both are active */}
             {checkedCompleted.length > 0 && checkedSaved.length > 0 && (
               <div className="w-px h-10 bg-white/[0.08] shrink-0" />
             )}
@@ -529,7 +610,6 @@ export default function SkipTracePage() {
               </div>
             )}
 
-            {/* Deselect all */}
             <button
               onClick={() => setCheckedIds(new Set())}
               className="shrink-0 p-1.5 rounded-lg text-slate-600 hover:text-slate-300 transition"
@@ -542,7 +622,7 @@ export default function SkipTracePage() {
           </div>
         )}
 
-        {/* Confirm dialog */}
+        {/* Skip Trace confirm dialog */}
         {showConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
             <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
@@ -560,29 +640,48 @@ export default function SkipTracePage() {
                   <span className="text-slate-500">Est. Cost</span>
                   <span className="text-brand-400 font-bold">${(COST_PER_RECORD * checkedSaved.length).toFixed(2)}</span>
                 </div>
-                <div className="pt-2 border-t border-white/[0.06]">
-                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={scrubDnc}
-                      onChange={e => setScrubDnc(e.target.checked)}
-                      className="mt-0.5 accent-brand-600 cursor-pointer shrink-0"
-                    />
-                    <div>
-                      <p className="text-xs text-slate-300 font-medium">Scrub DNC (Do Not Call)</p>
-                      <p className="text-[11px] text-slate-600 mt-0.5">$0.02 per phone number checked — e.g. if a record returns 3 phones, DNC scrub adds $0.06 for that record. Numbers on the registry will be flagged.</p>
-                    </div>
-                  </label>
-                </div>
                 <div className="pt-1 border-t border-white/[0.06]">
                   <p className="text-[11px] text-slate-600">
                     Returns owner name, phones &amp; emails. Charged per matched record only — no charge on misses.
+                    After results arrive, you can optionally run DNC scrub on the completed records.
                   </p>
                 </div>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setShowConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
                 <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30">Confirm</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DNC Scrub confirm dialog */}
+        {showDncConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+              <h3 className="text-base font-bold text-white mb-1">Confirm DNC Scrub</h3>
+              <p className="text-xs text-slate-500 mb-4">Checks phone numbers against Federal DNC, State DNC, DMA, and TCPA litigator databases.</p>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Records</span>
+                  <span className="text-white font-semibold">{dncCandidates.length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Phones to check</span>
+                  <span className="text-white font-semibold">{totalPhonesForDnc}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Rate</span>
+                  <span className="text-white font-semibold">$0.02 / phone</span>
+                </div>
+                <div className="flex justify-between text-sm pt-1 border-t border-white/[0.06]">
+                  <span className="text-slate-500">Est. Cost</span>
+                  <span className="text-violet-400 font-bold">${(totalPhonesForDnc * 0.02).toFixed(2)}</span>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowDncConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
+                <button onClick={handleScrubDnc} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition shadow-md shadow-violet-600/30">Confirm</button>
               </div>
             </div>
           </div>
@@ -624,7 +723,6 @@ export default function SkipTracePage() {
                       />
                     )}
 
-                    {/* Expand toggle — fills remaining space */}
                     <button
                       onClick={() => toggleGroupExpand(group.key)}
                       className="flex-1 flex items-center gap-2.5 text-left min-w-0"
@@ -650,7 +748,6 @@ export default function SkipTracePage() {
                       </div>
                     </button>
 
-                    {/* Delete group */}
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteGroup(group) }}
                       disabled={isDeletingThis}
@@ -663,7 +760,6 @@ export default function SkipTracePage() {
                     </button>
                   </div>
 
-                  {/* Records — only shown when expanded */}
                   {isExpanded && (
                     <div className="border-t border-white/[0.05] divide-y divide-white/[0.04]">
                       {group.records.map(record => (
@@ -682,7 +778,6 @@ export default function SkipTracePage() {
               )
             })}
 
-            {/* Global refresh */}
             <div className="text-center">
               <button onClick={load} className="text-xs text-slate-600 hover:text-slate-400 transition">↺ Refresh all</button>
             </div>
@@ -717,7 +812,7 @@ function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
           <span className="text-[10px] text-slate-700">{new Date(record.created_at).toLocaleDateString()}</span>
         </div>
         {record.status === 'completed' && record.result && (
-          <ContactResult result={record.result} />
+          <ContactResult result={record.result} record={record} />
         )}
       </div>
 
@@ -750,99 +845,87 @@ function PhoneTag({ type }) {
   return                          <span className="text-[10px] font-semibold text-blue-400 border border-blue-500/40 rounded px-1.5 py-0.5">Mobile</span>
 }
 
-function ContactResult({ result }) {
+const CSV_HEADER = ['List Name','Address','City','State','Zip','Owner Name','Primary Phone','Mobile 1','Mobile 2','Mobile 3','Landline 1','Landline 2','Email 1','Email 2','Email 3']
+
+function buildCsvRow(record, result, phonesOverride) {
+  const phones    = phonesOverride
+  const primary   = phones.find(p => p.type === 'primary')?.number  || ''
+  const mobiles   = phones.filter(p => p.type === 'mobile').map(p => p.number)
+  const landlines = phones.filter(p => p.type === 'landline').map(p => p.number)
+  const emails    = result.emails || []
+  return [
+    record.list_name  || '', record.address    || '', record.city      || '',
+    record.state_code || '', record.zip        || '', result.full_name || '',
+    primary,
+    mobiles[0]  || '', mobiles[1]   || '', mobiles[2]   || '',
+    landlines[0]|| '', landlines[1] || '',
+    emails[0]   || '', emails[1]    || '', emails[2]    || '',
+  ]
+}
+
+function triggerDownload(rows, filename) {
+  const escape = v => `"${String(v).replace(/"/g, '""')}"`
+  const csv  = [CSV_HEADER, ...rows].map(r => r.map(escape).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function ContactResult({ result, record }) {
   const rawPhones = result.phones || []
   const phones = rawPhones.map(p =>
     typeof p === 'string' ? { number: p, type: 'mobile', dnc: false } : { ...p, dnc: p.dnc ?? false }
   )
   const emails       = result.emails || []
   const dncScrubbed  = !!result.dnc_scrubbed
-  const cleanPhones  = dncScrubbed ? phones.filter(p => !p.dnc) : phones
+  const cleanPhones  = dncScrubbed ? phones.filter(p => !p.dnc) : []
   const flaggedCount = dncScrubbed ? phones.filter(p => p.dnc).length : 0
+
+  const slug = (record?.address || 'record').replace(/[^a-z0-9]/gi, '-').toLowerCase()
+
+  const downloadSkipTrace = () =>
+    triggerDownload([buildCsvRow(record, result, phones)], `${slug}-skip-trace.csv`)
+
+  const downloadClean = () =>
+    triggerDownload([buildCsvRow(record, result, cleanPhones)], `${slug}-clean.csv`)
 
   if (!result.full_name && !phones.length && !emails.length) {
     return <p className="text-xs text-slate-600 mt-1.5 italic">No contact data found</p>
   }
 
   return (
-    <div className="mt-3 pt-3 border-t border-white/[0.05]">
-      {result.full_name && (
-        <div className="flex items-center gap-1.5 mb-2.5">
-          <svg className="w-3 h-3 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-          </svg>
-          <span className="text-xs font-semibold text-slate-200">{result.full_name}</span>
+    <div className="mt-3 space-y-2.5">
+
+      {/* ── Skip Trace Result card ──────────────────────────────── */}
+      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Skip Trace Result</span>
+          <button
+            onClick={downloadSkipTrace}
+            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition"
+            title="Download this record as CSV"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            CSV
+          </button>
         </div>
-      )}
 
-      {dncScrubbed ? (
-        <>
-          {/* DNC stats summary */}
-          <div className="flex items-center gap-3 mb-2.5 text-[11px] font-medium">
-            <span className="text-slate-500">{phones.length} phone{phones.length !== 1 ? 's' : ''} checked</span>
-            <span className="text-emerald-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              {cleanPhones.length} clean
-            </span>
-            {flaggedCount > 0 && (
-              <span className="text-red-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
-                {flaggedCount} flagged
-              </span>
-            )}
+        {result.full_name && (
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <svg className="w-3 h-3 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+            <span className="text-xs font-semibold text-slate-200">{result.full_name}</span>
           </div>
+        )}
 
-          {/* Two phone lists side by side */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Full Result</p>
-              {phones.length === 0 ? (
-                <span className="text-xs text-slate-700">—</span>
-              ) : (
-                <div className="space-y-1.5">
-                  {phones.map((ph, i) => (
-                    <div key={i} className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`text-xs font-mono ${ph.dnc ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{ph.number}</span>
-                      <PhoneTag type={ph.type} />
-                      {ph.dnc && <span className="text-[9px] px-1 py-0.5 rounded font-bold uppercase tracking-wide text-red-400 border border-red-500/40">DNC</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Clean (No Flags)</p>
-              {cleanPhones.length === 0 ? (
-                <span className="text-xs text-slate-700 italic">All numbers flagged</span>
-              ) : (
-                <div className="space-y-1.5">
-                  {cleanPhones.map((ph, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
-                      <PhoneTag type={ph.type} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Emails */}
-          <div className="grid grid-cols-3 gap-3">
-            {['Email 1', 'Email 2', 'Email 3'].map((label, i) => (
-              <div key={i}>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">{label}</p>
-                {emails[i]
-                  ? <span className="text-xs text-violet-300 break-all">{emails[i]}</span>
-                  : <span className="text-xs text-slate-700">—</span>}
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Phones column */}
           <div className="col-span-2 lg:col-span-1">
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Phones</p>
             {phones.length === 0 ? (
@@ -859,29 +942,67 @@ function ContactResult({ result }) {
             )}
           </div>
 
-          {/* Email 1 */}
-          <div>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 1</p>
-            {emails[0]
-              ? <span className="text-xs text-violet-300 break-all">{emails[0]}</span>
-              : <span className="text-xs text-slate-700">—</span>}
+          {['Email 1', 'Email 2', 'Email 3'].map((label, i) => (
+            <div key={i}>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">{label}</p>
+              {emails[i]
+                ? <span className="text-xs text-violet-300 break-all">{emails[i]}</span>
+                : <span className="text-xs text-slate-700">—</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── DNC Scrub Result card ───────────────────────────────── */}
+      {dncScrubbed && (
+        <div className="bg-white/[0.02] border border-violet-500/15 rounded-xl p-3">
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block" />
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">DNC Scrub Result</span>
+            </div>
+            <button
+              onClick={downloadClean}
+              className="flex items-center gap-1 text-[10px] text-violet-500 hover:text-violet-300 transition"
+              title="Download clean numbers only"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Download Clean
+            </button>
           </div>
 
-          {/* Email 2 */}
-          <div>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 2</p>
-            {emails[1]
-              ? <span className="text-xs text-violet-300 break-all">{emails[1]}</span>
-              : <span className="text-xs text-slate-700">—</span>}
+          {/* Stats */}
+          <div className="flex items-center gap-6 mb-3 pb-3 border-b border-white/[0.04]">
+            <div>
+              <p className="text-lg font-bold text-white leading-none">{phones.length}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Checked</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-emerald-400 leading-none">{cleanPhones.length}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Clean (No Flags)</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-red-400 leading-none">{flaggedCount}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Flagged</p>
+            </div>
           </div>
 
-          {/* Email 3 */}
-          <div>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 3</p>
-            {emails[2]
-              ? <span className="text-xs text-violet-300 break-all">{emails[2]}</span>
-              : <span className="text-xs text-slate-700">—</span>}
-          </div>
+          {/* Clean phones list */}
+          {cleanPhones.length === 0 ? (
+            <p className="text-xs text-slate-600 italic">All numbers flagged — no clean phones to call</p>
+          ) : (
+            <div className="space-y-1.5">
+              {cleanPhones.map((ph, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
+                  <PhoneTag type={ph.type} />
+                  <span className="text-[9px] text-emerald-500 font-medium">No flags</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -75,8 +75,9 @@ export const getSkipTraceRecords   = ()          => call('skip-trace')
 export const saveSkipTraceRecords  = (records, list_name) => call('skip-trace', 'POST', { records, list_name })
 export const deleteSkipTraceRecord = (id)        => call(`skip-trace?id=${id}`, 'DELETE')
 export const deleteSkipTraceGroup  = (listKey)   => call(`skip-trace?listName=${encodeURIComponent(listKey)}`, 'DELETE')
-export const submitSkipTrace       = (recordIds, traceType = 'advanced', scrubDnc = false) => call('submit-skip-trace', 'POST', { recordIds, traceType, scrubDnc })
+export const submitSkipTrace       = (recordIds, traceType = 'advanced') => call('submit-skip-trace', 'POST', { recordIds, traceType })
 export const checkSkipTraceResults = ()          => call('check-skip-trace', 'POST')
+export const submitDncScrub        = (recordIds) => call('scrub-dnc', 'POST', { recordIds })
 
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin?action=users')
