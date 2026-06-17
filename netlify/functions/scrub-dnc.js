@@ -10,8 +10,10 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
 
-  const { user, error } = await requireAuth(event)
+  const { user, role, error } = await requireAuth(event)
   if (error) return err(error, 401)
+
+  const isAdmin = role === 'admin'
 
   let body
   try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
@@ -36,30 +38,38 @@ export const handler = async (event) => {
   if (recErr) return err(recErr.message, 500)
   if (!records?.length) return err('No eligible completed records found', 400)
 
-  // ── Deduct DNC balance ($0.02/phone) ──────────────────────
+  // ── Deduct DNC balance ($0.02/phone) — skipped for admins ─────────────────
   const COST_PER_PHONE = 0.02
   const totalPhones    = records.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
 
   if (totalPhones === 0) return err('No phone numbers found in these records', 400)
 
-  const cost = Math.round(totalPhones * COST_PER_PHONE * 100) / 100
+  const cost = isAdmin ? 0 : Math.round(totalPhones * COST_PER_PHONE * 100) / 100
 
-  const { data: deducted, error: deductErr } = await supabase
-    .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+  if (!isAdmin) {
+    const { data: deducted, error: deductErr } = await supabase
+      .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
 
-  if (deductErr) return err(deductErr.message, 500)
-  if (!deducted) {
-    return err(
-      `Insufficient skip trace balance. This DNC scrub requires $${cost.toFixed(2)} ` +
-      `(${totalPhones} phone${totalPhones !== 1 ? 's' : ''} × $${COST_PER_PHONE}/phone). ` +
-      `Please add funds on the Credits page.`,
-      402
-    )
+    if (deductErr) return err(deductErr.message, 500)
+    if (!deducted) {
+      return err(
+        `Insufficient skip trace balance. This DNC scrub requires $${cost.toFixed(2)} ` +
+        `(${totalPhones} phone${totalPhones !== 1 ? 's' : ''} × $${COST_PER_PHONE}/phone). ` +
+        `Please add funds on the Credits page.`,
+        402
+      )
+    }
+  }
+
+  const refund = () => {
+    if (isAdmin) return Promise.resolve()
+    return supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+      .catch(e => console.error('Failed to refund skip trace balance:', e.message))
   }
 
   const orderIds = [...new Set(records.map(r => r.order_id).filter(Boolean))]
   if (!orderIds.length) {
-    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
+    await refund()
     return err('No orders found for these records', 400)
   }
 
@@ -71,7 +81,7 @@ export const handler = async (event) => {
     .eq('user_id', user.id)
 
   if (ordErr) {
-    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
+    await refund()
     return err(ordErr.message, 500)
   }
 
@@ -110,7 +120,7 @@ export const handler = async (event) => {
   }
 
   if (!started) {
-    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
+    await refund()
     return err(errs[0] || 'Failed to start DNC scrub', 400)
   }
 
