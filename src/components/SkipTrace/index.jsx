@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../context/AuthContext'
 import {
   getSkipTraceRecords,
   saveSkipTraceRecords,
@@ -70,6 +72,7 @@ function StatusBadge({ status }) {
 // ── Main page ─────────────────────────────────────────────────
 export default function SkipTracePage() {
   const { openSidebar } = useOutletContext()
+  const { user } = useAuth()
 
   const [records,         setRecords]         = useState([])
   const [loading,         setLoading]         = useState(true)
@@ -102,6 +105,22 @@ export default function SkipTracePage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // ── Realtime subscription ─────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return
+    const channel = supabase
+      .channel('skip-trace-live')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'skip_trace_records', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          setRecords(prev => prev.map(r => r.id === payload.new.id ? { ...r, ...payload.new } : r))
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [user?.id])
 
   // ── Selection helpers ─────────────────────────────────────
   const savedRecords   = records.filter(r => r.status === 'saved')
@@ -574,36 +593,80 @@ function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
   )
 }
 
+const PHONE_TAG = {
+  primary:  { label: 'Primary',  cls: 'bg-brand-600/20 text-brand-400' },
+  mobile:   { label: 'Mobile',   cls: 'bg-blue-500/15 text-blue-400' },
+  landline: { label: 'Landline', cls: 'bg-slate-600/60 text-slate-400' },
+}
+
 function ContactResult({ result }) {
-  const phones = result.phones || []
+  // phones may be objects {number, type} (new format) or plain strings (legacy)
+  const rawPhones = result.phones || []
+  const phones = rawPhones.map(p =>
+    typeof p === 'string' ? { number: p, type: 'mobile' } : p
+  )
   const emails = result.emails || []
+
   if (!result.full_name && !phones.length && !emails.length) {
     return <p className="text-xs text-slate-600 mt-1.5 italic">No contact data found</p>
   }
+
   return (
-    <div className="mt-2 space-y-1.5">
+    <div className="mt-3 pt-3 border-t border-white/[0.05]">
       {result.full_name && (
-        <div className="flex items-center gap-1.5">
-          <svg className="w-3 h-3 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
-          <span className="text-xs text-slate-300 font-medium">{result.full_name}</span>
+        <div className="flex items-center gap-1.5 mb-2.5">
+          <svg className="w-3 h-3 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+          </svg>
+          <span className="text-xs font-semibold text-slate-200">{result.full_name}</span>
         </div>
       )}
-      {phones.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {phones.slice(0, 4).map((p, i) => (
-            <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">{p}</span>
-          ))}
-          {phones.length > 4 && <span className="text-[11px] text-slate-600">+{phones.length - 4} more</span>}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Phones column */}
+        <div className="col-span-2 lg:col-span-1">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Phones</p>
+          {phones.length === 0 ? (
+            <span className="text-xs text-slate-700">—</span>
+          ) : (
+            <div className="space-y-1.5">
+              {phones.map((ph, i) => {
+                const tag = PHONE_TAG[ph.type] || PHONE_TAG.mobile
+                return (
+                  <div key={i} className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-slate-200 font-mono tracking-tight">{ph.number}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${tag.cls}`}>{tag.label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
-      )}
-      {emails.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {emails.slice(0, 3).map((e, i) => (
-            <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/20">{e}</span>
-          ))}
-          {emails.length > 3 && <span className="text-[11px] text-slate-600">+{emails.length - 3} more</span>}
+
+        {/* Email 1 */}
+        <div>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 1</p>
+          {emails[0]
+            ? <span className="text-xs text-violet-300 break-all">{emails[0]}</span>
+            : <span className="text-xs text-slate-700">—</span>}
         </div>
-      )}
+
+        {/* Email 2 */}
+        <div>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 2</p>
+          {emails[1]
+            ? <span className="text-xs text-violet-300 break-all">{emails[1]}</span>
+            : <span className="text-xs text-slate-700">—</span>}
+        </div>
+
+        {/* Email 3 */}
+        <div>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 3</p>
+          {emails[2]
+            ? <span className="text-xs text-violet-300 break-all">{emails[2]}</span>
+            : <span className="text-xs text-slate-700">—</span>}
+        </div>
+      </div>
     </div>
   )
 }

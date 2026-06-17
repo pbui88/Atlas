@@ -38,13 +38,23 @@ async function fetchQueueResults(queueId) {
 // Build normalised result object stored per skip_trace_record
 function normalizeResult(row) {
   const phones = [
-    row.primary_phone,
-    row.mobile_1, row.mobile_2, row.mobile_3, row.mobile_4, row.mobile_5,
-    row.landline_1, row.landline_2, row.landline_3,
+    row.primary_phone && { number: row.primary_phone, type: 'primary' },
+    row.mobile_1   && { number: row.mobile_1,   type: 'mobile' },
+    row.mobile_2   && { number: row.mobile_2,   type: 'mobile' },
+    row.mobile_3   && { number: row.mobile_3,   type: 'mobile' },
+    row.mobile_4   && { number: row.mobile_4,   type: 'mobile' },
+    row.mobile_5   && { number: row.mobile_5,   type: 'mobile' },
+    row.landline_1 && { number: row.landline_1, type: 'landline' },
+    row.landline_2 && { number: row.landline_2, type: 'landline' },
+    row.landline_3 && { number: row.landline_3, type: 'landline' },
   ].filter(Boolean)
 
   const emails = [
-    row.email_1, row.email_2, row.email_3, row.email_4, row.email_5,
+    row.email_1 || null,
+    row.email_2 || null,
+    row.email_3 || null,
+    row.email_4 || null,
+    row.email_5 || null,
   ].filter(Boolean)
 
   return {
