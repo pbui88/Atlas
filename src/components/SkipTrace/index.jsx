@@ -593,14 +593,13 @@ function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
   )
 }
 
-const PHONE_TAG = {
-  primary:  { label: 'Primary',  cls: 'bg-brand-600/20 text-brand-400' },
-  mobile:   { label: 'Mobile',   cls: 'bg-blue-500/15 text-blue-400' },
-  landline: { label: 'Landline', cls: 'bg-slate-600/60 text-slate-400' },
+function PhoneTag({ type }) {
+  if (type === 'primary')  return <span className="text-[10px] font-semibold text-emerald-400 border border-emerald-500/40 rounded px-1.5 py-0.5">Primary</span>
+  if (type === 'landline') return <span className="text-[10px] font-semibold text-slate-400 border border-slate-600 rounded px-1.5 py-0.5">Landline</span>
+  return                          <span className="text-[10px] font-semibold text-blue-400 border border-blue-500/40 rounded px-1.5 py-0.5">Mobile</span>
 }
 
 function ContactResult({ result }) {
-  // phones may be objects {number, type} (new format) or plain strings (legacy)
   const rawPhones = result.phones || []
   const phones = rawPhones.map(p =>
     typeof p === 'string' ? { number: p, type: 'mobile' } : p
@@ -630,15 +629,12 @@ function ContactResult({ result }) {
             <span className="text-xs text-slate-700">—</span>
           ) : (
             <div className="space-y-1.5">
-              {phones.map((ph, i) => {
-                const tag = PHONE_TAG[ph.type] || PHONE_TAG.mobile
-                return (
-                  <div key={i} className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs text-slate-200 font-mono tracking-tight">{ph.number}</span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${tag.cls}`}>{tag.label}</span>
-                  </div>
-                )
-              })}
+              {phones.map((ph, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
+                  <PhoneTag type={ph.type} />
+                </div>
+              ))}
             </div>
           )}
         </div>
