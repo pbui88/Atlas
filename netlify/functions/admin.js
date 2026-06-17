@@ -197,7 +197,7 @@ export const handler = async (event) => {
     // Fix 2: guard against malformed request body
     let patchBody = {}
     try { patchBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
-    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, billing_state } = patchBody
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, setScanBalance, billing_state } = patchBody
     if (!isValidUUID(userId)) return err('userId required')
 
     // Handle manual credit grant — increments purchased_credits via RPC
@@ -208,6 +208,20 @@ export const handler = async (event) => {
       if (rpcErr) return err(rpcErr.message)
       const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
       return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
+    }
+
+    // Handle scan (skip trace) balance override — sets the balance directly to correct mistakes
+    if (setScanBalance !== undefined) {
+      const amount = parseFloat(setScanBalance)
+      if (isNaN(amount) || amount < 0) return err('setScanBalance must be a non-negative number')
+      const rounded = Math.round(amount * 100) / 100
+      const { error: balErr } = await supabase
+        .from('profiles')
+        .update({ skip_trace_balance: rounded })
+        .eq('id', userId)
+      if (balErr) return err(balErr.message)
+      const { data: updated } = await supabase.from('profiles').select('skip_trace_balance').eq('id', userId).maybeSingle()
+      return ok({ skip_trace_balance: updated?.skip_trace_balance ?? 0 })
     }
 
     // Handle Google Maps key separately (stored in user_keys, not profiles)
