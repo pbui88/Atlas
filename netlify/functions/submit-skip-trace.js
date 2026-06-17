@@ -42,6 +42,7 @@ export const handler = async (event) => {
       record_count: records.length,
       cost_usd:     0,
       status:       TRACERFY_API_KEY ? 'processing' : 'pending',
+      scrub_dnc:    !!scrubDnc,
     })
     .select()
     .single()
@@ -74,7 +75,7 @@ export const handler = async (event) => {
     form.append('state_column',   'state')
     form.append('zip_column',     'zip')
     form.append('trace_type',     traceType)
-    if (scrubDnc) form.append('scrub_dnc', '1')
+    // DNC scrub is a separate Tracerfy step (dnc/scrub-from-queue/) run after trace completes
 
     try {
       const res = await fetch(`${TRACERFY_BASE}/trace/`, {

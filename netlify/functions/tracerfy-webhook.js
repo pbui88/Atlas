@@ -88,7 +88,7 @@ export const handler = async (event) => {
   // Find the order matching this Tracerfy queue
   const { data: order, error: orderErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, user_id')
+    .select('id, user_id, scrub_dnc')
     .eq('tracerfy_order_id', queueId)
     .maybeSingle()
 
@@ -153,6 +153,28 @@ export const handler = async (event) => {
   } catch (e) {
     console.error('tracerfy-webhook: failed to fetch results:', e.message)
     // Don't return an error — Tracerfy may retry. Order is already marked complete.
+  }
+
+  // If DNC scrub was requested, kick it off now that trace results are saved
+  if (order.scrub_dnc) {
+    try {
+      const dncRes = await fetch(`${TRACERFY_BASE}/dnc/scrub-from-queue/`, {
+        method:  'POST',
+        headers: {
+          'Authorization': `Bearer ${TRACERFY_API_KEY}`,
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({ queue_id: parseInt(queueId, 10) }),
+      })
+      const dncData = await dncRes.json().catch(() => ({}))
+      if (dncData.dnc_queue_id) {
+        await supabase.from('skip_trace_orders')
+          .update({ dnc_queue_id: String(dncData.dnc_queue_id) })
+          .eq('id', order.id)
+      }
+    } catch (e) {
+      console.error('tracerfy-webhook: failed to start DNC scrub:', e.message)
+    }
   }
 
   return ok({ ok: true })

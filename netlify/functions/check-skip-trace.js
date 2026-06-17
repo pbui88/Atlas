@@ -85,6 +85,91 @@ function matchRecord(tracerfyRow, records) {
   }) || null
 }
 
+// ── DNC helpers ───────────────────────────────────────────────────────────────
+
+// Start a DNC scrub-from-queue for a completed trace order.
+// Returns the Tracerfy dnc_queue_id on success, null on failure.
+async function startDncScrub(tracerfyQueueId) {
+  try {
+    const res = await fetch(`${TRACERFY_BASE}/dnc/scrub-from-queue/`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${TRACERFY_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({ queue_id: parseInt(tracerfyQueueId, 10) }),
+    })
+    const data = await res.json().catch(() => ({}))
+    return data.dnc_queue_id ? String(data.dnc_queue_id) : null
+  } catch (e) {
+    console.error('startDncScrub failed:', e.message)
+    return null
+  }
+}
+
+// Parse Tracerfy's DNC full-results CSV.
+// Returns a Map of { digitsOnlyPhone → isClean (boolean) }.
+async function parseDncCsv(url) {
+  try {
+    const res  = await fetch(url)
+    if (!res.ok) return new Map()
+    const text = await res.text()
+    const lines = text.split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) return new Map()
+
+    const strip = s => s.trim().replace(/^"|"$/g, '')
+    const headers = lines[0].split(',').map(h => strip(h).toLowerCase())
+    const phoneIdx   = headers.indexOf('phone')
+    const isCleanIdx = headers.indexOf('is_clean')
+    if (phoneIdx < 0 || isCleanIdx < 0) return new Map()
+
+    const map = new Map()
+    for (const line of lines.slice(1)) {
+      const cols    = line.split(',')
+      const digits  = strip(cols[phoneIdx] || '').replace(/\D/g, '')
+      const isClean = strip(cols[isCleanIdx] || '').toLowerCase() === 'true'
+      if (digits) map.set(digits, isClean)
+    }
+    return map
+  } catch (e) {
+    console.error('parseDncCsv failed:', e.message)
+    return new Map()
+  }
+}
+
+// Apply DNC flags from dncMap to every record in the order.
+// Sets phone.dnc and result.dnc_scrubbed = true.
+async function applyDncToRecords(supabase, orderId, dncMap) {
+  const { data: records } = await supabase
+    .from('skip_trace_records')
+    .select('id, result')
+    .eq('order_id', orderId)
+    .not('result', 'is', null)
+
+  if (!records?.length) return 0
+  let updated = 0
+
+  for (const record of records) {
+    if (!record.result?.phones?.length) continue
+
+    const phones = record.result.phones.map(ph => {
+      const digits = (ph.number || '').replace(/\D/g, '')
+      if (!digits) return ph
+      const isClean = dncMap.get(digits)
+      return isClean !== undefined ? { ...ph, dnc: !isClean } : { ...ph, dnc: false }
+    })
+
+    await supabase.from('skip_trace_records')
+      .update({ result: { ...record.result, phones, dnc_scrubbed: true } })
+      .eq('id', record.id)
+
+    updated++
+  }
+  return updated
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
@@ -96,34 +181,34 @@ export const handler = async (event) => {
 
   const supabase = adminSupabase()
 
-  // Find all orders for this user that are still marked processing
+  // ── Phase 1: check pending trace orders ─────────────────────────────────
+
   const { data: orders, error: ordersErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, tracerfy_order_id')
+    .select('id, tracerfy_order_id, scrub_dnc')
     .eq('user_id', user.id)
     .eq('status', 'processing')
     .not('tracerfy_order_id', 'is', null)
 
   if (ordersErr) return err(ordersErr.message, 500)
-  if (!orders?.length) return ok({ checked: 0, completed: 0, recordsUpdated: 0 })
 
-  // Pull queue statuses from Tracerfy
-  let queueStatuses
-  try {
-    queueStatuses = await fetchQueueStatuses()
-  } catch (e) {
-    return err('Failed to reach Tracerfy: ' + e.message, 502)
+  let queueStatuses = []
+  if (orders?.length) {
+    try {
+      queueStatuses = await fetchQueueStatuses()
+    } catch (e) {
+      return err('Failed to reach Tracerfy: ' + e.message, 502)
+    }
   }
 
   const statusMap = Object.fromEntries(queueStatuses.map(q => [String(q.id), q]))
 
   let completed      = 0
   let recordsUpdated = 0
+  const dncStarted   = []   // orders that need DNC scrub kicked off
 
-  for (const order of orders) {
+  for (const order of (orders || [])) {
     const queueStatus = statusMap[order.tracerfy_order_id]
-
-    // If we can't find the queue or it's still pending, skip
     if (!queueStatus || queueStatus.pending !== false) continue
 
     // Queue is done — fetch results
@@ -144,50 +229,94 @@ export const handler = async (event) => {
     completed++
 
     if (!results.length) {
-      // No matches — still mark records as completed
       await supabase
         .from('skip_trace_records')
         .update({ status: 'completed', completed_at: new Date().toISOString() })
         .eq('order_id', order.id)
-      continue
+    } else {
+      const { data: records } = await supabase
+        .from('skip_trace_records')
+        .select('id, address')
+        .eq('order_id', order.id)
+
+      if (records?.length) {
+        const updatedIds = new Set()
+        for (const row of results) {
+          const match = matchRecord(row, records)
+          if (!match || updatedIds.has(match.id)) continue
+          updatedIds.add(match.id)
+
+          await supabase
+            .from('skip_trace_records')
+            .update({
+              status:       'completed',
+              completed_at: new Date().toISOString(),
+              result:       normalizeResult(row),
+            })
+            .eq('id', match.id)
+
+          recordsUpdated++
+        }
+
+        const unmatchedIds = records.map(r => r.id).filter(id => !updatedIds.has(id))
+        if (unmatchedIds.length) {
+          await supabase
+            .from('skip_trace_records')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .in('id', unmatchedIds)
+        }
+      }
     }
 
-    // Fetch submitted records for this order so we can match by address
-    const { data: records } = await supabase
-      .from('skip_trace_records')
-      .select('id, address')
-      .eq('order_id', order.id)
-
-    if (!records?.length) continue
-
-    const updatedIds = new Set()
-
-    for (const row of results) {
-      const match = matchRecord(row, records)
-      if (!match || updatedIds.has(match.id)) continue
-      updatedIds.add(match.id)
-
-      await supabase
-        .from('skip_trace_records')
-        .update({
-          status:       'completed',
-          completed_at: new Date().toISOString(),
-          result:       normalizeResult(row),
-        })
-        .eq('id', match.id)
-
-      recordsUpdated++
-    }
-
-    // Any records that didn't get a match — mark completed without result
-    const unmatchedIds = records.map(r => r.id).filter(id => !updatedIds.has(id))
-    if (unmatchedIds.length) {
-      await supabase
-        .from('skip_trace_records')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
-        .in('id', unmatchedIds)
+    // If DNC scrub was requested, kick it off now (results are ready in Tracerfy)
+    if (order.scrub_dnc) {
+      dncStarted.push({ orderId: order.id, tracerfyQueueId: order.tracerfy_order_id })
     }
   }
 
-  return ok({ checked: orders.length, completed, recordsUpdated })
+  // Start DNC scrubs for newly-completed trace orders
+  for (const { orderId, tracerfyQueueId } of dncStarted) {
+    const dncQueueId = await startDncScrub(tracerfyQueueId)
+    if (dncQueueId) {
+      await supabase.from('skip_trace_orders')
+        .update({ dnc_queue_id: dncQueueId })
+        .eq('id', orderId)
+    }
+  }
+
+  // ── Phase 2: check pending DNC queues ────────────────────────────────────
+
+  const { data: dncOrders } = await supabase
+    .from('skip_trace_orders')
+    .select('id, dnc_queue_id')
+    .eq('user_id', user.id)
+    .eq('status', 'completed')
+    .not('dnc_queue_id', 'is', null)
+
+  let dncRecordsUpdated = 0
+
+  for (const dncOrder of (dncOrders || [])) {
+    try {
+      const res = await fetch(`${TRACERFY_BASE}/dnc/queue/${dncOrder.dnc_queue_id}`, {
+        headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
+      })
+      const dncStatus = await res.json().catch(() => null)
+
+      if (!dncStatus || dncStatus.pending !== false) continue  // still processing
+      if (!dncStatus.download_url) continue
+
+      // DNC complete — parse full-results CSV and apply flags
+      const dncMap = await parseDncCsv(dncStatus.download_url)
+      dncRecordsUpdated += await applyDncToRecords(supabase, dncOrder.id, dncMap)
+
+      // Clear queue ID so we don't reprocess on the next check
+      await supabase.from('skip_trace_orders')
+        .update({ dnc_queue_id: null })
+        .eq('id', dncOrder.id)
+    } catch (e) {
+      console.error(`Failed to check DNC queue ${dncOrder.dnc_queue_id}:`, e.message)
+    }
+  }
+
+  return ok({ checked: orders?.length ?? 0, completed, recordsUpdated, dncRecordsUpdated })
 }
