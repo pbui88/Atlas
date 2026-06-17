@@ -119,10 +119,11 @@ export default function SkipTracePage() {
   const [dncSubmitResult,  setDncSubmitResult]  = useState(null)
   const [dncSubmitError,   setDncSubmitError]   = useState(null)
   const [dncPolling,       setDncPolling]       = useState(false)
-  const dncPollRef   = useRef(null)
+  const dncPollRef          = useRef(null)
   const [tracePolling, setTracePolling]         = useState(false)
-  const tracePollRef  = useRef(null)
-  const fileRef       = useRef(null)
+  const tracePollRef        = useRef(null)
+  const pendingTraceIdsRef  = useRef(null)   // IDs submitted, cleared when first result arrives
+  const fileRef             = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -211,6 +212,21 @@ export default function SkipTracePage() {
     tracePollRef.current = setTimeout(poll, 10000)  // first check after 10s
     return () => { if (tracePollRef.current) clearTimeout(tracePollRef.current) }
   }, [tracePolling, load])
+
+  // ── Clear submit banner when submitted records complete ────
+  // Watches records (updated by realtime) — clears the banner the moment
+  // any of the just-submitted records transitions to completed.
+  useEffect(() => {
+    if (!pendingTraceIdsRef.current?.size) return
+    const anyDone = records.some(
+      r => pendingTraceIdsRef.current.has(r.id) && r.status === 'completed'
+    )
+    if (anyDone) {
+      setSubmitResult(null)
+      setTracePolling(false)
+      pendingTraceIdsRef.current = null
+    }
+  }, [records])
 
   // ── Selection helpers ─────────────────────────────────────
   const savedRecords     = records.filter(r => r.status === 'saved')
@@ -396,10 +412,12 @@ export default function SkipTracePage() {
     setSubmitError(null)
     setSubmitResult(null)
     try {
+      const submittedIds = new Set(checkedSaved)
       const res = await submitSkipTrace(checkedSaved, TRACE_TYPE)
       setSubmitResult(res)
       setCheckedIds(new Set())
-      setTracePolling(true)  // auto-dismiss banner when results arrive
+      pendingTraceIdsRef.current = submittedIds  // watched by records effect
+      setTracePolling(true)                       // polling fallback
       await load()
     } catch (e) {
       setSubmitError(e.message)
