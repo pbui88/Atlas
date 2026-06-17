@@ -355,7 +355,7 @@ export default function SkipTracePage() {
               </div>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Skip Trace</h1>
             </div>
-            <p className="text-sm text-slate-500">Find property owner contact info — powered by Tracerfy</p>
+            <p className="text-sm text-slate-500">Find property owner contact info — phones, emails &amp; more</p>
           </div>
 
           {/* Action buttons */}
@@ -408,10 +408,10 @@ export default function SkipTracePage() {
             <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
             <div className="flex-1">
               <p className="text-sm text-emerald-300 font-medium">
-                <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted to Tracerfy ({submitResult.traceType}).
+                <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted ({submitResult.traceType} trace).
               </p>
               <p className="text-xs text-emerald-600 mt-0.5">
-                Results will appear here once Tracerfy finishes. This typically takes a few minutes.
+                Results will appear here once processing is complete. This typically takes a few minutes.
               </p>
             </div>
             <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1 shrink-0"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
@@ -429,7 +429,7 @@ export default function SkipTracePage() {
             <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
             <p className="text-sm text-emerald-300 font-medium flex-1">
               {checkResult.completed === 0
-                ? 'No completed batches yet — Tracerfy is still processing. Try again in a few minutes.'
+                ? 'No completed batches yet — still processing. Try again in a few minutes.'
                 : <>
                     <span className="font-bold">{checkResult.completed} batch{checkResult.completed !== 1 ? 'es' : ''}</span> completed.
                     {checkResult.recordsUpdated > 0
@@ -557,7 +557,7 @@ export default function SkipTracePage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">Cost</span>
-                  <span className="text-brand-400 font-bold">~{creditsPerLead * checkedSaved.length} Tracerfy credits</span>
+                  <span className="text-brand-400 font-bold">~{creditsPerLead * checkedSaved.length} credits</span>
                 </div>
                 <div className="pt-1 border-t border-white/[0.06]">
                   <p className="text-[11px] text-slate-600">
