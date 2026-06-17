@@ -119,8 +119,10 @@ export default function SkipTracePage() {
   const [dncSubmitResult,  setDncSubmitResult]  = useState(null)
   const [dncSubmitError,   setDncSubmitError]   = useState(null)
   const [dncPolling,       setDncPolling]       = useState(false)
-  const dncPollRef = useRef(null)
-  const fileRef    = useRef(null)
+  const dncPollRef   = useRef(null)
+  const [tracePolling, setTracePolling]         = useState(false)
+  const tracePollRef  = useRef(null)
+  const fileRef       = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -164,6 +166,7 @@ export default function SkipTracePage() {
         const res = await checkSkipTraceResults()
         if ((res.dncRecordsUpdated || 0) > 0) {
           setDncPolling(false)
+          setDncSubmitResult(null)  // clear banner — results are visible in the records
           return
         }
       } catch {}
@@ -172,12 +175,42 @@ export default function SkipTracePage() {
         dncPollRef.current = setTimeout(poll, 5000)
       } else {
         setDncPolling(false)
+        setDncSubmitResult(null)
       }
     }
 
     dncPollRef.current = setTimeout(poll, 3000)
     return () => { if (dncPollRef.current) clearTimeout(dncPollRef.current) }
   }, [dncPolling])
+
+  // ── Skip trace auto-poll until results arrive ─────────────
+  useEffect(() => {
+    if (!tracePolling) return
+    let attempts = 0
+    const MAX = 36  // 3 min at 5s intervals
+
+    const poll = async () => {
+      try {
+        const res = await checkSkipTraceResults()
+        if ((res.recordsUpdated || 0) > 0) {
+          await load()
+          setSubmitResult(null)
+          setTracePolling(false)
+          return
+        }
+      } catch {}
+      attempts++
+      if (attempts < MAX) {
+        tracePollRef.current = setTimeout(poll, 5000)
+      } else {
+        setTracePolling(false)
+        setSubmitResult(null)
+      }
+    }
+
+    tracePollRef.current = setTimeout(poll, 10000)  // first check after 10s
+    return () => { if (tracePollRef.current) clearTimeout(tracePollRef.current) }
+  }, [tracePolling, load])
 
   // ── Selection helpers ─────────────────────────────────────
   const savedRecords     = records.filter(r => r.status === 'saved')
@@ -366,6 +399,7 @@ export default function SkipTracePage() {
       const res = await submitSkipTrace(checkedSaved, TRACE_TYPE)
       setSubmitResult(res)
       setCheckedIds(new Set())
+      setTracePolling(true)  // auto-dismiss banner when results arrive
       await load()
     } catch (e) {
       setSubmitError(e.message)
