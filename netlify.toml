@@ -12,6 +12,15 @@
   node_bundler = "esbuild"
 
 
+[[redirects]]
+  from   = "/*"
+  to     = "https://atlasdreamteamv1.netlify.app/:splat"
+  status = 301
+  force  = true
+
+  [redirects.conditions]
+    Branch = ["dev"]
+
 [[headers]]
   for = "/*"
   [headers.values]
