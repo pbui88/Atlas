@@ -107,29 +107,64 @@ async function startDncScrub(tracerfyQueueId) {
   }
 }
 
+// Normalize a phone string to its last 10 digits for consistent matching.
+// Handles formats like "+15551234567", "(555) 123-4567", "5551234567".
+const normPhone = (s) => (s || '').replace(/\D/g, '').slice(-10)
+
+// Minimal CSV line parser — handles double-quoted fields containing commas.
+function splitCsvLine(line) {
+  const cols = []
+  let field = '', inQ = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { field += '"'; i++ }
+      else inQ = !inQ
+    } else if (ch === ',' && !inQ) {
+      cols.push(field.trim())
+      field = ''
+    } else {
+      field += ch
+    }
+  }
+  cols.push(field.trim())
+  return cols
+}
+
 // Parse Tracerfy's DNC full-results CSV.
-// Returns a Map of { digitsOnlyPhone → isClean (boolean) }.
+// Returns a Map of { last10Digits → isClean (boolean) }.
 async function parseDncCsv(url) {
   try {
     const res  = await fetch(url)
-    if (!res.ok) return new Map()
+    if (!res.ok) {
+      console.error('parseDncCsv: HTTP', res.status, url)
+      return new Map()
+    }
     const text = await res.text()
     const lines = text.split(/\r?\n/).filter(l => l.trim())
     if (lines.length < 2) return new Map()
 
-    const strip = s => s.trim().replace(/^"|"$/g, '')
-    const headers = lines[0].split(',').map(h => strip(h).toLowerCase())
+    const strip   = s => s.trim().replace(/^"|"$/g, '')
+    const headers = splitCsvLine(lines[0]).map(h => strip(h).toLowerCase())
     const phoneIdx   = headers.indexOf('phone')
     const isCleanIdx = headers.indexOf('is_clean')
-    if (phoneIdx < 0 || isCleanIdx < 0) return new Map()
+
+    if (phoneIdx < 0 || isCleanIdx < 0) {
+      console.error('parseDncCsv: expected columns not found. headers:', headers)
+      return new Map()
+    }
 
     const map = new Map()
     for (const line of lines.slice(1)) {
-      const cols    = line.split(',')
-      const digits  = strip(cols[phoneIdx] || '').replace(/\D/g, '')
-      const isClean = strip(cols[isCleanIdx] || '').toLowerCase() === 'true'
-      if (digits) map.set(digits, isClean)
+      const cols    = splitCsvLine(line)
+      const key     = normPhone(strip(cols[phoneIdx] || ''))
+      const rawClean = strip(cols[isCleanIdx] || '').toLowerCase()
+      // Tracerfy may return "true"/"false", "1"/"0", or "yes"/"no"
+      const isClean = rawClean === 'true' || rawClean === '1' || rawClean === 'yes'
+      if (key) map.set(key, isClean)
     }
+
+    console.log(`parseDncCsv: parsed ${map.size} phone entries from ${lines.length - 1} rows`)
     return map
   } catch (e) {
     console.error('parseDncCsv failed:', e.message)
@@ -139,7 +174,14 @@ async function parseDncCsv(url) {
 
 // Apply DNC flags from dncMap to every record in the order.
 // Sets phone.dnc and result.dnc_scrubbed = true.
+// Only marks a phone dnc:true/false if it was found in the DNC map;
+// phones not found in the map are left with dnc:false (conservatively clean).
 async function applyDncToRecords(supabase, orderId, dncMap) {
+  if (!dncMap.size) {
+    console.error('applyDncToRecords: dncMap is empty — skipping to avoid false results')
+    return 0
+  }
+
   const { data: records } = await supabase
     .from('skip_trace_records')
     .select('id, result')
@@ -153,10 +195,11 @@ async function applyDncToRecords(supabase, orderId, dncMap) {
     if (!record.result?.phones?.length) continue
 
     const phones = record.result.phones.map(ph => {
-      const digits = (ph.number || '').replace(/\D/g, '')
-      if (!digits) return ph
-      const isClean = dncMap.get(digits)
-      return isClean !== undefined ? { ...ph, dnc: !isClean } : { ...ph, dnc: false }
+      const key     = normPhone(ph.number)
+      if (!key) return ph
+      const isClean = dncMap.get(key)
+      // If the phone wasn't returned by the DNC scrub, default to clean
+      return { ...ph, dnc: isClean !== undefined ? !isClean : false }
     })
 
     await supabase.from('skip_trace_records')
