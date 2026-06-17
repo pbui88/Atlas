@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
-  adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetScanBalance,
+  adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
 import { US_STATES } from '../../../shared/taxRates.js'
 
@@ -180,91 +180,50 @@ function BillingStateEditor({ user, onSave }) {
   )
 }
 
-function GrantCreditsEditor({ user, onGrant }) {
+function GrantCreditsEditor({ user, onGrant, onSet }) {
   const [editing, setEditing] = useState(false)
+  const [mode,    setMode]    = useState('add') // 'add' | 'set'
   const [value,   setValue]   = useState('')
   const [saving,  setSaving]  = useState(false)
+
+  const open = (m) => { setMode(m); setValue(m === 'set' ? String(user.purchased_credits ?? 0) : ''); setEditing(true) }
 
   const save = async () => {
     const pts = parseInt(value, 10)
-    if (isNaN(pts) || pts <= 0) return
+    if (isNaN(pts) || pts < 0) return
+    if (mode === 'add' && pts <= 0) return
     setSaving(true)
-    try { await onGrant(user.id, pts); setEditing(false); setValue('') }
+    try {
+      if (mode === 'add') await onGrant(user.id, pts)
+      else                await onSet(user.id, pts)
+      setEditing(false); setValue('')
+    }
     catch (e) { alert(e.message) }
     finally { setSaving(false) }
   }
 
-  const balance = (user.purchased_credits ?? 0) - (user.purchased_credits_used ?? 0)
-
   if (!editing) {
     return (
       <div className="flex items-center gap-2">
-        <span className={`text-xs font-medium ${balance > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
+        <span className={`text-xs font-medium ${(user.purchased_credits ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
           {(user.purchased_credits ?? 0).toLocaleString()} pts
         </span>
-        <button
-          onClick={() => setEditing(true)}
-          className="text-xs text-slate-600 hover:text-brand-400 transition underline underline-offset-2"
-          title="Grant additional credits"
-        >
-          + Add
-        </button>
+        <button onClick={() => open('add')} className="text-xs text-slate-600 hover:text-brand-400 transition underline underline-offset-2" title="Add credits">+</button>
+        <button onClick={() => open('set')} className="text-xs text-slate-600 hover:text-amber-400 transition underline underline-offset-2" title="Set exact total">Edit</button>
       </div>
     )
   }
   return (
     <div className="flex items-center gap-1">
       <input
-        type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 500" autoFocus min="1"
+        type="number" value={value} onChange={e => setValue(e.target.value)}
+        placeholder={mode === 'add' ? 'e.g. 500' : 'total pts'} autoFocus min={mode === 'add' ? '1' : '0'}
         onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
         className="w-20 px-1.5 py-0.5 text-xs bg-navy-700 border border-brand-600/50 rounded text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
-      <button onClick={save} disabled={saving || !value} className="text-xs text-brand-400 hover:text-brand-300 font-medium disabled:opacity-50">{saving ? '…' : 'Grant'}</button>
-      <button onClick={() => setEditing(false)} className="text-xs text-slate-600 hover:text-slate-400">✕</button>
-    </div>
-  )
-}
-
-function SetScanBalanceEditor({ user, onSet }) {
-  const [editing, setEditing] = useState(false)
-  const [value,   setValue]   = useState('')
-  const [saving,  setSaving]  = useState(false)
-
-  const save = async () => {
-    const amt = parseFloat(value)
-    if (isNaN(amt) || amt < 0) return
-    setSaving(true)
-    try { await onSet(user.id, amt); setEditing(false); setValue('') }
-    catch (e) { alert(e.message) }
-    finally { setSaving(false) }
-  }
-
-  const balance = user.skip_trace_balance ?? 0
-
-  if (!editing) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className={`text-xs font-medium ${balance > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
-          ${balance.toFixed(2)}
-        </span>
-        <button
-          onClick={() => { setValue(balance.toFixed(2)); setEditing(true) }}
-          className="text-xs text-slate-600 hover:text-brand-400 transition underline underline-offset-2"
-          title="Set scan balance"
-        >
-          Edit
-        </button>
-      </div>
-    )
-  }
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        type="number" value={value} onChange={e => setValue(e.target.value)} placeholder="0.00" autoFocus min="0" step="0.01"
-        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
-        className="w-20 px-1.5 py-0.5 text-xs bg-navy-700 border border-brand-600/50 rounded text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
-      />
-      <button onClick={save} disabled={saving || value === ''} className="text-xs text-brand-400 hover:text-brand-300 font-medium disabled:opacity-50">{saving ? '…' : 'Set'}</button>
+      <button onClick={save} disabled={saving || !value} className={`text-xs font-medium disabled:opacity-50 ${mode === 'add' ? 'text-brand-400 hover:text-brand-300' : 'text-amber-400 hover:text-amber-300'}`}>
+        {saving ? '…' : mode === 'add' ? 'Grant' : 'Set'}
+      </button>
       <button onClick={() => setEditing(false)} className="text-xs text-slate-600 hover:text-slate-400">✕</button>
     </div>
   )
@@ -323,9 +282,9 @@ export default function AdminPanel() {
     const { purchased_credits } = await adminGrantCredits(userId, points)
     setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits } : x))
   }
-  const setScanBalance = async (userId, amount) => {
-    const { skip_trace_balance } = await adminSetScanBalance(userId, amount)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, skip_trace_balance } : x))
+  const setCredits = async (userId, points) => {
+    const { purchased_credits } = await adminSetCredits(userId, points)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits } : x))
   }
 
   const resetCycle   = async (user) => {
@@ -413,7 +372,7 @@ export default function AdminPanel() {
             <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                {['User', 'Role', 'Status', 'Credits Used', 'Credits', 'Scan Bal', 'API Key', 'State', 'Joined', ''].map(h => (
+                {['User', 'Role', 'Status', 'Credits Used', 'Credits', 'API Key', 'State', 'Joined', ''].map(h => (
                   <th key={h} className="text-left px-2 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -447,8 +406,7 @@ export default function AdminPanel() {
                         ? <span className="text-xs text-slate-600">Unlimited</span>
                         : <UsageBar used={user.purchased_credits_used ?? 0} limit={user.purchased_credits ?? 0} />}
                     </td>
-                    <td className="px-2 py-2.5"><GrantCreditsEditor user={user} onGrant={grantCredits} /></td>
-                    <td className="px-2 py-2.5"><SetScanBalanceEditor user={user} onSet={setScanBalance} /></td>
+                    <td className="px-2 py-2.5"><GrantCreditsEditor user={user} onGrant={grantCredits} onSet={setCredits} /></td>
                     <td className="px-2 py-2.5"><KeyEditor user={user} onSave={updateKey} /></td>
                     <td className="px-2 py-2.5">{user.role !== 'admin' && <BillingStateEditor user={user} onSave={updateBillingState} />}</td>
                     <td className="px-2 py-2.5 text-xs text-slate-600 whitespace-nowrap">{fmt(user.created_at)}</td>
