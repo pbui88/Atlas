@@ -845,6 +845,11 @@ function PhoneTag({ type }) {
   return                          <span className="text-[10px] font-semibold text-blue-400 border border-blue-500/40 rounded px-1.5 py-0.5">Mobile</span>
 }
 
+function DncFlag({ value }) {
+  if (value) return <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">Y</span>
+  return            <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">N</span>
+}
+
 const CSV_HEADER = ['List Name','Address','City','State','Zip','Owner Name','Primary Phone','Mobile 1','Mobile 2','Mobile 3','Landline 1','Landline 2','Email 1','Email 2','Email 3']
 
 function buildCsvRow(record, result, phonesOverride) {
@@ -956,6 +961,7 @@ function ContactResult({ result, record }) {
       {/* ── DNC Scrub Result card ───────────────────────────────── */}
       {dncScrubbed && (
         <div className="bg-white/[0.02] border border-violet-500/15 rounded-xl p-3">
+          {/* Header */}
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block" />
@@ -989,18 +995,34 @@ function ContactResult({ result, record }) {
             </div>
           </div>
 
-          {/* Clean phones list */}
-          {cleanPhones.length === 0 ? (
-            <p className="text-xs text-slate-600 italic">All numbers flagged — no clean phones to call</p>
+          {/* Phone detail table */}
+          {phones.length === 0 ? (
+            <p className="text-xs text-slate-600 italic">No phones to display</p>
           ) : (
-            <div className="space-y-1.5">
-              {cleanPhones.map((ph, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
-                  <PhoneTag type={ph.type} />
-                  <span className="text-[9px] text-emerald-500 font-medium">No flags</span>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-separate border-spacing-0">
+                <thead>
+                  <tr>
+                    {['Phone', 'Type', 'National DNC', 'State DNC', 'DMA', 'Litigator'].map(h => (
+                      <th key={h} className="text-left pb-2 pr-4 last:pr-0 text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {phones.map((ph, i) => (
+                    <tr key={i} className={ph.dnc ? 'opacity-60' : ''}>
+                      <td className="py-1.5 pr-4 font-mono text-slate-200 whitespace-nowrap">{ph.number}</td>
+                      <td className="py-1.5 pr-4 whitespace-nowrap"><PhoneTag type={ph.type} /></td>
+                      <td className="py-1.5 pr-4 text-center"><DncFlag value={ph.national_dnc} /></td>
+                      <td className="py-1.5 pr-4 text-center"><DncFlag value={ph.state_dnc} /></td>
+                      <td className="py-1.5 pr-4 text-center"><DncFlag value={ph.dma} /></td>
+                      <td className="py-1.5 text-center"><DncFlag value={ph.litigator} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

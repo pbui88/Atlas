@@ -132,7 +132,7 @@ function splitCsvLine(line) {
 }
 
 // Parse Tracerfy's DNC full-results CSV.
-// Returns a Map of { last10Digits → isClean (boolean) }.
+// Returns a Map of { last10Digits → { isClean, national_dnc, state_dnc, dma, litigator } }.
 async function parseDncCsv(url) {
   try {
     const res  = await fetch(url)
@@ -145,9 +145,16 @@ async function parseDncCsv(url) {
     if (lines.length < 2) return new Map()
 
     const strip   = s => s.trim().replace(/^"|"$/g, '')
+    const parseBool = s => { const v = strip(s).toLowerCase(); return v === 'true' || v === '1' || v === 'yes' }
     const headers = splitCsvLine(lines[0]).map(h => strip(h).toLowerCase())
-    const phoneIdx   = headers.indexOf('phone')
-    const isCleanIdx = headers.indexOf('is_clean')
+
+    const col = name => headers.indexOf(name)
+    const phoneIdx       = col('phone')
+    const isCleanIdx     = col('is_clean')
+    const nationalDncIdx = col('national_dnc')
+    const stateDncIdx    = col('state_dnc')
+    const dmaIdx         = col('dma')
+    const litigatorIdx   = col('litigator')
 
     if (phoneIdx < 0 || isCleanIdx < 0) {
       console.error('parseDncCsv: expected columns not found. headers:', headers)
@@ -156,12 +163,16 @@ async function parseDncCsv(url) {
 
     const map = new Map()
     for (const line of lines.slice(1)) {
-      const cols    = splitCsvLine(line)
-      const key     = normPhone(strip(cols[phoneIdx] || ''))
-      const rawClean = strip(cols[isCleanIdx] || '').toLowerCase()
-      // Tracerfy may return "true"/"false", "1"/"0", or "yes"/"no"
-      const isClean = rawClean === 'true' || rawClean === '1' || rawClean === 'yes'
-      if (key) map.set(key, isClean)
+      const cols = splitCsvLine(line)
+      const key  = normPhone(strip(cols[phoneIdx] || ''))
+      if (!key) continue
+      map.set(key, {
+        isClean:     parseBool(cols[isCleanIdx]     || ''),
+        national_dnc: parseBool(cols[nationalDncIdx] || ''),
+        state_dnc:   parseBool(cols[stateDncIdx]    || ''),
+        dma:         parseBool(cols[dmaIdx]          || ''),
+        litigator:   parseBool(cols[litigatorIdx]    || ''),
+      })
     }
 
     console.log(`parseDncCsv: parsed ${map.size} phone entries from ${lines.length - 1} rows`)
@@ -195,11 +206,18 @@ async function applyDncToRecords(supabase, orderId, dncMap) {
     if (!record.result?.phones?.length) continue
 
     const phones = record.result.phones.map(ph => {
-      const key     = normPhone(ph.number)
+      const key   = normPhone(ph.number)
       if (!key) return ph
-      const isClean = dncMap.get(key)
-      // If the phone wasn't returned by the DNC scrub, default to clean
-      return { ...ph, dnc: isClean !== undefined ? !isClean : false }
+      const entry = dncMap.get(key)
+      if (!entry) return { ...ph, dnc: false }  // not returned by DNC scrub → treat as clean
+      return {
+        ...ph,
+        dnc:          !entry.isClean,
+        national_dnc: entry.national_dnc,
+        state_dnc:    entry.state_dnc,
+        dma:          entry.dma,
+        litigator:    entry.litigator,
+      }
     })
 
     await supabase.from('skip_trace_records')
