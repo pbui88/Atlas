@@ -123,10 +123,13 @@ export default function SkipTracePage() {
   }, [user?.id])
 
   // ── Selection helpers ─────────────────────────────────────
-  const savedRecords   = records.filter(r => r.status === 'saved')
-  const savedIds       = new Set(savedRecords.map(r => r.id))
-  const checkedSaved   = [...checkedIds].filter(id => savedIds.has(id))
-  const creditsPerLead = traceType === 'advanced' ? 2 : 1
+  const savedRecords     = records.filter(r => r.status === 'saved')
+  const completedRecords = records.filter(r => r.status === 'completed')
+  const savedIds         = new Set(savedRecords.map(r => r.id))
+  const completedIds     = new Set(completedRecords.map(r => r.id))
+  const checkedSaved     = [...checkedIds].filter(id => savedIds.has(id))
+  const checkedCompleted = [...checkedIds].filter(id => completedIds.has(id))
+  const creditsPerLead   = traceType === 'advanced' ? 2 : 1
 
   const toggleCheck = (id) => {
     setCheckedIds(prev => {
@@ -134,6 +137,41 @@ export default function SkipTracePage() {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+  }
+
+  // ── Download CSV ──────────────────────────────────────────
+  const downloadResults = () => {
+    const selected = records.filter(r => checkedIds.has(r.id) && r.status === 'completed')
+    const header = ['List Name','Address','City','State','Zip','Owner Name','Primary Phone','Mobile 1','Mobile 2','Mobile 3','Landline 1','Landline 2','Email 1','Email 2','Email 3']
+    const rows = selected.map(r => {
+      const res      = r.result || {}
+      const rawPhones = (res.phones || []).map(p => typeof p === 'string' ? { number: p, type: 'mobile' } : p)
+      const primary  = rawPhones.find(p => p.type === 'primary')?.number  || ''
+      const mobiles  = rawPhones.filter(p => p.type === 'mobile').map(p => p.number)
+      const landlines= rawPhones.filter(p => p.type === 'landline').map(p => p.number)
+      const emails   = res.emails || []
+      return [
+        r.list_name   || '',
+        r.address     || '',
+        r.city        || '',
+        r.state_code  || '',
+        r.zip         || '',
+        res.full_name || '',
+        primary,
+        mobiles[0]    || '', mobiles[1]   || '', mobiles[2]   || '',
+        landlines[0]  || '', landlines[1] || '',
+        emails[0]     || '', emails[1]    || '', emails[2]    || '',
+      ]
+    })
+    const escape = v => `"${String(v).replace(/"/g, '""')}"`
+    const csv = [header, ...rows].map(r => r.map(escape).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `skip-trace-${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   // ── Grouping ──────────────────────────────────────────────
@@ -169,14 +207,16 @@ export default function SkipTracePage() {
   }
 
   const toggleGroupAll = (group) => {
-    const groupSavedIds = group.records.filter(r => r.status === 'saved').map(r => r.id)
-    const allChecked = groupSavedIds.length > 0 && groupSavedIds.every(id => checkedIds.has(id))
+    const selectable = group.records
+      .filter(r => r.status === 'saved' || r.status === 'completed')
+      .map(r => r.id)
+    const allChecked = selectable.length > 0 && selectable.every(id => checkedIds.has(id))
     setCheckedIds(prev => {
       const next = new Set(prev)
       if (allChecked) {
-        groupSavedIds.forEach(id => next.delete(id))
+        selectable.forEach(id => next.delete(id))
       } else {
-        groupSavedIds.forEach(id => next.add(id))
+        selectable.forEach(id => next.add(id))
       }
       return next
     })
@@ -379,45 +419,86 @@ export default function SkipTracePage() {
           </span>
         </div>
 
-        {/* Sticky cost bar */}
-        {checkedSaved.length > 0 && (
-          <div className="sticky top-4 z-10 flex items-center justify-between gap-4 bg-navy-900/95 backdrop-blur border border-brand-600/30 rounded-2xl px-5 py-3.5 mb-6 shadow-lg shadow-brand-600/10">
-            <div>
-              <p className="text-sm font-semibold text-white">
-                {checkedSaved.length} record{checkedSaved.length !== 1 ? 's' : ''} selected
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                <span className="text-brand-400 font-bold">{creditsPerLead} Tracerfy credit{creditsPerLead > 1 ? 's' : ''}</span> per record
-                {traceType === 'advanced' && <span className="text-slate-600"> · includes owner name</span>}
-                <span className="text-slate-600"> · ~{creditsPerLead * checkedSaved.length} credits total</span>
-              </p>
-            </div>
-            <div className="shrink-0 flex items-center gap-3">
-              <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.08] rounded-lg p-1">
-                {['normal', 'advanced'].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setTraceType(t)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all capitalize ${
-                      traceType === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
+        {/* Sticky action bar — appears when any records are checked */}
+        {(checkedSaved.length > 0 || checkedCompleted.length > 0) && (
+          <div className="sticky top-4 z-10 flex flex-wrap items-center gap-3 bg-slate-900/95 backdrop-blur border border-white/[0.10] rounded-2xl px-5 py-3.5 mb-6 shadow-xl">
+
+            {/* Download section — completed records */}
+            {checkedCompleted.length > 0 && (
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">
+                    {checkedCompleted.length} result{checkedCompleted.length !== 1 ? 's' : ''} selected
+                  </p>
+                  <p className="text-xs text-slate-500">Ready to export</p>
+                </div>
+                <button
+                  onClick={downloadResults}
+                  className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition shadow-md"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download CSV
+                </button>
               </div>
-              <button
-                onClick={() => setShowConfirm(true)}
-                disabled={submitting}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitting ? (
-                  <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Submitting…</>
-                ) : (
-                  <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>Run Skip Trace</>
-                )}
-              </button>
-            </div>
+            )}
+
+            {/* Divider between sections when both are active */}
+            {checkedCompleted.length > 0 && checkedSaved.length > 0 && (
+              <div className="w-px h-10 bg-white/[0.08] shrink-0" />
+            )}
+
+            {/* Submit section — saved records */}
+            {checkedSaved.length > 0 && (
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">
+                    {checkedSaved.length} record{checkedSaved.length !== 1 ? 's' : ''} to trace
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    ~{creditsPerLead * checkedSaved.length} credits
+                  </p>
+                </div>
+                <div className="shrink-0 flex items-center gap-2">
+                  <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.08] rounded-lg p-1">
+                    {['normal', 'advanced'].map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setTraceType(t)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all capitalize ${
+                          traceType === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setShowConfirm(true)}
+                    disabled={submitting}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30 disabled:opacity-50"
+                  >
+                    {submitting ? (
+                      <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Submitting…</>
+                    ) : (
+                      <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>Run Skip Trace</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Deselect all */}
+            <button
+              onClick={() => setCheckedIds(new Set())}
+              className="shrink-0 p-1.5 rounded-lg text-slate-600 hover:text-slate-300 transition"
+              title="Deselect all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
 
@@ -472,20 +553,22 @@ export default function SkipTracePage() {
           <div className="space-y-4">
             {groups.map(group => {
               const isCollapsed   = collapsedGroups.has(group.key)
-              const groupSavedIds = group.records.filter(r => r.status === 'saved').map(r => r.id)
-              const allGroupChecked = groupSavedIds.length > 0 && groupSavedIds.every(id => checkedIds.has(id))
+              const selectable    = group.records.filter(r => r.status === 'saved' || r.status === 'completed').map(r => r.id)
+              const allGroupChecked = selectable.length > 0 && selectable.every(id => checkedIds.has(id))
+              const someGroupChecked = selectable.some(id => checkedIds.has(id))
 
               return (
                 <div key={group.key} className="bg-slate-900/50 border border-white/[0.06] rounded-2xl overflow-hidden">
                   {/* Group header */}
                   <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-3">
-                    {groupSavedIds.length > 0 && (
+                    {selectable.length > 0 && (
                       <input
                         type="checkbox"
                         checked={allGroupChecked}
+                        ref={el => { if (el) el.indeterminate = someGroupChecked && !allGroupChecked }}
                         onChange={() => toggleGroupAll(group)}
                         className="accent-brand-600 cursor-pointer shrink-0"
-                        title={allGroupChecked ? 'Deselect all in list' : 'Select all saved in list'}
+                        title={allGroupChecked ? 'Deselect all in list' : 'Select all in list'}
                       />
                     )}
                     <button
@@ -545,15 +628,17 @@ export default function SkipTracePage() {
 }
 
 function RecordRow({ record, checked, onCheck, onDelete, deletingId }) {
-  const isSaved    = record.status === 'saved'
-  const isDeleting = deletingId === record.id
+  const isSaved      = record.status === 'saved'
+  const isCompleted  = record.status === 'completed'
+  const isSelectable = isSaved || isCompleted
+  const isDeleting   = deletingId === record.id
 
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 transition-colors ${isSaved && checked ? 'bg-brand-600/5' : 'hover:bg-white/[0.02]'}`}>
+    <div className={`flex items-start gap-3 px-4 py-3 transition-colors ${checked ? 'bg-brand-600/5' : 'hover:bg-white/[0.02]'}`}>
       <div className="shrink-0 pt-0.5 w-4">
-        {isSaved ? (
-          <input type="checkbox" checked={checked} onChange={() => onCheck(record.id)} className="accent-brand-600 cursor-pointer" />
-        ) : <span />}
+        {isSelectable
+          ? <input type="checkbox" checked={checked} onChange={() => onCheck(record.id)} className="accent-brand-600 cursor-pointer" />
+          : <span />}
       </div>
 
       <div className="flex-1 min-w-0">
