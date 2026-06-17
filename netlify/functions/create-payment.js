@@ -1,5 +1,5 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
-import { createHostedPaymentSession, FORM_URL } from './utils/authorizenet.js'
+import { createHostedPaymentSession } from './utils/authorizenet.js'
 
 const PACKAGES = {
    2500: { points:  2500, amount: '35.00',  label:  '2,500 Credits' },
