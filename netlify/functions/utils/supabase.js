@@ -39,20 +39,18 @@ export async function requireAuth(event, { allowInactive = false } = {}) {
   const user = await getUserFromToken(token)
   if (!user) return { user: null, error: 'Invalid token' }
 
-  if (!allowInactive) {
-    // Block inactive (pending activation) users from all API calls
-    const supabase = adminSupabase()
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .maybeSingle()
-    if (profile && profile.is_active === false) {
-      return { user: null, error: 'Account pending activation' }
-    }
+  const supabase = adminSupabase()
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_active, role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!allowInactive && profile?.is_active === false) {
+    return { user: null, error: 'Account pending activation' }
   }
 
-  return { user, error: null }
+  return { user, role: profile?.role ?? 'user', error: null }
 }
 
 export async function requireAdmin(event) {

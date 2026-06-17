@@ -7,8 +7,10 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
 
-  const { user, error } = await requireAuth(event)
+  const { user, role, error } = await requireAuth(event)
   if (error) return err(error, 401)
+
+  const isAdmin = role === 'admin'
 
   let body
   try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
@@ -34,21 +36,23 @@ export const handler = async (event) => {
 
   const creditsPerLead = traceType === 'advanced' ? 2 : 1
 
-  // ── Deduct skip trace balance ($0.08/record) ───────────────
+  // ── Deduct skip trace balance ($0.08/record) — skipped for admins ──────────
   const COST_PER_RECORD = 0.08
-  const cost = Math.round(records.length * COST_PER_RECORD * 100) / 100
+  const cost = isAdmin ? 0 : Math.round(records.length * COST_PER_RECORD * 100) / 100
 
-  const { data: deducted, error: deductErr } = await supabase
-    .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+  if (!isAdmin) {
+    const { data: deducted, error: deductErr } = await supabase
+      .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
 
-  if (deductErr) return err(deductErr.message, 500)
-  if (!deducted) {
-    return err(
-      `Insufficient skip trace balance. This job requires $${cost.toFixed(2)} ` +
-      `(${records.length} record${records.length !== 1 ? 's' : ''} × $${COST_PER_RECORD}/record). ` +
-      `Please add funds on the Credits page.`,
-      402
-    )
+    if (deductErr) return err(deductErr.message, 500)
+    if (!deducted) {
+      return err(
+        `Insufficient skip trace balance. This job requires $${cost.toFixed(2)} ` +
+        `(${records.length} record${records.length !== 1 ? 's' : ''} × $${COST_PER_RECORD}/record). ` +
+        `Please add funds on the Credits page.`,
+        402
+      )
+    }
   }
 
   // ── Create order row first ─────────────────────────────────
@@ -93,6 +97,12 @@ export const handler = async (event) => {
     form.append('trace_type',     traceType)
     // DNC scrub is a separate Tracerfy step (dnc/scrub-from-queue/) run after trace completes
 
+    const refund = () => {
+      if (isAdmin) return Promise.resolve()
+      return supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+        .catch(e => console.error('Failed to refund skip trace balance:', e.message))
+    }
+
     try {
       const res = await fetch(`${TRACERFY_BASE}/trace/`, {
         method:  'POST',
@@ -106,8 +116,7 @@ export const handler = async (event) => {
         console.error('Tracerfy /trace/ error:', msg)
         await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
         await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
-        // Refund the deducted balance since the job failed
-        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
+        await refund()
         return err(`Skip trace service error: ${msg}`, 502)
       }
 
@@ -116,8 +125,7 @@ export const handler = async (event) => {
         console.error('Tracerfy returned no queue_id:', JSON.stringify(data))
         await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
         await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
-        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
-          .catch(e => console.error('Failed to refund after missing queue_id:', e.message))
+        await refund()
         return err('Skip trace service did not return a job ID. Please try again.', 502)
       }
       await supabase
@@ -129,7 +137,7 @@ export const handler = async (event) => {
       console.error('Tracerfy request failed:', e.message)
       await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
       await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
-      await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
+      await refund()
       return err('Failed to contact skip trace service. Please try again.', 502)
     }
   }
