@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID, getPathParam } from './utils/supabase.js'
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -52,12 +52,17 @@ export const handler = async (event) => {
 
   // ── DELETE: single record or entire group ────────────────────
   if (event.httpMethod === 'DELETE') {
-    const params   = new URL(event.rawUrl, 'http://localhost').searchParams
-    const id       = params.get('id')
-    const listName = params.get('listName')   // group delete: pass group key
+    const pathParam = getPathParam(event, 'skip-trace')
+    const isGroup   = pathParam?.startsWith('list/')
+    let listName = null
+    if (isGroup) {
+      try { listName = decodeURIComponent(pathParam.slice(5)) }
+      catch { return err('Invalid list name encoding', 400) }
+    }
+    const id = isGroup ? null : pathParam
 
     // Group delete
-    if (listName !== null) {
+    if (isGroup) {
       let q = supabase
         .from('skip_trace_records')
         .delete()

@@ -59,7 +59,7 @@ export const handler = async (event) => {
 
   const orderIds = [...new Set(records.map(r => r.order_id).filter(Boolean))]
   if (!orderIds.length) {
-    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
     return err('No orders found for these records', 400)
   }
 
@@ -71,7 +71,7 @@ export const handler = async (event) => {
     .eq('user_id', user.id)
 
   if (ordErr) {
-    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
     return err(ordErr.message, 500)
   }
 
@@ -110,7 +110,7 @@ export const handler = async (event) => {
   }
 
   if (!started) {
-    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
     return err(errs[0] || 'Failed to start DNC scrub', 400)
   }
 

@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, getPathParam } from './utils/supabase.js'
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -7,7 +7,7 @@ export const handler = async (event) => {
   if (error) return err(error, 401)
 
   const supabase = adminSupabase()
-  const projectId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('id')
+  const projectId = getPathParam(event, 'projects')
 
   // ── GET: list projects ───────────────────────────────────
   if (event.httpMethod === 'GET') {

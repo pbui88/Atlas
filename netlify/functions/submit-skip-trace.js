@@ -13,7 +13,7 @@ export const handler = async (event) => {
   let body
   try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
 
-  const { recordIds, traceType = 'advanced', scrubDnc = false } = body
+  const { recordIds, traceType = 'advanced' } = body
   if (!Array.isArray(recordIds) || recordIds.length === 0) return err('recordIds required', 400)
   if (recordIds.some(id => !isValidUUID(id))) return err('Invalid record id', 400)
   if (recordIds.length > 500) return err('Maximum 500 records per submission', 400)
@@ -59,7 +59,6 @@ export const handler = async (event) => {
       record_count: records.length,
       cost_usd:     cost,
       status:       TRACERFY_API_KEY ? 'processing' : 'pending',
-      scrub_dnc:    !!scrubDnc,
     })
     .select()
     .single()
@@ -108,11 +107,19 @@ export const handler = async (event) => {
         await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
         await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
         // Refund the deducted balance since the job failed
-        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
         return err(`Skip trace service error: ${msg}`, 502)
       }
 
       // Store the Tracerfy queue_id so the webhook can match back
+      if (!data.queue_id) {
+        console.error('Tracerfy returned no queue_id:', JSON.stringify(data))
+        await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
+        await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
+        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+          .catch(e => console.error('Failed to refund after missing queue_id:', e.message))
+        return err('Skip trace service did not return a job ID. Please try again.', 502)
+      }
       await supabase
         .from('skip_trace_orders')
         .update({ tracerfy_order_id: String(data.queue_id) })
@@ -122,7 +129,7 @@ export const handler = async (event) => {
       console.error('Tracerfy request failed:', e.message)
       await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
       await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
-      await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+      await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(e => console.error('Failed to refund skip trace balance:', e.message))
       return err('Failed to contact skip trace service. Please try again.', 502)
     }
   }

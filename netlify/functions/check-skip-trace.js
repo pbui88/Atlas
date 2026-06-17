@@ -67,6 +67,9 @@ function normalizeResult(row) {
     phones,
     emails,
     mail_address: row.mail_address || null,
+    address:      row.address      || null,
+    city:         row.city         || null,
+    state:        row.state        || null,
     ...(dncScrubbed ? { dnc_scrubbed: true } : {}),
   }
 }
@@ -83,28 +86,6 @@ function matchRecord(tracerfyRow, records) {
       recKey.startsWith(rowKey.slice(0, 8))
     )
   }) || null
-}
-
-// ── DNC helpers ───────────────────────────────────────────────────────────────
-
-// Start a DNC scrub-from-queue for a completed trace order.
-// Returns the Tracerfy dnc_queue_id on success, null on failure.
-async function startDncScrub(tracerfyQueueId) {
-  try {
-    const res = await fetch(`${TRACERFY_BASE}/dnc/scrub-from-queue/`, {
-      method:  'POST',
-      headers: {
-        'Authorization': `Bearer ${TRACERFY_API_KEY}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({ queue_id: parseInt(tracerfyQueueId, 10) }),
-    })
-    const data = await res.json().catch(() => ({}))
-    return data.dnc_queue_id ? String(data.dnc_queue_id) : null
-  } catch (e) {
-    console.error('startDncScrub failed:', e.message)
-    return null
-  }
 }
 
 // Normalize a phone string to its last 10 digits for consistent matching.
@@ -271,7 +252,7 @@ export const handler = async (event) => {
 
   const { data: orders, error: ordersErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, tracerfy_order_id, scrub_dnc')
+    .select('id, tracerfy_order_id')
     .eq('user_id', user.id)
     .eq('status', 'processing')
     .not('tracerfy_order_id', 'is', null)
@@ -291,7 +272,6 @@ export const handler = async (event) => {
 
   let completed      = 0
   let recordsUpdated = 0
-  const dncStarted   = []   // orders that need DNC scrub kicked off
 
   for (const order of (orders || [])) {
     const queueStatus = statusMap[order.tracerfy_order_id]
@@ -354,20 +334,6 @@ export const handler = async (event) => {
       }
     }
 
-    // If DNC scrub was requested, kick it off now (results are ready in Tracerfy)
-    if (order.scrub_dnc) {
-      dncStarted.push({ orderId: order.id, tracerfyQueueId: order.tracerfy_order_id })
-    }
-  }
-
-  // Start DNC scrubs for newly-completed trace orders
-  for (const { orderId, tracerfyQueueId } of dncStarted) {
-    const dncQueueId = await startDncScrub(tracerfyQueueId)
-    if (dncQueueId) {
-      await supabase.from('skip_trace_orders')
-        .update({ dnc_queue_id: dncQueueId })
-        .eq('id', orderId)
-    }
   }
 
   // ── Phase 2: check pending DNC queues ────────────────────────────────────

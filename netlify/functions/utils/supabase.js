@@ -67,6 +67,12 @@ export async function requireAdmin(event) {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const isValidUUID = (id) => typeof id === 'string' && UUID_RE.test(id)
 
+export function getPathParam(event, fnName) {
+  const url    = new URL(event.rawUrl || `http://x${event.path}`, 'http://x')
+  const prefix = `/.netlify/functions/${fnName}/`
+  return url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : null
+}
+
 export const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',

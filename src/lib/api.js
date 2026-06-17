@@ -36,12 +36,12 @@ async function call(fn, method = 'GET', body = null) {
 // ── Projects ────────────────────────────────────────────────
 export const getProjects      = ()         => call('projects')
 export const createProject    = (body)     => call('projects', 'POST', body)
-export const updateProject    = (id, body) => call(`projects?id=${id}`, 'PATCH', body)
-export const deleteProject    = (id)       => call(`projects?id=${id}`, 'DELETE')
+export const updateProject    = (id, body) => call(`projects/${id}`, 'PATCH', body)
+export const deleteProject    = (id)       => call(`projects/${id}`, 'DELETE')
 
 // ── Point Generation ────────────────────────────────────────
 export const generatePoints   = (projectId, body) =>
-  call(`generate-points?projectId=${projectId}`, 'POST', body)
+  call(`generate-points/${projectId}`, 'POST', body)
 
 // ── Image Collection (batch of point IDs) ───────────────────
 export const collectImages    = (projectId, pointIds) =>
@@ -74,19 +74,19 @@ export const deleteUserKey    = ()    => call('user-keys', 'DELETE')
 // ── Skip Trace ───────────────────────────────────────────────
 export const getSkipTraceRecords   = ()          => call('skip-trace')
 export const saveSkipTraceRecords  = (records, list_name) => call('skip-trace', 'POST', { records, list_name })
-export const deleteSkipTraceRecord = (id)        => call(`skip-trace?id=${id}`, 'DELETE')
-export const deleteSkipTraceGroup  = (listKey)   => call(`skip-trace?listName=${encodeURIComponent(listKey)}`, 'DELETE')
+export const deleteSkipTraceRecord = (id)        => call(`skip-trace/${id}`, 'DELETE')
+export const deleteSkipTraceGroup  = (listKey)   => call(`skip-trace/list/${encodeURIComponent(listKey)}`, 'DELETE')
 export const submitSkipTrace       = (recordIds, traceType = 'advanced') => call('submit-skip-trace', 'POST', { recordIds, traceType })
 export const checkSkipTraceResults = ()          => call('check-skip-trace', 'POST')
 export const submitDncScrub        = (recordIds) => call('scrub-dnc', 'POST', { recordIds })
 
 // ── Admin ────────────────────────────────────────────────────
-export const adminGetUsers       = ()                      => call('admin?action=users')
+export const adminGetUsers       = ()                      => call('admin/users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })
-export const adminGetUsage       = ()                      => call('admin?action=usage')
-export const adminGetMonitor     = ()                      => call('admin?action=monitor')
+export const adminGetUsage       = ()                      => call('admin/usage')
+export const adminGetMonitor     = ()                      => call('admin/monitor')
 export const adminDeleteUser     = (userId)                => call('admin', 'DELETE', { userId })
-export const adminGetUserUsage   = (userId)                => call(`admin?action=user-usage&userId=${userId}`)
+export const adminGetUserUsage   = (userId)                => call(`admin/user-usage/${userId}`)
 export const adminResetUserCycle = (userId)                => call('admin', 'PATCH', { userId, cycle_anchor_date: new Date().toISOString().slice(0, 10) })
 export const adminSetUserKey     = (userId, key)           => call('admin', 'PATCH', { userId, googleMapsKey: key || null })
 export const adminGrantCredits   = (userId, points)        => call('admin', 'PATCH', { userId, grantCredits: points })

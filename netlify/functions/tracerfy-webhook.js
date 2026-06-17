@@ -1,7 +1,9 @@
 // Receives POST from Tracerfy when a skip trace queue completes.
 // Configure your webhook URL in Tracerfy account settings:
-//   https://your-atlas-app.netlify.app/.netlify/functions/tracerfy-webhook
+//   https://your-atlas-app.netlify.app/.netlify/functions/tracerfy-webhook?secret=<TRACERFY_WEBHOOK_SECRET>
 import { adminSupabase, ok, err, options } from './utils/supabase.js'
+
+const WEBHOOK_SECRET = process.env.TRACERFY_WEBHOOK_SECRET
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -68,6 +70,12 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
 
+  // Verify shared secret so only Tracerfy can trigger this endpoint
+  if (WEBHOOK_SECRET) {
+    const provided = event.queryStringParameters?.secret
+    if (provided !== WEBHOOK_SECRET) return err('Unauthorized', 401)
+  }
+
   let payload
   try { payload = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
 
@@ -88,7 +96,7 @@ export const handler = async (event) => {
   // Find the order matching this Tracerfy queue
   const { data: order, error: orderErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, user_id, scrub_dnc')
+    .select('id, user_id')
     .eq('tracerfy_order_id', queueId)
     .maybeSingle()
 
@@ -153,28 +161,6 @@ export const handler = async (event) => {
   } catch (e) {
     console.error('tracerfy-webhook: failed to fetch results:', e.message)
     // Don't return an error — Tracerfy may retry. Order is already marked complete.
-  }
-
-  // If DNC scrub was requested, kick it off now that trace results are saved
-  if (order.scrub_dnc) {
-    try {
-      const dncRes = await fetch(`${TRACERFY_BASE}/dnc/scrub-from-queue/`, {
-        method:  'POST',
-        headers: {
-          'Authorization': `Bearer ${TRACERFY_API_KEY}`,
-          'Content-Type':  'application/json',
-        },
-        body: JSON.stringify({ queue_id: parseInt(queueId, 10) }),
-      })
-      const dncData = await dncRes.json().catch(() => ({}))
-      if (dncData.dnc_queue_id) {
-        await supabase.from('skip_trace_orders')
-          .update({ dnc_queue_id: String(dncData.dnc_queue_id) })
-          .eq('id', order.id)
-      }
-    } catch (e) {
-      console.error('tracerfy-webhook: failed to start DNC scrub:', e.message)
-    }
   }
 
   return ok({ ok: true })

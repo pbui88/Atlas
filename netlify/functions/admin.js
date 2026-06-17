@@ -1,4 +1,4 @@
-import { requireAdmin, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAdmin, adminSupabase, ok, err, options, isValidUUID, getPathParam } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 // Default monitoring thresholds (Supabase Pro tier) — overridable via env vars.
@@ -27,7 +27,10 @@ export const handler = async (event) => {
   if (error) return err(error, error === 'Forbidden' ? 403 : 401)
 
   const supabase = adminSupabase()
-  const action   = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('action')
+  const pathParam    = getPathParam(event, 'admin') || ''
+  const pathSegments = pathParam.split('/')
+  const action       = pathSegments[0] || null
+  const pathUserId   = pathSegments[1] || null
 
   // ── GET users (with current-cycle usage) ─────────────────────
   if (event.httpMethod === 'GET' && action === 'users') {
@@ -183,8 +186,7 @@ export const handler = async (event) => {
 
   // ── GET per-user usage detail ─────────────────────────────────
   if (event.httpMethod === 'GET' && action === 'user-usage') {
-    const userId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('userId')
-    // Fix 7: validate userId is a real UUID before querying
+    const userId = pathUserId
     if (!isValidUUID(userId)) return err('userId required')
     const usage = await getUserUsage(userId, supabase)
     return ok(usage)
