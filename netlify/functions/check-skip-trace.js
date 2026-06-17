@@ -145,7 +145,8 @@ async function parseDncCsv(url) {
     if (lines.length < 2) return new Map()
 
     const strip     = s => s.trim().replace(/^"|"$/g, '')
-    const parseBool = s => { const v = strip(s || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes' }
+    // Handle: true/false, 1/0, yes/no, y/n (Tracerfy may use any of these)
+    const parseBool = s => { const v = strip(s || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes' || v === 'y' }
 
     // Normalise headers: lowercase + collapse spaces/hyphens to underscores
     // so "National DNC", "national-dnc", "national_dnc" all become "national_dnc"
@@ -185,23 +186,18 @@ async function parseDncCsv(url) {
       const cols = splitCsvLine(line)
       const key  = normPhone(strip(cols[phoneIdx] || ''))
       if (!key) continue
-      map.set(key, {
-        isClean:      parseBool(nationalDncIdx >= 0 ? cols[isCleanIdx]     : ''),
-        national_dnc: nationalDncIdx >= 0 ? parseBool(cols[nationalDncIdx]) : false,
-        state_dnc:    stateDncIdx    >= 0 ? parseBool(cols[stateDncIdx])    : false,
-        dma:          dmaIdx         >= 0 ? parseBool(cols[dmaIdx])         : false,
-        litigator:    litigatorIdx   >= 0 ? parseBool(cols[litigatorIdx])   : false,
-      })
-    }
 
-    // Re-derive isClean from flags when the column was found
-    for (const [key, entry] of map) {
-      if (isCleanIdx >= 0) {
-        // Already set from CSV — leave as-is
-      } else {
-        // Fall back: clean if none of the flags are set
-        entry.isClean = !entry.national_dnc && !entry.state_dnc && !entry.dma && !entry.litigator
-      }
+      const national_dnc = nationalDncIdx >= 0 ? parseBool(cols[nationalDncIdx]) : undefined
+      const state_dnc    = stateDncIdx    >= 0 ? parseBool(cols[stateDncIdx])    : undefined
+      const dma          = dmaIdx         >= 0 ? parseBool(cols[dmaIdx])         : undefined
+      const litigator    = litigatorIdx   >= 0 ? parseBool(cols[litigatorIdx])   : undefined
+
+      // is_clean from CSV, or fall back to: clean when none of the flags are set
+      const isClean = isCleanIdx >= 0
+        ? parseBool(cols[isCleanIdx])
+        : !national_dnc && !state_dnc && !dma && !litigator
+
+      map.set(key, { isClean, national_dnc, state_dnc, dma, litigator })
     }
 
     console.log(`parseDncCsv: parsed ${map.size} phone entries from ${lines.length - 1} rows`)
