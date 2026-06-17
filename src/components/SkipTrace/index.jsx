@@ -154,6 +154,7 @@ export default function SkipTracePage() {
   const completedIds     = new Set(completedRecords.map(r => r.id))
   const checkedSaved     = [...checkedIds].filter(id => savedIds.has(id))
   const checkedCompleted = [...checkedIds].filter(id => completedIds.has(id))
+  const selectedHasDnc   = records.some(r => checkedIds.has(r.id) && r.status === 'completed' && r.result?.dnc_scrubbed)
 
   const toggleCheck = (id) => {
     setCheckedIds(prev => {
@@ -164,15 +165,16 @@ export default function SkipTracePage() {
   }
 
   // ── Download CSV ──────────────────────────────────────────
-  const downloadResults = () => {
+  const downloadResults = (cleanOnly = false) => {
     const selected = records.filter(r => checkedIds.has(r.id) && r.status === 'completed')
     const header = ['List Name','Address','City','State','Zip','Owner Name','Primary Phone','Mobile 1','Mobile 2','Mobile 3','Landline 1','Landline 2','Email 1','Email 2','Email 3']
     const rows = selected.map(r => {
       const res      = r.result || {}
-      const rawPhones = (res.phones || []).map(p => typeof p === 'string' ? { number: p, type: 'mobile' } : p)
-      const primary  = rawPhones.find(p => p.type === 'primary')?.number  || ''
-      const mobiles  = rawPhones.filter(p => p.type === 'mobile').map(p => p.number)
-      const landlines= rawPhones.filter(p => p.type === 'landline').map(p => p.number)
+      const rawPhones = (res.phones || []).map(p => typeof p === 'string' ? { number: p, type: 'mobile', dnc: false } : { ...p, dnc: p.dnc ?? false })
+      const phones   = cleanOnly ? rawPhones.filter(p => !p.dnc) : rawPhones
+      const primary  = phones.find(p => p.type === 'primary')?.number  || ''
+      const mobiles  = phones.filter(p => p.type === 'mobile').map(p => p.number)
+      const landlines= phones.filter(p => p.type === 'landline').map(p => p.number)
       const emails   = res.emails || []
       return [
         r.list_name   || '',
@@ -193,7 +195,7 @@ export default function SkipTracePage() {
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
     a.href     = url
-    a.download = `skip-trace-${new Date().toISOString().slice(0,10)}.csv`
+    a.download = `skip-trace-${cleanOnly ? 'clean-' : ''}${new Date().toISOString().slice(0,10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -465,7 +467,7 @@ export default function SkipTracePage() {
 
             {/* Download section — completed records */}
             {checkedCompleted.length > 0 && (
-              <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white">
                     {checkedCompleted.length} result{checkedCompleted.length !== 1 ? 's' : ''} selected
@@ -473,14 +475,25 @@ export default function SkipTracePage() {
                   <p className="text-xs text-slate-500">Ready to export</p>
                 </div>
                 <button
-                  onClick={downloadResults}
+                  onClick={() => downloadResults(false)}
                   className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition shadow-md"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
-                  Download CSV
+                  {selectedHasDnc ? 'Download All' : 'Download CSV'}
                 </button>
+                {selectedHasDnc && (
+                  <button
+                    onClick={() => downloadResults(true)}
+                    className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700/50 hover:bg-emerald-700/70 border border-emerald-600/40 text-emerald-300 text-sm font-semibold transition"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Download Clean
+                  </button>
+                )}
               </div>
             )}
 
@@ -740,9 +753,12 @@ function PhoneTag({ type }) {
 function ContactResult({ result }) {
   const rawPhones = result.phones || []
   const phones = rawPhones.map(p =>
-    typeof p === 'string' ? { number: p, type: 'mobile' } : p
+    typeof p === 'string' ? { number: p, type: 'mobile', dnc: false } : { ...p, dnc: p.dnc ?? false }
   )
-  const emails = result.emails || []
+  const emails       = result.emails || []
+  const dncScrubbed  = !!result.dnc_scrubbed
+  const cleanPhones  = dncScrubbed ? phones.filter(p => !p.dnc) : phones
+  const flaggedCount = dncScrubbed ? phones.filter(p => p.dnc).length : 0
 
   if (!result.full_name && !phones.length && !emails.length) {
     return <p className="text-xs text-slate-600 mt-1.5 italic">No contact data found</p>
@@ -759,48 +775,115 @@ function ContactResult({ result }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Phones column */}
-        <div className="col-span-2 lg:col-span-1">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Phones</p>
-          {phones.length === 0 ? (
-            <span className="text-xs text-slate-700">—</span>
-          ) : (
-            <div className="space-y-1.5">
-              {phones.map((ph, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
-                  <PhoneTag type={ph.type} />
+      {dncScrubbed ? (
+        <>
+          {/* DNC stats summary */}
+          <div className="flex items-center gap-3 mb-2.5 text-[11px] font-medium">
+            <span className="text-slate-500">{phones.length} phone{phones.length !== 1 ? 's' : ''} checked</span>
+            <span className="text-emerald-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+              {cleanPhones.length} clean
+            </span>
+            {flaggedCount > 0 && (
+              <span className="text-red-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+                {flaggedCount} flagged
+              </span>
+            )}
+          </div>
+
+          {/* Two phone lists side by side */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Full Result</p>
+              {phones.length === 0 ? (
+                <span className="text-xs text-slate-700">—</span>
+              ) : (
+                <div className="space-y-1.5">
+                  {phones.map((ph, i) => (
+                    <div key={i} className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-xs font-mono ${ph.dnc ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{ph.number}</span>
+                      <PhoneTag type={ph.type} />
+                      {ph.dnc && <span className="text-[9px] px-1 py-0.5 rounded font-bold uppercase tracking-wide text-red-400 border border-red-500/40">DNC</span>}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Email 1 */}
-        <div>
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 1</p>
-          {emails[0]
-            ? <span className="text-xs text-violet-300 break-all">{emails[0]}</span>
-            : <span className="text-xs text-slate-700">—</span>}
-        </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Clean (No Flags)</p>
+              {cleanPhones.length === 0 ? (
+                <span className="text-xs text-slate-700 italic">All numbers flagged</span>
+              ) : (
+                <div className="space-y-1.5">
+                  {cleanPhones.map((ph, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
+                      <PhoneTag type={ph.type} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
 
-        {/* Email 2 */}
-        <div>
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 2</p>
-          {emails[1]
-            ? <span className="text-xs text-violet-300 break-all">{emails[1]}</span>
-            : <span className="text-xs text-slate-700">—</span>}
-        </div>
+          {/* Emails */}
+          <div className="grid grid-cols-3 gap-3">
+            {['Email 1', 'Email 2', 'Email 3'].map((label, i) => (
+              <div key={i}>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">{label}</p>
+                {emails[i]
+                  ? <span className="text-xs text-violet-300 break-all">{emails[i]}</span>
+                  : <span className="text-xs text-slate-700">—</span>}
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Phones column */}
+          <div className="col-span-2 lg:col-span-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Phones</p>
+            {phones.length === 0 ? (
+              <span className="text-xs text-slate-700">—</span>
+            ) : (
+              <div className="space-y-1.5">
+                {phones.map((ph, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-200 font-mono">{ph.number}</span>
+                    <PhoneTag type={ph.type} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Email 3 */}
-        <div>
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 3</p>
-          {emails[2]
-            ? <span className="text-xs text-violet-300 break-all">{emails[2]}</span>
-            : <span className="text-xs text-slate-700">—</span>}
+          {/* Email 1 */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 1</p>
+            {emails[0]
+              ? <span className="text-xs text-violet-300 break-all">{emails[0]}</span>
+              : <span className="text-xs text-slate-700">—</span>}
+          </div>
+
+          {/* Email 2 */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 2</p>
+            {emails[1]
+              ? <span className="text-xs text-violet-300 break-all">{emails[1]}</span>
+              : <span className="text-xs text-slate-700">—</span>}
+          </div>
+
+          {/* Email 3 */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Email 3</p>
+            {emails[2]
+              ? <span className="text-xs text-violet-300 break-all">{emails[2]}</span>
+              : <span className="text-xs text-slate-700">—</span>}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

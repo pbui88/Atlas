@@ -25,36 +25,42 @@ async function fetchQueueResults(queueId) {
 
 // Normalize a result row from Tracerfy into what we store in skip_trace_records.result
 function normalizeResult(row) {
-  const phones = [
-    row.primary_phone && { number: row.primary_phone, type: 'primary' },
-    row.mobile_1   && { number: row.mobile_1,   type: 'mobile' },
-    row.mobile_2   && { number: row.mobile_2,   type: 'mobile' },
-    row.mobile_3   && { number: row.mobile_3,   type: 'mobile' },
-    row.mobile_4   && { number: row.mobile_4,   type: 'mobile' },
-    row.mobile_5   && { number: row.mobile_5,   type: 'mobile' },
-    row.landline_1 && { number: row.landline_1, type: 'landline' },
-    row.landline_2 && { number: row.landline_2, type: 'landline' },
-    row.landline_3 && { number: row.landline_3, type: 'landline' },
-  ].filter(Boolean)
+  // Build phone entry; include dnc flag if Tracerfy returned a DNC field for this number
+  const makePhone = (number, type, field) => {
+    if (!number) return null
+    const dncKey = `${field}_dnc`
+    return dncKey in row ? { number, type, dnc: !!row[dncKey] } : { number, type }
+  }
 
-  const emails = [
-    row.email_1 || null,
-    row.email_2 || null,
-    row.email_3 || null,
-    row.email_4 || null,
-    row.email_5 || null,
-  ].filter(Boolean)
+  const phoneFields = [
+    ['primary_phone', 'primary',  'primary_phone'],
+    ['mobile_1',      'mobile',   'mobile_1'],
+    ['mobile_2',      'mobile',   'mobile_2'],
+    ['mobile_3',      'mobile',   'mobile_3'],
+    ['mobile_4',      'mobile',   'mobile_4'],
+    ['mobile_5',      'mobile',   'mobile_5'],
+    ['landline_1',    'landline', 'landline_1'],
+    ['landline_2',    'landline', 'landline_2'],
+    ['landline_3',    'landline', 'landline_3'],
+  ]
+  const phones = phoneFields.map(([f, t, k]) => makePhone(row[f], t, k)).filter(Boolean)
+
+  // True when DNC scrubbing was applied — indicated by the presence of any _dnc field
+  const dncScrubbed = phoneFields.some(([,, k]) => `${k}_dnc` in row)
+
+  const emails = [row.email_1, row.email_2, row.email_3, row.email_4, row.email_5].filter(Boolean)
 
   return {
-    first_name:   row.first_name    || null,
-    last_name:    row.last_name     || null,
+    first_name:   row.first_name   || null,
+    last_name:    row.last_name    || null,
     full_name:    [row.first_name, row.last_name].filter(Boolean).join(' ') || null,
     phones,
     emails,
-    mail_address: row.mail_address  || null,
-    address:      row.address       || null,
-    city:         row.city          || null,
-    state:        row.state         || null,
+    mail_address: row.mail_address || null,
+    address:      row.address      || null,
+    city:         row.city         || null,
+    state:        row.state        || null,
+    ...(dncScrubbed ? { dnc_scrubbed: true } : {}),
   }
 }
 

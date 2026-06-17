@@ -37,25 +37,28 @@ async function fetchQueueResults(queueId) {
 
 // Build normalised result object stored per skip_trace_record
 function normalizeResult(row) {
-  const phones = [
-    row.primary_phone && { number: row.primary_phone, type: 'primary' },
-    row.mobile_1   && { number: row.mobile_1,   type: 'mobile' },
-    row.mobile_2   && { number: row.mobile_2,   type: 'mobile' },
-    row.mobile_3   && { number: row.mobile_3,   type: 'mobile' },
-    row.mobile_4   && { number: row.mobile_4,   type: 'mobile' },
-    row.mobile_5   && { number: row.mobile_5,   type: 'mobile' },
-    row.landline_1 && { number: row.landline_1, type: 'landline' },
-    row.landline_2 && { number: row.landline_2, type: 'landline' },
-    row.landline_3 && { number: row.landline_3, type: 'landline' },
-  ].filter(Boolean)
+  const makePhone = (number, type, field) => {
+    if (!number) return null
+    const dncKey = `${field}_dnc`
+    return dncKey in row ? { number, type, dnc: !!row[dncKey] } : { number, type }
+  }
 
-  const emails = [
-    row.email_1 || null,
-    row.email_2 || null,
-    row.email_3 || null,
-    row.email_4 || null,
-    row.email_5 || null,
-  ].filter(Boolean)
+  const phoneFields = [
+    ['primary_phone', 'primary',  'primary_phone'],
+    ['mobile_1',      'mobile',   'mobile_1'],
+    ['mobile_2',      'mobile',   'mobile_2'],
+    ['mobile_3',      'mobile',   'mobile_3'],
+    ['mobile_4',      'mobile',   'mobile_4'],
+    ['mobile_5',      'mobile',   'mobile_5'],
+    ['landline_1',    'landline', 'landline_1'],
+    ['landline_2',    'landline', 'landline_2'],
+    ['landline_3',    'landline', 'landline_3'],
+  ]
+  const phones = phoneFields.map(([f, t, k]) => makePhone(row[f], t, k)).filter(Boolean)
+
+  const dncScrubbed = phoneFields.some(([,, k]) => `${k}_dnc` in row)
+
+  const emails = [row.email_1, row.email_2, row.email_3, row.email_4, row.email_5].filter(Boolean)
 
   return {
     first_name:   row.first_name  || null,
@@ -64,6 +67,7 @@ function normalizeResult(row) {
     phones,
     emails,
     mail_address: row.mail_address || null,
+    ...(dncScrubbed ? { dnc_scrubbed: true } : {}),
   }
 }
 
