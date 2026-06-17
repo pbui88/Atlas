@@ -25,10 +25,10 @@ export const handler = async (event) => {
 
   const supabase = adminSupabase()
 
-  // Verify ownership and get order IDs for these completed records
+  // Verify ownership and get order IDs + phone counts for these completed records
   const { data: records, error: recErr } = await supabase
     .from('skip_trace_records')
-    .select('id, order_id')
+    .select('id, order_id, result')
     .in('id', recordIds)
     .eq('user_id', user.id)
     .eq('status', 'completed')
@@ -36,8 +36,32 @@ export const handler = async (event) => {
   if (recErr) return err(recErr.message, 500)
   if (!records?.length) return err('No eligible completed records found', 400)
 
+  // ── Deduct DNC balance ($0.02/phone) ──────────────────────
+  const COST_PER_PHONE = 0.02
+  const totalPhones    = records.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
+
+  if (totalPhones === 0) return err('No phone numbers found in these records', 400)
+
+  const cost = Math.round(totalPhones * COST_PER_PHONE * 100) / 100
+
+  const { data: deducted, error: deductErr } = await supabase
+    .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+
+  if (deductErr) return err(deductErr.message, 500)
+  if (!deducted) {
+    return err(
+      `Insufficient skip trace balance. This DNC scrub requires $${cost.toFixed(2)} ` +
+      `(${totalPhones} phone${totalPhones !== 1 ? 's' : ''} × $${COST_PER_PHONE}/phone). ` +
+      `Please add funds on the Credits page.`,
+      402
+    )
+  }
+
   const orderIds = [...new Set(records.map(r => r.order_id).filter(Boolean))]
-  if (!orderIds.length) return err('No orders found for these records', 400)
+  if (!orderIds.length) {
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+    return err('No orders found for these records', 400)
+  }
 
   // Fetch the Tracerfy queue IDs for those orders
   const { data: orders, error: ordErr } = await supabase
@@ -46,7 +70,10 @@ export const handler = async (event) => {
     .in('id', orderIds)
     .eq('user_id', user.id)
 
-  if (ordErr) return err(ordErr.message, 500)
+  if (ordErr) {
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+    return err(ordErr.message, 500)
+  }
 
   let started = 0
   const errs  = []
@@ -82,10 +109,15 @@ export const handler = async (event) => {
     }
   }
 
-  if (!started) return err(errs[0] || 'Failed to start DNC scrub', 400)
+  if (!started) {
+    await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
+    return err(errs[0] || 'Failed to start DNC scrub', 400)
+  }
 
   return ok({
     started,
+    totalPhones,
+    cost,
     message: `DNC scrub started for ${started} batch${started !== 1 ? 'es' : ''}. Results will update automatically.`,
   })
 }

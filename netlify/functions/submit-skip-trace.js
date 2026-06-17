@@ -34,13 +34,30 @@ export const handler = async (event) => {
 
   const creditsPerLead = traceType === 'advanced' ? 2 : 1
 
+  // ── Deduct skip trace balance ($0.08/record) ───────────────
+  const COST_PER_RECORD = 0.08
+  const cost = Math.round(records.length * COST_PER_RECORD * 100) / 100
+
+  const { data: deducted, error: deductErr } = await supabase
+    .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
+
+  if (deductErr) return err(deductErr.message, 500)
+  if (!deducted) {
+    return err(
+      `Insufficient skip trace balance. This job requires $${cost.toFixed(2)} ` +
+      `(${records.length} record${records.length !== 1 ? 's' : ''} × $${COST_PER_RECORD}/record). ` +
+      `Please add funds on the Credits page.`,
+      402
+    )
+  }
+
   // ── Create order row first ─────────────────────────────────
   const { data: order, error: orderErr } = await supabase
     .from('skip_trace_orders')
     .insert({
       user_id:      user.id,
       record_count: records.length,
-      cost_usd:     0,
+      cost_usd:     cost,
       status:       TRACERFY_API_KEY ? 'processing' : 'pending',
       scrub_dnc:    !!scrubDnc,
     })
@@ -88,9 +105,10 @@ export const handler = async (event) => {
       if (!res.ok) {
         const msg = data.error || data.detail || `Tracerfy error (${res.status})`
         console.error('Tracerfy /trace/ error:', msg)
-        // Mark order as failed but don't block the response — records are already submitted
         await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
         await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
+        // Refund the deducted balance since the job failed
+        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
         return err(`Skip trace service error: ${msg}`, 502)
       }
 
@@ -104,6 +122,7 @@ export const handler = async (event) => {
       console.error('Tracerfy request failed:', e.message)
       await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
       await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
+      await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost }).catch(() => {})
       return err('Failed to contact skip trace service. Please try again.', 502)
     }
   }
