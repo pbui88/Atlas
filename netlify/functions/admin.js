@@ -197,7 +197,7 @@ export const handler = async (event) => {
     // Fix 2: guard against malformed request body
     let patchBody = {}
     try { patchBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
-    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, billing_state } = patchBody
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, grantSkipTrace, billing_state } = patchBody
     if (!isValidUUID(userId)) return err('userId required')
 
     // Handle manual credit grant — increments purchased_credits via RPC
@@ -208,6 +208,16 @@ export const handler = async (event) => {
       if (rpcErr) return err(rpcErr.message)
       const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
       return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
+    }
+
+    // Handle manual skip trace balance grant
+    if (grantSkipTrace !== undefined) {
+      const amount = parseFloat(grantSkipTrace)
+      if (!isFinite(amount) || amount <= 0) return err('grantSkipTrace must be a positive number')
+      const { error: rpcErr } = await supabase.rpc('add_skip_trace_balance', { p_user_id: userId, p_amount: amount })
+      if (rpcErr) return err(rpcErr.message)
+      const { data: updated } = await supabase.from('profiles').select('skip_trace_balance').eq('id', userId).maybeSingle()
+      return ok({ skip_trace_balance: parseFloat(updated?.skip_trace_balance ?? 0) })
     }
 
     // Handle Google Maps key separately (stored in user_keys, not profiles)
