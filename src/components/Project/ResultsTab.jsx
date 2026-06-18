@@ -373,6 +373,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         if (abortRef.current) break
         toAnalyze = await fetchToAnalyze()
       }
+
+      // Any points still in 'analyzing' are stuck (function timeout / API error).
+      // Reset them to 'failed' so they show in the failed badge and retry on next run.
+      if (!abortRef.current) {
+        await supabase.from('scan_points')
+          .update({ status: 'failed', updated_at: new Date().toISOString() })
+          .eq('project_id', project.id)
+          .eq('status', 'analyzing')
+      }
     } catch { /* continue */ }
 
     setPhase('')
