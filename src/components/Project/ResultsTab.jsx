@@ -226,6 +226,19 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
 
+  // If the scan is not running but points are stuck in 'analyzing' (left over from
+  // a function timeout in a previous run), reset them to 'failed' immediately so
+  // the progress bar clears and they can be retried on the next Start.
+  useEffect(() => {
+    if (running || stats.analyzing === 0) return
+    supabase.from('scan_points')
+      .update({ status: 'failed', updated_at: new Date().toISOString() })
+      .eq('project_id', project.id)
+      .eq('status', 'analyzing')
+      .then(() => fetchStats())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.analyzing, running, project.id])
+
   // Start scan once usage has loaded and key is confirmed.
   // Uses a ref for the initial autoStart value so the timeout is never
   // canceled when the parent clears the autoStart prop.
