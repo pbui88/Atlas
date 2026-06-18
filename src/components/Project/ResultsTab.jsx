@@ -183,25 +183,38 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     // Strips direction prefixes (North/N) and type suffixes (Avenue/Ave/St)
     // so "603 North Belmont Avenue, Odessa, TX" and "603 N Belmont Ave, Odessa, Texas"
     // both produce "603|belmont|odessa" and collapse to one entry.
+    // Falls back to full street words when stripping removes everything (e.g. "North Street")
+    // so "123 North Street" and "123 South Avenue" don't share the same empty-name key.
     const DIRS  = new Set(['n','s','e','w','ne','nw','se','sw','north','south','east','west','northeast','northwest','southeast','southwest'])
     const TYPES = new Set(['ave','avenue','blvd','boulevard','cir','circle','ct','court','dr','drive','ln','lane','pl','place','rd','road','st','street','trl','trail','pkwy','parkway','hwy','highway','way'])
     const addrKey = raw => {
       if (!raw) return null
-      const parts  = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
-      const words  = (parts[0] || '').toLowerCase().replace(/[.,#]/g, '').split(/\s+/).filter(Boolean)
-      const num    = words[0]
+      const parts       = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
+      const words       = (parts[0] || '').toLowerCase().replace(/[.,#]/g, '').split(/\s+/).filter(Boolean)
+      const num         = words[0]
       if (!num || !/^\d/.test(num)) return null
-      const name   = words.slice(1).filter(w => !DIRS.has(w) && !TYPES.has(w)).join('-')
-      const city   = (parts[1] || '').toLowerCase().trim().replace(/\s+/g, '-')
+      const streetWords = words.slice(1)
+      const coreWords   = streetWords.filter(w => !DIRS.has(w) && !TYPES.has(w))
+      const name        = (coreWords.length ? coreWords : streetWords).join('-')
+      const city        = (parts[1] || '').toLowerCase().trim().replace(/\s+/g, '-')
       return `${num}|${name}|${city}`
     }
-    const COORD_DEG = 10 / 111320
+
+    // Coordinate fallback: use project scan spacing so nearby same-property points collapse.
+    // no_coverage points use a wider cell (≥30 m) to avoid many "No Street View" entries
+    // for the same coverage gap.
+    const spacing   = project.point_spacing_meters || 30
+    const COORD_DEG = spacing / 111320
+    const NC_DEG    = Math.max(spacing, 30) / 111320
 
     const seen = new Map()
     for (const pt of normalized) {
-      if (pt.status === 'no_coverage' && !pt.address) continue
+      // Include all no_coverage points (even without address) — they show as "No Street View"
+      // in the list so the user can see the coverage gap instead of silently missing rows.
       const key = addrKey(pt.address) ||
-                  `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
+                  (pt.status === 'no_coverage'
+                    ? `nc:${Math.round(pt.lat / NC_DEG)},${Math.round(pt.lng / NC_DEG)}`
+                    : `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`)
       const existing = seen.get(key)
       const score    = pt.ai_analyses?.[0]?.overall_score ?? -1
       const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1
@@ -679,10 +692,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           <span className="text-xs text-slate-500 flex-1">
             {resLoading ? 'Loading…' : checkedCount > 0
               ? <span className="font-medium text-brand-600">{checkedCount} selected</span>
-              : `${sorted.length} properties`
+              : `${sorted.length} propert${sorted.length === 1 ? 'y' : 'ies'}`
             }
             {!resLoading && checkedCount === 0 && hasFilters && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
+            )}
+            {!resLoading && checkedCount === 0 && stats.total > 0 && stats.total !== sorted.length && (
+              <span className="text-slate-600"> · {stats.total} pts</span>
             )}
           </span>
           <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>

@@ -58,9 +58,11 @@ export const handler = async (event) => {
     if (!raw) return null
     const parts = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
     const words = (parts[0] || '').toLowerCase().replace(/[.,#]/g, '').split(/\s+/).filter(Boolean)
-    const num   = words[0]
+    const num         = words[0]
     if (!num || !/^\d/.test(num)) return null
-    const name  = words.slice(1).filter(w => !DIRS.has(w) && !TYPES.has(w)).join('-')
+    const streetWords = words.slice(1)
+    const coreWords   = streetWords.filter(w => !DIRS.has(w) && !TYPES.has(w))
+    const name        = (coreWords.length ? coreWords : streetWords).join('-')
     const city  = (parts[1] || '').toLowerCase().trim().replace(/\s+/g, '-')
     return `${num}|${name}|${city}`
   }
