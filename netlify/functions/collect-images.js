@@ -38,6 +38,33 @@ async function resolveApiKeyAndMode(userId, supabase) {
   }
 }
 
+// Fetch the actual Street View panorama location (free metadata, no charge).
+// Returns { lat, lng } of where Google's camera physically is, or null.
+async function getPanoramaLocation(lat, lng, apiKey) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  try {
+    const res  = await fetch(
+      `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&return_error_code=true&key=${apiKey}`,
+      { signal: controller.signal }
+    )
+    const data = await res.json()
+    if (data.status === 'OK' && data.location) return data.location
+  } catch { /* timeout or network error — fall back to road_bearing */ }
+  finally { clearTimeout(timer) }
+  return null
+}
+
+// Compass bearing (degrees, 0=North) from one coordinate to another.
+function bearingTo(fromLat, fromLng, toLat, toLng) {
+  const lat1 = fromLat * Math.PI / 180
+  const lat2 = toLat   * Math.PI / 180
+  const dLng = (toLng - fromLng) * Math.PI / 180
+  const y = Math.sin(dLng) * Math.cos(lat2)
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
 // Returns: { buffer } on success, { noCoverage: true } for 404 (no imagery),
 // or throws an Error for 400/403 (bad key / API not enabled).
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
@@ -57,9 +84,20 @@ async function processPoint(pt, projectId, userId, apiKey, supabase) {
   try {
     if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
-    // Road bearing stored at generation time from OSM geometry.
-    // Rotate 90° perpendicular to face the property fronting the road.
-    const heading = Math.round((road_bearing ?? 0) + 90) % 360
+    // Get the actual panorama position (free metadata call) and aim the camera
+    // from there toward the scan point. This always faces the property regardless
+    // of which side of the road it's on or whether road_bearing is available.
+    // Falls back to road_bearing + 90 only if the metadata call fails.
+    const pano = await getPanoramaLocation(lat, lng, apiKey)
+    let heading
+    if (pano) {
+      const dist = Math.abs(pano.lat - lat) + Math.abs(pano.lng - lng)
+      heading = dist > 1e-7
+        ? Math.round(bearingTo(pano.lat, pano.lng, lat, lng))   // panorama → scan point
+        : Math.round((road_bearing ?? 0) + 90) % 360            // same spot, fall back
+    } else {
+      heading = Math.round((road_bearing ?? 0) + 90) % 360
+    }
 
     await supabase.from('scan_points')
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
