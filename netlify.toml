@@ -11,6 +11,9 @@
 [functions]
   node_bundler = "esbuild"
 
+[functions."generate-points"]
+  timeout = 20
+
 
 [[headers]]
   for = "/*"

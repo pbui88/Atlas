@@ -11,9 +11,14 @@ function bearingBetween(lat1, lng1, lat2, lng2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
 }
 
+// Keep Overpass server timeout well inside Netlify's 10s function limit so
+// sequential fallback still fits if buildings succeed but roads are needed.
+const OVERPASS_TIMEOUT_S  = 8
+const OVERPASS_TIMEOUT_MS = (OVERPASS_TIMEOUT_S + 1) * 1000
+
 async function overpassFetch(query) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20000)
+  const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS)
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method:  'POST',
@@ -33,13 +38,13 @@ async function getRoadsFromOSM(polygonGeoJson) {
   // Only named, public-facing residential and collector roads.
   // Requiring [name] excludes alleys, back-access roads, and service lanes
   // which almost never have street names in OSM.
-  const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street)$"][name][access!~"^(private|no)$"](${south},${west},${north},${east});(._;>;);out body;`
+  const query = `[out:json][timeout:${OVERPASS_TIMEOUT_S}];way[highway~"^(residential|primary|secondary|tertiary|living_street)$"][name][access!~"^(private|no)$"](${south},${west},${north},${east});(._;>;);out body;`
   return overpassFetch(query)
 }
 
 async function getBuildingsFromOSM(polygonGeoJson) {
   const [west, south, east, north] = turf.bbox(polygonGeoJson)
-  const query = `[out:json][timeout:25];way[building](${south},${west},${north},${east});(._;>;);out body;`
+  const query = `[out:json][timeout:${OVERPASS_TIMEOUT_S}];way[building](${south},${west},${north},${east});(._;>;);out body;`
   return overpassFetch(query)
 }
 
@@ -209,29 +214,45 @@ export const handler = async (event) => {
   const purchasedRemaining = Math.max(0, (preflight.purchasedCredits ?? 0) - (preflight.purchasedCreditsUsed ?? 0))
   if (!isAdmin && purchasedRemaining <= 0) return err('No credits available. Contact your admin to grant credits.', 503)
 
-  // Generation strategy: buildings → roads → grid (each is a fallback for the previous).
-  // Buildings give exactly one point per structure — the most accurate.
-  // Roads sample at clampedSpacing intervals along named streets.
-  // Grid is the last-resort for areas with neither OSM buildings nor roads.
+  // Run buildings + roads queries in parallel to stay within Netlify's 10s
+  // function timeout. Buildings are preferred (one point per structure);
+  // roads are the fallback; grid is last resort.
+  const [buildingResult, roadResult] = await Promise.allSettled([
+    getBuildingsFromOSM(geojson),
+    getRoadsFromOSM(geojson),
+  ])
+
   let points
-  let method = 'building'
-  try {
-    const osm = await getBuildingsFromOSM(geojson)
-    points    = buildBuildingCentroids(osm, geojson)
-    if (points.length === 0) throw new Error('No buildings found in polygon')
-  } catch (buildingErr) {
-    console.warn('Building-based generation failed, falling back to roads:', buildingErr.message)
-    method = 'road'
+  let method = 'grid'
+
+  if (buildingResult.status === 'fulfilled') {
     try {
-      const osm   = await getRoadsFromOSM(geojson)
-      const roads = buildRoadLines(osm)
-      points      = sampleRoadPoints(roads, geojson, clampedSpacing)
-      if (points.length === 0) throw new Error('No roads found inside polygon')
-    } catch (roadErr) {
-      console.warn('Road-based generation failed, falling back to grid:', roadErr.message)
-      points = generateGrid(geojson, clampedSpacing)
-      method = 'grid'
+      const candidates = buildBuildingCentroids(buildingResult.value, geojson)
+      if (candidates.length > 0) { points = candidates; method = 'building' }
+    } catch (e) {
+      console.warn('Building centroid extraction failed:', e.message)
     }
+  } else {
+    console.warn('Buildings OSM query failed:', buildingResult.reason?.message)
+  }
+
+  if (!points) {
+    if (roadResult.status === 'fulfilled') {
+      try {
+        const roads = buildRoadLines(roadResult.value)
+        const candidates = sampleRoadPoints(roads, geojson, clampedSpacing)
+        if (candidates.length > 0) { points = candidates; method = 'road' }
+      } catch (e) {
+        console.warn('Road sampling failed:', e.message)
+      }
+    } else {
+      console.warn('Roads OSM query failed:', roadResult.reason?.message)
+    }
+  }
+
+  if (!points) {
+    points = generateGrid(geojson, clampedSpacing)
+    method = 'grid'
   }
 
   if (points.length === 0) return err('No points generated — polygon may be too small')
