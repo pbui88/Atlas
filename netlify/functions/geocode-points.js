@@ -110,6 +110,28 @@ async function reverseGeocode(lat, lng) {
   return address2
 }
 
+// Free zip-code fallback via Nominatim (OpenStreetMap).
+// Called only when Positionstack returns an address without a 5-digit zip.
+async function lookupZip(lat, lng) {
+  try {
+    const res  = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'User-Agent': 'AtlasApp/1.0' } }
+    )
+    const data = await res.json()
+    return data.address?.postcode?.replace(/\s*-?\d{4}$/, '').trim() || null
+  } catch {
+    return null
+  }
+}
+
+// Inject a zip code into an address that already has a 2-letter state abbreviation.
+// "123 Main St, Phoenix, AZ" → "123 Main St, Phoenix, AZ 85001"
+function injectZip(address, zip) {
+  const patched = address.replace(/(,\s*)([A-Z]{2})\s*$/, `$1$2 ${zip}`)
+  return patched !== address ? patched : `${address} ${zip}`
+}
+
 async function geocodePoint(pt, googleKey, supabase) {
   // Skip only if address exists AND is not a raw coordinate string
   if (pt.address && !looksLikeLatLng(pt.address)) {
@@ -133,19 +155,30 @@ async function geocodePoint(pt, googleKey, supabase) {
       if (pano) { baseLat = pano.lat; baseLng = pano.lng }
     }
 
+    let geocodeLat = baseLat, geocodeLng = baseLng
     if (headingDeg != null) {
       const { lat, lng } = offsetCoords(baseLat, baseLng, headingDeg, 20)
+      geocodeLat = lat; geocodeLng = lng
       address = await reverseGeocode(lat, lng)
     } else {
       // No road bearing (grid fallback): try both perpendicular directions
       const { lat: lat1, lng: lng1 } = offsetCoords(baseLat, baseLng, 90, 20)
       address = await reverseGeocode(lat1, lng1)
+      if (address) { geocodeLat = lat1; geocodeLng = lng1 }
       if (!address) {
         const { lat: lat2, lng: lng2 } = offsetCoords(baseLat, baseLng, 270, 20)
         address = await reverseGeocode(lat2, lng2)
+        if (address) { geocodeLat = lat2; geocodeLng = lng2 }
       }
       if (!address) address = await reverseGeocode(baseLat, baseLng)
     }
+
+    // If Positionstack returned an address but no zip, fill it in via Nominatim
+    if (address && !/\d{5}/.test(address)) {
+      const zip = await lookupZip(geocodeLat, geocodeLng)
+      if (zip) address = injectZip(address, zip)
+    }
+
     if (address) {
       await supabase.from('scan_points')
         .update({ address, updated_at: new Date().toISOString() })
