@@ -239,15 +239,18 @@ export default function AdminPanel() {
 
   const load = async () => {
     setLoading(true)
-    const [usersRes, usageRes, monitorRes] = await Promise.allSettled([
-      adminGetUsers(), adminGetUsage(), adminGetMonitor(),
+    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+    const safe    = (p)  => Promise.race([p, timeout(20000)]).catch(e => { console.error(e); return null })
+
+    const [usersData, usageData, monitorData] = await Promise.all([
+      safe(adminGetUsers()),
+      safe(adminGetUsage()),
+      safe(adminGetMonitor()),
     ])
-    if (usersRes.status   === 'fulfilled') setUsers(usersRes.value)
-    else console.error(usersRes.reason)
-    if (usageRes.status   === 'fulfilled') setUsage(usageRes.value)
-    else console.error(usageRes.reason)
-    if (monitorRes.status === 'fulfilled') setMonitor(monitorRes.value)
-    else { console.error(monitorRes.reason); setMonitor(null) }
+    if (usersData)   setUsers(usersData)
+    if (usageData)   setUsage(usageData)
+    if (monitorData) setMonitor(monitorData)
+    else             setMonitor(null)
     setLoading(false)
   }
 
