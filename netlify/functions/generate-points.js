@@ -11,12 +11,7 @@ function bearingBetween(lat1, lng1, lat2, lng2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
 }
 
-async function getRoadsFromOSM(polygonGeoJson) {
-  const [west, south, east, north] = turf.bbox(polygonGeoJson)
-  // Only named, public-facing residential and collector roads.
-  // Requiring [name] excludes alleys, back-access roads, and service lanes
-  // which almost never have street names in OSM.
-  const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street)$"][name][access!~"^(private|no)$"](${south},${west},${north},${east});(._;>;);out body;`
+async function overpassFetch(query) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20000)
   try {
@@ -31,6 +26,79 @@ async function getRoadsFromOSM(polygonGeoJson) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+async function getRoadsFromOSM(polygonGeoJson) {
+  const [west, south, east, north] = turf.bbox(polygonGeoJson)
+  // Only named, public-facing residential and collector roads.
+  // Requiring [name] excludes alleys, back-access roads, and service lanes
+  // which almost never have street names in OSM.
+  const query = `[out:json][timeout:25];way[highway~"^(residential|primary|secondary|tertiary|living_street)$"][name][access!~"^(private|no)$"](${south},${west},${north},${east});(._;>;);out body;`
+  return overpassFetch(query)
+}
+
+async function getBuildingsFromOSM(polygonGeoJson) {
+  const [west, south, east, north] = turf.bbox(polygonGeoJson)
+  const query = `[out:json][timeout:25];way[building](${south},${west},${north},${east});(._;>;);out body;`
+  return overpassFetch(query)
+}
+
+// Building types that are not scannable properties (garages, sheds, etc.)
+const SKIP_BUILDING_TYPES = new Set([
+  'garage', 'garages', 'shed', 'carport', 'hut', 'barn', 'greenhouse',
+  'kiosk', 'canopy', 'roof', 'ruins', 'collapsed', 'construction',
+  'fence', 'wall', 'transformer_tower', 'service',
+])
+
+// Place one scan point at each building centroid. road_bearing is left null —
+// the collect-images heading logic uses the Street View metadata to aim the
+// camera from the road toward the scan point (building), so no bearing is needed.
+function buildBuildingCentroids(osm, polygon) {
+  const nodes = {}
+  for (const el of osm.elements) {
+    if (el.type === 'node') nodes[el.id] = [el.lon, el.lat]
+  }
+
+  // 5 m dedup cell — collapses OSM duplicates without merging distinct buildings.
+  const CELL_DEG = 5 / 111320
+  const seen     = new Set()
+  const points   = []
+
+  for (const el of osm.elements) {
+    if (el.type !== 'way' || !el.tags?.building) continue
+    if (SKIP_BUILDING_TYPES.has((el.tags.building || '').toLowerCase())) continue
+
+    const coords = el.nodes?.map(id => nodes[id]).filter(Boolean)
+    if (!coords || coords.length < 4) continue
+
+    // Ensure the ring is closed (OSM closed ways have first === last node, but
+    // missing nodes can break that invariant).
+    const ring = [...coords]
+    if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) {
+      ring.push(ring[0])
+    }
+
+    try {
+      const poly     = turf.polygon([ring])
+      const centroid = turf.centroid(poly)
+      if (!turf.booleanPointInPolygon(centroid, polygon)) continue
+
+      const [lng, lat] = centroid.geometry.coordinates
+      const key = `${Math.round(lng / CELL_DEG)},${Math.round(lat / CELL_DEG)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      points.push({
+        lat:          +lat.toFixed(7),
+        lng:          +lng.toFixed(7),
+        road_bearing: null,
+      })
+    } catch {
+      // Invalid polygon geometry — skip
+    }
+  }
+
+  return points
 }
 
 function buildRoadLines(osm) {
@@ -141,21 +209,33 @@ export const handler = async (event) => {
   const purchasedRemaining = Math.max(0, (preflight.purchasedCredits ?? 0) - (preflight.purchasedCreditsUsed ?? 0))
   if (!isAdmin && purchasedRemaining <= 0) return err('No credits available. Contact your admin to grant credits.', 503)
 
+  // Generation strategy: buildings → roads → grid (each is a fallback for the previous).
+  // Buildings give exactly one point per structure — the most accurate.
+  // Roads sample at clampedSpacing intervals along named streets.
+  // Grid is the last-resort for areas with neither OSM buildings nor roads.
   let points
-  let method = 'road'
+  let method = 'building'
   try {
-    const osm   = await getRoadsFromOSM(geojson)
-    const roads = buildRoadLines(osm)
-    points      = sampleRoadPoints(roads, geojson, clampedSpacing)
-    if (points.length === 0) throw new Error('No roads found inside polygon')
-  } catch (e) {
-    console.warn('Road-based generation failed, falling back to grid:', e.message)
-    points = generateGrid(geojson, clampedSpacing)
-    method = 'grid'
+    const osm = await getBuildingsFromOSM(geojson)
+    points    = buildBuildingCentroids(osm, geojson)
+    if (points.length === 0) throw new Error('No buildings found in polygon')
+  } catch (buildingErr) {
+    console.warn('Building-based generation failed, falling back to roads:', buildingErr.message)
+    method = 'road'
+    try {
+      const osm   = await getRoadsFromOSM(geojson)
+      const roads = buildRoadLines(osm)
+      points      = sampleRoadPoints(roads, geojson, clampedSpacing)
+      if (points.length === 0) throw new Error('No roads found inside polygon')
+    } catch (roadErr) {
+      console.warn('Road-based generation failed, falling back to grid:', roadErr.message)
+      points = generateGrid(geojson, clampedSpacing)
+      method = 'grid'
+    }
   }
 
   if (points.length === 0) return err('No points generated — polygon may be too small')
-  if (points.length > 5000) return err(`Too many points (${points.length}). Increase spacing or reduce area.`)
+  if (points.length > 5000) return err(`Too many points (${points.length}). Reduce the scan area.`)
 
   if (!isAdmin) {
     const { remaining } = preflight
@@ -184,7 +264,7 @@ export const handler = async (event) => {
 
   await supabase.from('projects').update({
     scan_area_geojson:    geojson,
-    point_spacing_meters: spacingMeters,
+    point_spacing_meters: clampedSpacing,
     total_points:         points.length,
     completed_points:     0,
     failed_points:        0,
