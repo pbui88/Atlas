@@ -175,10 +175,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         : [],
     }))
 
-    // Deduplicate by address — keep highest-scoring point per unique address
+    // Deduplicate by ~5m coordinate cell — generated points are already ≥10m apart,
+    // so this only collapses truly duplicate locations without hiding different
+    // properties that Positionstack happened to geocode to the same address.
+    const DEDUP_DEG = 5 / 111320
     const seen = new Map()
     for (const pt of normalized) {
-      const key = pt.address || `${pt.lat.toFixed(5)},${pt.lng.toFixed(5)}`
+      const key = `${Math.round(pt.lat / DEDUP_DEG)},${Math.round(pt.lng / DEDUP_DEG)}`
       const existing = seen.get(key)
       const score    = pt.ai_analyses?.[0]?.overall_score ?? -1
       const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1

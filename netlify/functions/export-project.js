@@ -49,10 +49,13 @@ export const handler = async (event) => {
   const normalized = normalize(points || []).filter(pt => pt.ai_analyses != null)
   if (!normalized.length) return err('No completed points with analysis yet — run a scan first')
 
-  // Deduplicate by address — same property can have multiple grid points
+  // Deduplicate by ~5m coordinate cell — generated points are already ≥10m apart,
+  // so this only collapses truly duplicate locations without hiding different
+  // properties that Positionstack happened to geocode to the same address.
+  const DEDUP_DEG = 5 / 111320
   const seen = new Map()
   for (const pt of normalized) {
-    const key = cleanAddr(pt.address) || `${pt.lat.toFixed(5)},${pt.lng.toFixed(5)}`
+    const key = `${Math.round(pt.lat / DEDUP_DEG)},${Math.round(pt.lng / DEDUP_DEG)}`
     const existing = seen.get(key)
     const score    = pt.ai_analyses.overall_score ?? -1
     const exScore  = existing?.ai_analyses.overall_score ?? -1
