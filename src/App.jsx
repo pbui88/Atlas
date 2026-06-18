@@ -60,7 +60,7 @@ export default function App() {
           <Route path="/credits" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
             <Route index element={<BuyCreditsPage />} />
           </Route>
-          <Route path="/skiptrace" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+          <Route path="/skiptrace" element={<PrivateRoute adminOnly><AppLayout /></PrivateRoute>}>
             <Route index element={<SkipTracePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

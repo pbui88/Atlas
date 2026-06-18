@@ -1,6 +1,10 @@
 // Receives POST from Tracerfy when a skip trace queue completes.
-// Configure your webhook URL in Tracerfy account settings:
+// Configure your webhook URL in Tracerfy account settings.
+// Preferred: pass the secret via Authorization header (not visible in server logs):
+//   Authorization: Bearer <TRACERFY_WEBHOOK_SECRET>
+// Fallback (query string — appears in logs, use only if header is unsupported):
 //   https://your-atlas-app.netlify.app/.netlify/functions/tracerfy-webhook?secret=<TRACERFY_WEBHOOK_SECRET>
+import { timingSafeEqual } from 'crypto'
 import { adminSupabase, ok, err, options } from './utils/supabase.js'
 import { normalizeResult, matchRecord } from './utils/tracerfy.js'
 
@@ -25,14 +29,28 @@ async function fetchQueueResults(queueId) {
   return rows
 }
 
+function checkSecret(provided) {
+  if (!provided || !WEBHOOK_SECRET) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(WEBHOOK_SECRET)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
 
   // Return 503 if the secret env var is absent — misconfiguration, not a caller auth failure
   if (!WEBHOOK_SECRET) return err('Webhook secret not configured', 503)
-  const provided = event.queryStringParameters?.secret
-  if (provided !== WEBHOOK_SECRET) return err('Unauthorized', 401)
+
+  // Accept secret via Authorization: Bearer header (preferred — not logged) or
+  // query string fallback (visible in server logs, use only if header is unsupported).
+  const authHeader = event.headers?.authorization || event.headers?.Authorization || ''
+  const provided   = authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : event.queryStringParameters?.secret || ''
+  if (!checkSecret(provided)) return err('Unauthorized', 401)
 
   let payload
   try { payload = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
@@ -60,12 +78,14 @@ export const handler = async (event) => {
     return ok({ ignored: true, reason: 'order not found' })
   }
 
-  await supabase
-    .from('skip_trace_orders')
-    .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', order.id)
-
-  if (!TRACERFY_API_KEY) return ok({ ok: true })
+  if (!TRACERFY_API_KEY) {
+    // No API key configured — mark complete with no result data
+    await supabase
+      .from('skip_trace_orders')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', order.id)
+    return ok({ ok: true })
+  }
 
   try {
     const results = await fetchQueueResults(queueId)
@@ -107,10 +127,17 @@ export const handler = async (event) => {
         .update({ status: 'completed', completed_at: now })
         .eq('order_id', order.id)
     }
-  } catch (e) {
-    console.error('tracerfy-webhook: failed to fetch results:', e.message)
-    // Don't return error — Tracerfy may retry. Order is already marked complete.
-  }
 
-  return ok({ ok: true })
+    // Mark the order complete only after all record writes succeed
+    await supabase
+      .from('skip_trace_orders')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', order.id)
+
+    return ok({ ok: true })
+  } catch (e) {
+    console.error('tracerfy-webhook: failed to process results:', e.message)
+    // Return 500 so Tracerfy retries the webhook — order remains 'processing'
+    return err('Processing failed, will retry', 500)
+  }
 }

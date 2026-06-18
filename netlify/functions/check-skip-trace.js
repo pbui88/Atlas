@@ -203,10 +203,19 @@ export const handler = async (event) => {
 
   if (orphaned?.length) {
     await Promise.all(orphaned.map(async o => {
-      await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', o.id)
+      // Atomically claim by filtering on status='processing' — prevents double-refund
+      // if two concurrent check requests find the same orphaned order.
+      const { data: claimed } = await supabase
+        .from('skip_trace_orders')
+        .update({ status: 'failed' })
+        .eq('id', o.id)
+        .eq('status', 'processing')
+        .select('id, cost_usd')
+      if (!claimed?.length) return // another concurrent call already handled this order
+      const cost_usd = claimed[0].cost_usd
       await supabase.from('skip_trace_records').update({ status: 'saved' }).eq('order_id', o.id)
-      if ((o.cost_usd || 0) > 0) {
-        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: o.cost_usd })
+      if ((cost_usd || 0) > 0) {
+        await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost_usd })
           .catch(e => console.error('Failed to refund orphaned order balance:', e.message))
       }
     }))
@@ -250,15 +259,10 @@ export const handler = async (event) => {
       continue
     }
 
-    await supabase
-      .from('skip_trace_orders')
-      .update({ status: 'completed', completed_at: new Date().toISOString() })
-      .eq('id', order.id)
-
-    completed++
-
     const now = new Date().toISOString()
 
+    // Write records first, then mark order complete — keeps order 'processing' if
+    // a timeout fires mid-loop so check-skip-trace will re-attempt on next call.
     if (!results.length) {
       await supabase
         .from('skip_trace_records')
@@ -297,6 +301,13 @@ export const handler = async (event) => {
         }
       }
     }
+
+    await supabase
+      .from('skip_trace_orders')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', order.id)
+
+    completed++
   }
 
   // ── Phase 2: check pending DNC queues ────────────────────────────────────
@@ -322,13 +333,18 @@ export const handler = async (event) => {
       if (!dncStatus.download_url) continue
 
       const dncMap = await parseDncCsv(dncStatus.download_url)
-      dncRecordsUpdated += await applyDncToRecords(supabase, dncOrder.id, dncMap)
-
-      // Clear queue ID so we don't reprocess on the next check
-      const { error: clearErr } = await supabase.from('skip_trace_orders')
-        .update({ dnc_queue_id: null })
-        .eq('id', dncOrder.id)
-      if (clearErr) console.error(`Failed to clear dnc_queue_id for order ${dncOrder.id}:`, clearErr.message)
+      // Only clear the queue ID when the CSV parsed successfully (dncMap.size > 0).
+      // An empty map means the CSV was unreadable — leave dnc_queue_id set so the
+      // next check retries rather than silently losing the DNC results.
+      if (dncMap.size > 0) {
+        dncRecordsUpdated += await applyDncToRecords(supabase, dncOrder.id, dncMap)
+        const { error: clearErr } = await supabase.from('skip_trace_orders')
+          .update({ dnc_queue_id: null })
+          .eq('id', dncOrder.id)
+        if (clearErr) console.error(`Failed to clear dnc_queue_id for order ${dncOrder.id}:`, clearErr.message)
+      } else {
+        console.error(`parseDncCsv returned empty map for order ${dncOrder.id} — will retry on next check`)
+      }
     } catch (e) {
       console.error(`Failed to check DNC queue ${dncOrder.dnc_queue_id}:`, e.message)
     }

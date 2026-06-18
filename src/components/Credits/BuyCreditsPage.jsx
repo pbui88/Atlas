@@ -52,7 +52,7 @@ function redirectToHostedForm(formUrl, token) {
 
 export default function BuyCreditsPage() {
   const { openSidebar } = useOutletContext()
-  const { usage, refreshUsage } = useAuth()
+  const { usage, refreshUsage, isAdmin } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [loading,      setLoading]      = useState(null)
@@ -71,7 +71,9 @@ export default function BuyCreditsPage() {
   const addedPts     = VALID_POINTS.has(rawPts) ? rawPts : 0
   const success      = addedPts > 0
   const rawStDeposit = parseFloat(searchParams.get('skip_trace_deposit') || '0')
-  const stSuccess    = rawStDeposit >= 5
+  const pendingAmt   = parseFloat(sessionStorage.getItem('_pendingStDeposit') || '0')
+  const stSuccess    = rawStDeposit >= 5 && rawStDeposit <= 5000 &&
+                       Math.abs(rawStDeposit - pendingAmt) < 0.01
 
   useEffect(() => {
     if (!success || addedPts <= 0) return
@@ -83,6 +85,7 @@ export default function BuyCreditsPage() {
 
   useEffect(() => {
     if (!stSuccess || rawStDeposit <= 0) return
+    sessionStorage.removeItem('_pendingStDeposit')
     setShowStSuccess(true)
     setSuccessStAmount(rawStDeposit)
     setStPolling(true)
@@ -133,6 +136,7 @@ export default function BuyCreditsPage() {
     setDepositError(null)
     try {
       const { token, formUrl } = await createSkipTracePayment(amt)
+      sessionStorage.setItem('_pendingStDeposit', amt.toFixed(2))
       redirectToHostedForm(formUrl, token)
     } catch (e) {
       setDepositError(e.message)
@@ -338,108 +342,112 @@ export default function BuyCreditsPage() {
           })}
         </div>
 
-        {/* ── Skip Trace Services ── */}
-        <div className="flex items-center gap-3 mb-5 mt-4">
-          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest whitespace-nowrap">Skip Trace Services</p>
-          <div className="flex-1 h-px bg-white/[0.05]" />
-        </div>
+        {/* ── Skip Trace Services (admin only) ── */}
+        {isAdmin && (
+          <>
+            <div className="flex items-center gap-3 mb-5 mt-4">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest whitespace-nowrap">Skip Trace Services</p>
+              <div className="flex-1 h-px bg-white/[0.05]" />
+            </div>
 
-        {/* Pricing cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-5">
-          {/* Skip Trace */}
-          <div className="bg-slate-900 border border-white/[0.06] rounded-2xl p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-200">Skip Trace</p>
-                <p className="text-xs text-slate-500 mt-0.5">Full property owner lookup</p>
+            {/* Pricing cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-5">
+              {/* Skip Trace */}
+              <div className="bg-slate-900 border border-white/[0.06] rounded-2xl p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">Skip Trace</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Full property owner lookup</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-violet-600/20 border border-violet-600/30 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-white mb-0.5">
+                  $0.08<span className="text-sm font-normal text-slate-500"> / record</span>
+                </p>
+                <p className="text-xs text-slate-600 mt-1">e.g. 100 records = <span className="text-slate-400 font-medium">$8.00</span></p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-violet-600/20 border border-violet-600/30 flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                </svg>
+
+              {/* DNC Scrub */}
+              <div className="bg-slate-900 border border-white/[0.06] rounded-2xl p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">DNC Scrub</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Do Not Call list verification</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-600/30 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 8.25h3m-3 3.75h3m-3 3.75h3" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-white mb-0.5">
+                  $0.02<span className="text-sm font-normal text-slate-500"> / phone</span>
+                </p>
+                <p className="text-xs text-slate-600 mt-1">e.g. 100 phones = <span className="text-slate-400 font-medium">$2.00</span></p>
               </div>
             </div>
-            <p className="text-2xl font-bold text-white mb-0.5">
-              $0.08<span className="text-sm font-normal text-slate-500"> / record</span>
-            </p>
-            <p className="text-xs text-slate-600 mt-1">e.g. 100 records = <span className="text-slate-400 font-medium">$8.00</span></p>
-          </div>
 
-          {/* DNC Scrub */}
-          <div className="bg-slate-900 border border-white/[0.06] rounded-2xl p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-200">DNC Scrub</p>
-                <p className="text-xs text-slate-500 mt-0.5">Do Not Call list verification</p>
+            {/* Balance + deposit */}
+            <div className="bg-slate-900/60 border border-white/[0.06] rounded-2xl p-5 mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-slate-400">Skip Trace Balance</p>
+                <p className="text-lg font-bold text-white tabular-nums flex items-center gap-2">
+                  ${(usage?.skipTraceBalance ?? 0).toFixed(2)}
+                  {stPolling && <span className="w-3.5 h-3.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />}
+                </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-600/30 flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 8.25h3m-3 3.75h3m-3 3.75h3" />
-                </svg>
+
+              <p className="text-xs text-slate-500 mb-3">Deposit funds to use for Skip Trace and DNC Scrub (minimum $5)</p>
+
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none">$</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={5000}
+                    step={1}
+                    placeholder="25"
+                    value={depositAmount}
+                    onChange={e => { setDepositAmount(e.target.value); setDepositError(null) }}
+                    className="w-full pl-7 pr-4 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-xl text-white text-sm focus:outline-none focus:border-violet-500/50 placeholder:text-slate-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </div>
+                <button
+                  onClick={handleDeposit}
+                  disabled={depositLoading || !depositAmount}
+                  className="px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-md shadow-violet-600/20"
+                >
+                  {depositLoading ? (
+                    <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Redirecting…</>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                      </svg>
+                      Deposit
+                    </>
+                  )}
+                </button>
               </div>
-            </div>
-            <p className="text-2xl font-bold text-white mb-0.5">
-              $0.02<span className="text-sm font-normal text-slate-500"> / phone</span>
-            </p>
-            <p className="text-xs text-slate-600 mt-1">e.g. 100 phones = <span className="text-slate-400 font-medium">$2.00</span></p>
-          </div>
-        </div>
 
-        {/* Balance + deposit */}
-        <div className="bg-slate-900/60 border border-white/[0.06] rounded-2xl p-5 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-slate-400">Skip Trace Balance</p>
-            <p className="text-lg font-bold text-white tabular-nums flex items-center gap-2">
-              ${(usage?.skipTraceBalance ?? 0).toFixed(2)}
-              {stPolling && <span className="w-3.5 h-3.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />}
-            </p>
-          </div>
-
-          <p className="text-xs text-slate-500 mb-3">Deposit funds to use for Skip Trace and DNC Scrub (minimum $5)</p>
-
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none">$</span>
-              <input
-                type="number"
-                min={5}
-                max={5000}
-                step={1}
-                placeholder="25"
-                value={depositAmount}
-                onChange={e => { setDepositAmount(e.target.value); setDepositError(null) }}
-                className="w-full pl-7 pr-4 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-xl text-white text-sm focus:outline-none focus:border-violet-500/50 placeholder:text-slate-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              />
-            </div>
-            <button
-              onClick={handleDeposit}
-              disabled={depositLoading || !depositAmount}
-              className="px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-md shadow-violet-600/20"
-            >
-              {depositLoading ? (
-                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Redirecting…</>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-                  </svg>
-                  Deposit
-                </>
+              {depositError && (
+                <p className="text-xs text-red-400 mt-2">{depositError}</p>
               )}
-            </button>
-          </div>
 
-          {depositError && (
-            <p className="text-xs text-red-400 mt-2">{depositError}</p>
-          )}
-
-          {depositAmount && parseFloat(depositAmount) >= 5 && !depositError && (
-            <p className="text-xs text-slate-500 mt-2">
-              ≈ <span className="text-slate-400">{Math.floor(parseFloat(depositAmount) / 0.08).toLocaleString()}</span> skip trace records
-              {' '}or <span className="text-slate-400">{Math.floor(parseFloat(depositAmount) / 0.02).toLocaleString()}</span> DNC phone checks
-            </p>
-          )}
-        </div>
+              {depositAmount && parseFloat(depositAmount) >= 5 && !depositError && (
+                <p className="text-xs text-slate-500 mt-2">
+                  ≈ <span className="text-slate-400">{Math.floor(parseFloat(depositAmount) / 0.08).toLocaleString()}</span> skip trace records
+                  {' '}or <span className="text-slate-400">{Math.floor(parseFloat(depositAmount) / 0.02).toLocaleString()}</span> DNC phone checks
+                </p>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-center gap-2 text-xs text-slate-600">

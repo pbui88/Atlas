@@ -16,7 +16,7 @@ export async function createHostedPaymentSession({ supabase, userId, subtotal, d
     .from('profiles')
     .select('role, billing_state')
     .eq('id', userId)
-    .single()
+    .maybeSingle()
 
   let taxAmount = 0
   let taxState  = null

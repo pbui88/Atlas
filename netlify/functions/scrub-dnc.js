@@ -38,15 +38,39 @@ export const handler = async (event) => {
   if (recErr) return err(recErr.message, 500)
   if (!records?.length) return err('No eligible completed records found', 400)
 
-  // ── Deduct DNC balance ($0.02/phone) — skipped for admins ─────────────────
-  const COST_PER_PHONE = 0.02
-  const totalPhones    = records.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
-
+  const totalPhones = records.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
   if (totalPhones === 0) return err('No phone numbers found in these records', 400)
 
-  const cost = isAdmin ? 0 : Math.round(totalPhones * COST_PER_PHONE * 100) / 100
+  // Fetch orders early — needed to determine which are already queued before charging
+  const orderIds = [...new Set(records.map(r => r.order_id).filter(Boolean))]
+  if (!orderIds.length) return err('No orders found for these records', 400)
 
-  if (!isAdmin) {
+  const { data: orders, error: ordErr } = await supabase
+    .from('skip_trace_orders')
+    .select('id, tracerfy_order_id, dnc_queue_id')
+    .in('id', orderIds)
+    .eq('user_id', user.id)
+
+  if (ordErr) return err(ordErr.message, 500)
+
+  // Build per-order phone counts for partial refund logic
+  const phonesPerOrder = {}
+  for (const record of records) {
+    if (!record.order_id) continue
+    phonesPerOrder[record.order_id] = (phonesPerOrder[record.order_id] || 0) + (record.result?.phones?.length || 0)
+  }
+
+  // Only charge for phones in orders that need a NEW DNC scrub.
+  // Orders already having dnc_queue_id are in-progress — don't charge again.
+  const alreadyQueuedIds = new Set((orders || []).filter(o => o.dnc_queue_id).map(o => o.id))
+  const chargedPhones    = records.reduce((sum, r) =>
+    !r.order_id || alreadyQueuedIds.has(r.order_id) ? sum : sum + (r.result?.phones?.length || 0), 0)
+
+  // ── Deduct DNC balance ($0.02/phone) — skipped for admins ─────────────────
+  const COST_PER_PHONE = 0.02
+  const cost = isAdmin ? 0 : Math.round(chargedPhones * COST_PER_PHONE * 100) / 100
+
+  if (!isAdmin && chargedPhones > 0) {
     const { data: deducted, error: deductErr } = await supabase
       .rpc('deduct_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
 
@@ -54,7 +78,7 @@ export const handler = async (event) => {
     if (!deducted) {
       return err(
         `Insufficient skip trace balance. This DNC scrub requires $${cost.toFixed(2)} ` +
-        `(${totalPhones} phone${totalPhones !== 1 ? 's' : ''} × $${COST_PER_PHONE}/phone). ` +
+        `(${chargedPhones} phone${chargedPhones !== 1 ? 's' : ''} × $${COST_PER_PHONE}/phone). ` +
         `Please add funds on the Credits page.`,
         402
       )
@@ -62,34 +86,9 @@ export const handler = async (event) => {
   }
 
   const refund = () => {
-    if (isAdmin) return Promise.resolve()
+    if (isAdmin || cost === 0) return Promise.resolve()
     return supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: cost })
       .catch(e => console.error('Failed to refund skip trace balance:', e.message))
-  }
-
-  const orderIds = [...new Set(records.map(r => r.order_id).filter(Boolean))]
-  if (!orderIds.length) {
-    await refund()
-    return err('No orders found for these records', 400)
-  }
-
-  // Fetch the Tracerfy queue IDs for those orders
-  const { data: orders, error: ordErr } = await supabase
-    .from('skip_trace_orders')
-    .select('id, tracerfy_order_id, dnc_queue_id')
-    .in('id', orderIds)
-    .eq('user_id', user.id)
-
-  if (ordErr) {
-    await refund()
-    return err(ordErr.message, 500)
-  }
-
-  // Build per-order phone counts so we can issue a partial refund for any orders that fail
-  const phonesPerOrder = {}
-  for (const record of records) {
-    if (!record.order_id) continue
-    phonesPerOrder[record.order_id] = (phonesPerOrder[record.order_id] || 0) + (record.result?.phones?.length || 0)
   }
 
   let started      = 0
@@ -99,7 +98,7 @@ export const handler = async (event) => {
   for (const order of (orders || [])) {
     if (!order.tracerfy_order_id) continue
 
-    // DNC scrub already in progress for this batch — count it as started
+    // DNC scrub already in progress for this batch — count it as started, no charge
     if (order.dnc_queue_id) { started++; continue }
 
     try {
@@ -134,7 +133,7 @@ export const handler = async (event) => {
     return err(errs[0] || 'Failed to start DNC scrub', 400)
   }
 
-  // Partial refund for any orders that failed to start — user should not pay for unscubbed phones
+  // Partial refund for any new orders that failed to start
   if (failedPhones > 0 && !isAdmin) {
     const partialRefund = Math.round(failedPhones * COST_PER_PHONE * 100) / 100
     await supabase.rpc('add_skip_trace_balance', { p_user_id: user.id, p_amount: partialRefund })

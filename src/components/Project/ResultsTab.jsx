@@ -494,7 +494,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         return {
           source_point_id: pt.id,
           project_id:      project.id,
-          address:         parts[0] || full,
+          address:         parts[0] || cleaned,
           city:            parts.length >= 3 ? parts[parts.length - 2] : null,
           state_code:      m ? m[1] : null,
           zip:             m ? m[2] : null,

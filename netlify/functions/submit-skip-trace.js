@@ -79,12 +79,20 @@ export const handler = async (event) => {
     return err(orderErr.message, 500)
   }
 
-  // Mark records as submitted immediately so they can't be double-submitted
-  await supabase
+  // Atomically claim records by filtering on status='saved' — detects concurrent double-submits
+  const { data: claimed, error: claimErr } = await supabase
     .from('skip_trace_records')
     .update({ status: 'submitted', order_id: order.id, submitted_at: new Date().toISOString() })
     .in('id', records.map(r => r.id))
     .eq('user_id', user.id)
+    .eq('status', 'saved')
+    .select('id')
+
+  if (claimErr || !claimed?.length) {
+    await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
+    await refund()
+    return err('Records were already submitted. Please refresh and try again.', 409)
+  }
 
   // ── Submit to Tracerfy ──────────────────────────────────────
   if (TRACERFY_API_KEY) {
