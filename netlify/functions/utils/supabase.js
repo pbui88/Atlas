@@ -36,12 +36,12 @@ export async function requireAuth(event, { allowInactive = false } = {}) {
   const token = event.headers.authorization?.replace('Bearer ', '') ||
                 event.headers.Authorization?.replace('Bearer ', '')
   if (!token) {
-    console.warn('[requireAuth] 401 — no token in request to', event.path)
+    console.warn('[requireAuth] 401 no token —', event.path)
     return { user: null, error: 'Unauthorized' }
   }
   const user = await getUserFromToken(token)
   if (!user) {
-    console.warn('[requireAuth] 401 — invalid/expired token for request to', event.path)
+    console.warn('[requireAuth] 401 invalid/expired token —', event.path)
     return { user: null, error: 'Invalid token' }
   }
 
@@ -53,7 +53,7 @@ export async function requireAuth(event, { allowInactive = false } = {}) {
     .maybeSingle()
 
   if (!allowInactive && profile?.is_active === false) {
-    console.warn('[requireAuth] 401 — account inactive, user:', user.id, user.email)
+    console.warn('[requireAuth] 401 account inactive — user:', user.id, user.email, 'path:', event.path)
     return { user: null, error: 'Account pending activation' }
   }
 
