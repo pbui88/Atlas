@@ -49,13 +49,17 @@ export const handler = async (event) => {
   const normalized = normalize(points || []).filter(pt => pt.ai_analyses != null)
   if (!normalized.length) return err('No completed points with analysis yet — run a scan first')
 
-  // Deduplicate by ~5m coordinate cell — generated points are already ≥10m apart,
-  // so this only collapses truly duplicate locations without hiding different
-  // properties that Positionstack happened to geocode to the same address.
-  const DEDUP_DEG = 5 / 111320
+  // Dedup strategy: same as results display.
+  // - addressed points → dedup by address + 30m cell
+  // - unaddressed points → dedup by 10m coordinate cell
+  const PROX_DEG  = 30 / 111320
+  const COORD_DEG = 10 / 111320
   const seen = new Map()
   for (const pt of normalized) {
-    const key = `${Math.round(pt.lat / DEDUP_DEG)},${Math.round(pt.lng / DEDUP_DEG)}`
+    const addr = pt.address ? cleanAddr(pt.address).toLowerCase() : null
+    const cell = `${Math.round(pt.lat / PROX_DEG)},${Math.round(pt.lng / PROX_DEG)}`
+    const coordKey = `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
+    const key = addr ? `${addr}|${cell}` : coordKey
     const existing = seen.get(key)
     const score    = pt.ai_analyses.overall_score ?? -1
     const exScore  = existing?.ai_analyses.overall_score ?? -1
