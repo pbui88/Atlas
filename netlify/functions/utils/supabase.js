@@ -35,9 +35,15 @@ export async function getUserFromToken(token) {
 export async function requireAuth(event, { allowInactive = false } = {}) {
   const token = event.headers.authorization?.replace('Bearer ', '') ||
                 event.headers.Authorization?.replace('Bearer ', '')
-  if (!token) return { user: null, error: 'Unauthorized' }
+  if (!token) {
+    console.warn('[requireAuth] 401 no token —', event.path)
+    return { user: null, error: 'Unauthorized' }
+  }
   const user = await getUserFromToken(token)
-  if (!user) return { user: null, error: 'Invalid token' }
+  if (!user) {
+    console.warn('[requireAuth] 401 invalid/expired token —', event.path)
+    return { user: null, error: 'Invalid token' }
+  }
 
   const supabase = adminSupabase()
   const { data: profile } = await supabase
@@ -47,6 +53,7 @@ export async function requireAuth(event, { allowInactive = false } = {}) {
     .maybeSingle()
 
   if (!allowInactive && profile?.is_active === false) {
+    console.warn('[requireAuth] 401 account inactive — user:', user.id, user.email, 'path:', event.path)
     return { user: null, error: 'Account pending activation' }
   }
 
