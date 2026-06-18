@@ -58,8 +58,9 @@ function mapsUrl(lat, lng, address) {
 }
 
 function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
-  const score   = point.ai_analyses?.[0]?.overall_score
-  const signals = point.ai_analyses?.[0]?.signals || []
+  const score      = point.ai_analyses?.[0]?.overall_score
+  const signals    = point.ai_analyses?.[0]?.signals || []
+  const noCoverage = point.status === 'no_coverage'
   return (
     <div
       className={`px-3 py-3 border-b border-white/[0.04] transition-colors flex items-start gap-2 group ${
@@ -72,10 +73,11 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         onChange={e => { e.stopPropagation(); onCheck(point.id) }}
         onClick={e => e.stopPropagation()}
         className="mt-1 shrink-0 accent-brand-600 cursor-pointer"
+        disabled={noCoverage}
       />
       <div className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-        <span className={`text-base font-bold tabular-nums shrink-0 leading-tight mt-0.5 ${scoreTextColor(score)}`}>
-          {scoreLabel(score)}
+        <span className={`text-base font-bold tabular-nums shrink-0 leading-tight mt-0.5 ${noCoverage ? 'text-slate-600' : scoreTextColor(score)}`}>
+          {noCoverage ? '—' : scoreLabel(score)}
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-200 font-medium truncate leading-snug">
@@ -83,7 +85,9 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
               ? point.address.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
               : <span className="text-slate-500 italic">Address pending</span>}
           </p>
-          {signals.length > 0 && (
+          {noCoverage ? (
+            <span className="inline-block mt-1 px-1.5 py-0 rounded text-[10px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-500">No Street View</span>
+          ) : signals.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {signals.slice(0, 2).map(sig => {
                 const s = SIGNAL_MAP[sig]
@@ -162,7 +166,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         .from('scan_points')
         .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
         .eq('project_id', project.id)
-        .eq('status', 'complete')
+        .in('status', ['complete', 'no_coverage'])
         .order('created_at')
         .range(from, to)
     )
@@ -360,6 +364,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const toggleSignal = (id) => setSigFilter(f => f.includes(id) ? f.filter(s => s !== id) : [...f, id])
 
   const filtered = points.filter(pt => {
+    if (pt.status === 'no_coverage') return true  // always show, no score to filter on
     const score = pt.ai_analyses?.[0]?.overall_score ?? 0
     if (score < minScore / 100) return false
     if (sigFilter.length > 0) {
@@ -369,13 +374,16 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     return true
   })
 
-  const sorted = [...filtered].sort((a, b) =>
-    (b.ai_analyses?.[0]?.overall_score ?? 0) - (a.ai_analyses?.[0]?.overall_score ?? 0)
-  )
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.status === 'no_coverage' && b.status !== 'no_coverage') return 1
+    if (b.status === 'no_coverage' && a.status !== 'no_coverage') return -1
+    return (b.ai_analyses?.[0]?.overall_score ?? 0) - (a.ai_analyses?.[0]?.overall_score ?? 0)
+  })
 
-  const allChecked  = sorted.length > 0 && sorted.every(pt => checkedIds.has(pt.id))
-  const someChecked = sorted.some(pt => checkedIds.has(pt.id))
-  const checkedCount = sorted.filter(pt => checkedIds.has(pt.id)).length
+  const exportable   = sorted.filter(pt => pt.status !== 'no_coverage')
+  const allChecked   = exportable.length > 0 && exportable.every(pt => checkedIds.has(pt.id))
+  const someChecked  = exportable.some(pt => checkedIds.has(pt.id))
+  const checkedCount = exportable.filter(pt => checkedIds.has(pt.id)).length
 
   // Sync indeterminate state on the select-all checkbox
   useEffect(() => {
@@ -388,7 +396,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (allChecked) {
       setCheckedIds(new Set())
     } else {
-      setCheckedIds(new Set(sorted.map(pt => pt.id)))
+      setCheckedIds(new Set(exportable.map(pt => pt.id)))
     }
   }
 
@@ -731,7 +739,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             <div className="mt-3 pt-3 border-t border-white/[0.05]">
               <button
                 onClick={() => {
-                  const pts = checkedCount > 0 ? sorted.filter(pt => checkedIds.has(pt.id)) : sorted
+                  const pts = checkedCount > 0 ? exportable.filter(pt => checkedIds.has(pt.id)) : exportable
                   openSaveModal(pts)
                 }}
                 disabled={savingTrace}
