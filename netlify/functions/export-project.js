@@ -49,13 +49,28 @@ export const handler = async (event) => {
   const normalized = normalize(points || []).filter(pt => pt.ai_analyses != null)
   if (!normalized.length) return err('No completed points with analysis yet — run a scan first')
 
-  // Dedup: same address = same property (keep highest score).
-  // Unaddressed points fall back to ~10m coordinate cell.
+  // Dedup: normalize address (street types, directions) and key on street+city
+  // so "603 North Belmont Avenue, Odessa, TX" and "603 N Belmont Ave, Odessa, Texas"
+  // collapse to the same entry. Unaddressed points fall back to ~10m coordinate cell.
+  const ST  = { avenue:'ave',boulevard:'blvd',circle:'cir',court:'ct',drive:'dr',
+                lane:'ln',place:'pl',road:'rd',street:'st',trail:'trl',
+                parkway:'pkwy',highway:'hwy',way:'way' }
+  const DIR = { north:'n',south:'s',east:'e',west:'w',
+                northeast:'ne',northwest:'nw',southeast:'se',southwest:'sw' }
+  const normWord = w => ST[w] || DIR[w] || w
+  const normPart = s => s.toLowerCase().replace(/[.,#]/g, '').split(/\s+/).map(normWord).join(' ').trim()
+  const addrKey  = raw => {
+    if (!raw) return null
+    const parts = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
+    const street = normPart(parts[0] || '')
+    const city   = normPart(parts[1] || '')
+    return street ? `${street}|${city}` : null
+  }
   const COORD_DEG = 10 / 111320
   const seen = new Map()
   for (const pt of normalized) {
-    const addr = pt.address ? cleanAddr(pt.address).toLowerCase() : null
-    const key  = addr || `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
+    const key = addrKey(pt.address) ||
+                `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
     const existing = seen.get(key)
     const score    = pt.ai_analyses.overall_score ?? -1
     const exScore  = existing?.ai_analyses.overall_score ?? -1
