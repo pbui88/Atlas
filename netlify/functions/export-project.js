@@ -49,17 +49,13 @@ export const handler = async (event) => {
   const normalized = normalize(points || []).filter(pt => pt.ai_analyses != null)
   if (!normalized.length) return err('No completed points with analysis yet — run a scan first')
 
-  // Dedup strategy: same as results display.
-  // - addressed points → dedup by address + 30m cell
-  // - unaddressed points → dedup by 10m coordinate cell
-  const PROX_DEG  = 30 / 111320
+  // Dedup: same address = same property (keep highest score).
+  // Unaddressed points fall back to ~10m coordinate cell.
   const COORD_DEG = 10 / 111320
   const seen = new Map()
   for (const pt of normalized) {
     const addr = pt.address ? cleanAddr(pt.address).toLowerCase() : null
-    const cell = `${Math.round(pt.lat / PROX_DEG)},${Math.round(pt.lng / PROX_DEG)}`
-    const coordKey = `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
-    const key = addr ? `${addr}|${cell}` : coordKey
+    const key  = addr || `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
     const existing = seen.get(key)
     const score    = pt.ai_analyses.overall_score ?? -1
     const exScore  = existing?.ai_analyses.overall_score ?? -1

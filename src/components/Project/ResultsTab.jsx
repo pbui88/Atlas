@@ -181,21 +181,16 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
     // Dedup strategy:
     // - no_coverage with no address → skip (zero useful data)
-    // - addressed points → dedup by address + 30m cell: same house collapses,
-    //   but two properties that Positionstack assigned the same address while
-    //   being >30m apart are kept as separate entries
-    // - unaddressed complete points → dedup by 10m cell only
-    const cleanAddr  = (s) => (s || '').replace(/,?\s*(United States|USA|US)\s*$/, '').trim().toLowerCase()
-    const PROX_DEG   = 30 / 111320   // proximity guard: ~30m
-    const COORD_DEG  = 10 / 111320   // fallback cell for null addresses: ~10m
+    // - addressed points → dedup by address: same address = same property, keep highest score
+    // - unaddressed complete points → dedup by ~10m coordinate cell
+    const cleanAddr = (s) => (s || '').replace(/,?\s*(United States|USA|US)\s*$/, '').trim().toLowerCase()
+    const COORD_DEG = 10 / 111320
 
     const seen = new Map()
     for (const pt of normalized) {
       if (pt.status === 'no_coverage' && !pt.address) continue
       const addr = pt.address ? cleanAddr(pt.address) : null
-      const cell = `${Math.round(pt.lat / PROX_DEG)},${Math.round(pt.lng / PROX_DEG)}`
-      const coordKey = `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
-      const key = addr ? `${addr}|${cell}` : coordKey
+      const key  = addr || `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
       const existing = seen.get(key)
       const score    = pt.ai_analyses?.[0]?.overall_score ?? -1
       const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1
