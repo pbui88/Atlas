@@ -207,7 +207,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     const COORD_DEG = spacing / 111320
     const NC_DEG    = Math.max(spacing, 30) / 111320
 
-    const seen = new Map()
+    const seen   = new Map()   // key → winning scan point
+    const allIds = new Map()   // key → all scan_point_ids for same property (for image fetch)
+
     for (const pt of normalized) {
       // Include all no_coverage points (even without address) — they show as "No Street View"
       // in the list so the user can see the coverage gap instead of silently missing rows.
@@ -219,8 +221,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       const score    = pt.ai_analyses?.[0]?.overall_score ?? -1
       const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1
       if (!existing || score > exScore) seen.set(key, pt)
+      allIds.set(key, [...(allIds.get(key) || []), pt.id])
     }
-    setPoints(Array.from(seen.values()))
+
+    // Attach all scan_point_ids (including deduped ones) so the image panel
+    // can show every downloaded image for the property, not just the winner's.
+    setPoints(Array.from(seen.entries()).map(([key, pt]) => ({
+      ...pt,
+      allPointIds: allIds.get(key) || [pt.id],
+    })))
     setResLoading(false)
   }, [project.id])
 
@@ -273,7 +282,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (!selected) { setSelImages([]); return }
     setSelImages([])
     setImgLoading(true)
-    supabase.from('images').select('*').eq('scan_point_id', selected.id)
+    // Fetch images for the winning scan point AND any deduped sibling points
+    // (allPointIds is populated during dedup so all angles are shown).
+    const ids = selected.allPointIds?.length ? selected.allPointIds : [selected.id]
+    supabase.from('images').select('*').in('scan_point_id', ids)
       .then(({ data }) => { setSelImages(data || []); setImgLoading(false) })
   }, [selected?.id])
 
