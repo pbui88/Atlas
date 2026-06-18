@@ -49,7 +49,7 @@ const US_CENTER = { lat: 39.5, lng: -98.35 }
 // Grid spacing (meters) is adaptive: small areas get a fine grid, while
 // city/county-scale areas get a coarser grid so the point count stays
 // scannable. See computeSpacing().
-const MIN_SPACING_M      = 20
+const MIN_SPACING_M      = 30
 const MAX_SPACING_M      = 200
 const TARGET_GRID_POINTS = 1500
 
