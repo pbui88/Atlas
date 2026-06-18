@@ -536,35 +536,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
             <div>
               {drawingMode !== 'polygon' && (
                 <>
-                  {/* Auto-draw boundary by ZIP, city, or county */}
-                  <p className="text-xs font-medium text-slate-400 mb-2">ZIP, city, or county</p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={boundaryInput}
-                      onChange={e => { setBoundaryInput(e.target.value); setBoundaryError(null) }}
-                      onKeyDown={e => e.key === 'Enter' && handleBoundarySearch()}
-                      placeholder="e.g. 79761 or Travis County, TX"
-                      className="flex-1 px-3 py-2 text-xs bg-navy-900 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-600/50"
-                    />
-                    <button
-                      onClick={handleBoundarySearch}
-                      disabled={boundaryLoading || !boundaryInput.trim()}
-                      className="px-4 py-2 text-xs bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold transition disabled:opacity-40 shrink-0"
-                    >
-                      {boundaryLoading
-                        ? <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
-                        : 'Load'}
-                    </button>
-                  </div>
-                  {boundaryError && <p className="text-xs text-red-400 mt-1.5">{boundaryError}</p>}
-
-                  <div className="flex items-center gap-2 my-4">
-                    <div className="flex-1 h-px bg-white/[0.06]" />
-                    <span className="text-xs text-slate-600">or draw manually</span>
-                    <div className="flex-1 h-px bg-white/[0.06]" />
-                  </div>
-
                   <p className="text-xs text-slate-500 mb-3">
                     Click Draw, then click and drag on the map to outline your target area.
                   </p>
@@ -620,7 +591,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     <span className="text-slate-300">{spacing}m</span>
                   </div>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    Large area — too big to scan directly. Search a smaller city/ZIP or draw a custom area to run a scan.
+                    Large area — too big to scan directly. Draw a smaller custom area to run a scan.
                   </p>
                 </>
               ) : (
