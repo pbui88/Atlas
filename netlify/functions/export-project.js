@@ -35,16 +35,37 @@ export const handler = async (event) => {
       .range(from, to)
   )
 
-  const analyzed = (points || []).filter(pt => pt.ai_analyses != null)
-  if (!analyzed.length) return err('No completed points with analysis yet — run a scan first')
+  // Normalize ai_analyses — Supabase may return object or array depending on DB version
+  const normalize = (pts) => pts.map(pt => ({
+    ...pt,
+    ai_analyses: pt.ai_analyses
+      ? (Array.isArray(pt.ai_analyses) ? pt.ai_analyses[0] : pt.ai_analyses)
+      : null,
+  }))
+
+  // Strip trailing country token (Positionstack appends ", United States")
+  const cleanAddr = (s) => (s || '').replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+
+  const normalized = normalize(points || []).filter(pt => pt.ai_analyses != null)
+  if (!normalized.length) return err('No completed points with analysis yet — run a scan first')
+
+  // Deduplicate by address — same property can have multiple grid points
+  const seen = new Map()
+  for (const pt of normalized) {
+    const key = cleanAddr(pt.address) || `${pt.lat.toFixed(5)},${pt.lng.toFixed(5)}`
+    const existing = seen.get(key)
+    const score    = pt.ai_analyses.overall_score ?? -1
+    const exScore  = existing?.ai_analyses.overall_score ?? -1
+    if (!existing || score > exScore) seen.set(key, pt)
+  }
+  const deduped = Array.from(seen.values())
 
   const minScore = filters.minScore ?? 0
-  const filtered = analyzed.filter(pt => {
-    const a = pt.ai_analyses
-    const score = a.overall_score ?? 0
+  const filtered = deduped.filter(pt => {
+    const score = pt.ai_analyses.overall_score ?? 0
     if (score < minScore) return false
     if (filters.signals?.length) {
-      const sigs = a.signals || []
+      const sigs = pt.ai_analyses.signals || []
       if (!filters.signals.some(s => sigs.includes(s))) return false
     }
     return true
@@ -53,18 +74,15 @@ export const handler = async (event) => {
   if (!filtered.length) return err('No points match the current filters')
 
   if (format === 'CSV') {
-    const header = 'id,lat,lng,address,distress_score,confidence,signals,notes'
+    const header = 'address,distress_score,confidence,signals,notes'
     const rows = filtered.map(pt => {
       const a = pt.ai_analyses
       return [
-        pt.id,
-        pt.lat,
-        pt.lng,
-        `"${(pt.address || '').replace(/"/g, '""')}"`,
+        `"${cleanAddr(pt.address).replace(/"/g, '""')}"`,
         a.overall_score ?? '',
-        a.confidence ?? '',
+        a.confidence    ?? '',
         `"${(a.signals || []).join('; ')}"`,
-        `"${(a.notes || '').replace(/"/g, '""')}"`,
+        `"${(a.notes   || '').replace(/"/g, '""')}"`,
       ].join(',')
     })
     return ok({ data: [header, ...rows].join('\n'), count: filtered.length, format: 'CSV' })
@@ -75,7 +93,7 @@ export const handler = async (event) => {
       id:            pt.id,
       lat:           pt.lat,
       lng:           pt.lng,
-      address:       pt.address,
+      address:       cleanAddr(pt.address),
       distressScore: pt.ai_analyses.overall_score,
       confidence:    pt.ai_analyses.confidence,
       signals:       pt.ai_analyses.signals || [],
@@ -92,7 +110,7 @@ export const handler = async (event) => {
       geometry: { type: 'Point', coordinates: [pt.lng, pt.lat] },
       properties: {
         id:            pt.id,
-        address:       pt.address,
+        address:       cleanAddr(pt.address),
         distressScore: pt.ai_analyses.overall_score,
         confidence:    pt.ai_analyses.confidence,
         signals:       pt.ai_analyses.signals || [],

@@ -14,13 +14,14 @@ function currentCycleStart(anchorDateStr) {
 export async function getUserUsage(userId, supabase) {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('points_limit, purchased_credits, purchased_credits_used, cycle_anchor_date')
+    .select('points_limit, purchased_credits, purchased_credits_used, cycle_anchor_date, skip_trace_balance')
     .eq('id', userId)
     .maybeSingle()
 
   const monthlyLimit          = profile?.points_limit           ?? 10000
   const purchasedCredits      = profile?.purchased_credits      ?? 0
   const purchasedCreditsUsed  = profile?.purchased_credits_used ?? 0
+  const skipTraceBalance      = parseFloat(profile?.skip_trace_balance ?? 0)
   const anchor                = profile?.cycle_anchor_date      ?? new Date().toISOString().slice(0, 10)
   const cycleStart            = currentCycleStart(anchor)
 
@@ -42,5 +43,6 @@ export async function getUserUsage(userId, supabase) {
     purchasedCredits,
     purchasedCreditsUsed,
     purchasedRemaining,
+    skipTraceBalance,
   }
 }

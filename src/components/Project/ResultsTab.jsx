@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase, fetchAllRows } from '../../lib/supabase'
-import { collectImages, analyzePoints, geocodePoints, exportProject } from '../../lib/api'
+import { collectImages, analyzePoints, geocodePoints, exportProject, saveSkipTraceRecords } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
@@ -79,7 +79,9 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-200 font-medium truncate leading-snug">
-            {point.address || <span className="text-slate-500 italic">Address pending</span>}
+            {point.address
+              ? point.address.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+              : <span className="text-slate-500 italic">Address pending</span>}
           </p>
           {signals.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
@@ -123,10 +125,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [selected,   setSelected]   = useState(null)
   const [minScore,   setMinScore]   = useState(0)
   const [sigFilter,  setSigFilter]  = useState([])
-  const [exporting,  setExporting]  = useState(false)
-  const [selImages,  setSelImages]  = useState([])
-  const [imgLoading, setImgLoading] = useState(false)
-  const [checkedIds, setCheckedIds] = useState(new Set())
+  const [exporting,    setExporting]    = useState(false)
+  const [selImages,    setSelImages]    = useState([])
+  const [imgLoading,   setImgLoading]   = useState(false)
+  const [checkedIds,   setCheckedIds]   = useState(new Set())
+  const [savingTrace,  setSavingTrace]  = useState(false)
+  const [traceSaved,   setTraceSaved]   = useState(null)
+  const [showTraceModal, setShowTraceModal] = useState(false)
+  const [traceListName,  setTraceListName]  = useState('')
+  const [traceModalPts,  setTraceModalPts]  = useState([])
   const selectAllRef = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
@@ -382,6 +389,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     }
   }
 
+  // Strip trailing country token from geocoded addresses for clean exports
+  const cleanAddress = (addr) =>
+    (addr || '').replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+
   // Build export payload from local data (used for selected-only exports)
   const buildLocalExport = (pts, format) => {
     if (format === 'CSV') {
@@ -389,7 +400,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       const rows = pts.map(pt => {
         const a = pt.ai_analyses?.[0] || {}
         return [
-          `"${(pt.address || '').replace(/"/g, '""')}"`,
+          `"${cleanAddress(pt.address).replace(/"/g, '""')}"`,
           a.overall_score ?? '', a.confidence ?? '',
           `"${(a.signals || []).join('; ')}"`,
           `"${(a.notes || '').replace(/"/g, '""')}"`,
@@ -460,6 +471,43 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       URL.revokeObjectURL(url)
     } catch (err) { alert(err.message) }
     finally { setExporting(false) }
+  }
+
+  // ── Save to Skip Trace ────────────────────────────────────
+  const openSaveModal = (pts) => {
+    setTraceModalPts(pts)
+    setTraceListName(project.name || '')
+    setShowTraceModal(true)
+  }
+
+  const handleSaveToSkipTrace = async () => {
+    setShowTraceModal(false)
+    setSavingTrace(true)
+    setTraceSaved(null)
+    try {
+      const records = traceModalPts.map(pt => {
+        const full = pt.address || ''
+        const cleaned = full.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+        const parts = cleaned.split(',').map(s => s.trim()).filter(Boolean)
+        const stateZip = parts[parts.length - 1] || ''
+        const m = stateZip.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
+        return {
+          source_point_id: pt.id,
+          project_id:      project.id,
+          address:         parts[0] || cleaned,
+          city:            parts.length >= 3 ? parts[parts.length - 2] : null,
+          state_code:      m ? m[1] : null,
+          zip:             m ? m[2] : null,
+        }
+      })
+      const { count } = await saveSkipTraceRecords(records, traceListName.trim() || project.name || 'Unnamed List')
+      setTraceSaved(count)
+      setTimeout(() => setTraceSaved(null), 4000)
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setSavingTrace(false)
+    }
   }
 
   const hasFilters  = minScore > 0 || sigFilter.length > 0
@@ -674,6 +722,28 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           {checkedCount === 0 && sorted.length > 0 && (
             <p className="text-[10px] text-slate-400 mt-1.5">Check rows to export a subset</p>
           )}
+
+          {/* Save to Skip Trace */}
+          {sorted.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/[0.05]">
+              <button
+                onClick={() => {
+                  const pts = checkedCount > 0 ? sorted.filter(pt => checkedIds.has(pt.id)) : sorted
+                  openSaveModal(pts)
+                }}
+                disabled={savingTrace}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-brand-600/10 border border-brand-600/20 text-brand-400 hover:bg-brand-600/20 hover:text-brand-300 transition text-xs font-medium disabled:opacity-50"
+              >
+                {savingTrace ? (
+                  <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Saving…</>
+                ) : traceSaved != null ? (
+                  <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>{traceSaved} saved to Skip Trace</>
+                ) : (
+                  <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>Save {checkedCount > 0 ? `${checkedCount} selected` : 'all'} to Skip Trace</>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -689,7 +759,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">
-                  {selected.address || <span className="text-slate-400 italic font-normal">Address pending</span>}
+                  {selected.address
+                    ? selected.address.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+                    : <span className="text-slate-400 italic font-normal">Address pending</span>}
                 </p>
                 {signals.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
@@ -778,6 +850,43 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </div>
         )}
       </div>
+
+      {/* ── Save-to-Skip-Trace modal ── */}
+      {showTraceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+            <h2 className="text-base font-semibold text-white mb-1">Save to Skip Trace</h2>
+            <p className="text-xs text-slate-400 mb-4">
+              {traceModalPts.length} record{traceModalPts.length !== 1 ? 's' : ''} will be saved. Give this list a name so you can find it later.
+            </p>
+            <label className="block text-xs font-medium text-slate-300 mb-1">List name</label>
+            <input
+              type="text"
+              value={traceListName}
+              onChange={e => setTraceListName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveToSkipTrace() }}
+              placeholder="e.g. Phoenix Q1 Leads"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-5"
+              autoFocus
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowTraceModal(false)}
+                className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-white/[0.06] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveToSkipTrace}
+                disabled={!traceListName.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 text-white transition disabled:opacity-40"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

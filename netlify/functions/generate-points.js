@@ -1,5 +1,5 @@
 import * as turf from '@turf/turf'
-import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID, getPathParam } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 // Compass bearing (0–360°) from point A → point B
@@ -107,7 +107,7 @@ export const handler = async (event) => {
   const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
 
-  const projectId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('projectId')
+  const projectId = getPathParam(event, 'generate-points')
   if (!isValidUUID(projectId)) return err('projectId required')
 
   // Fix 2: guard malformed body

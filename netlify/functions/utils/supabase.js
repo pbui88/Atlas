@@ -39,20 +39,18 @@ export async function requireAuth(event, { allowInactive = false } = {}) {
   const user = await getUserFromToken(token)
   if (!user) return { user: null, error: 'Invalid token' }
 
-  if (!allowInactive) {
-    // Block inactive (pending activation) users from all API calls
-    const supabase = adminSupabase()
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .maybeSingle()
-    if (profile && profile.is_active === false) {
-      return { user: null, error: 'Account pending activation' }
-    }
+  const supabase = adminSupabase()
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_active, role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!allowInactive && profile?.is_active === false) {
+    return { user: null, error: 'Account pending activation' }
   }
 
-  return { user, error: null }
+  return { user, role: profile?.role ?? 'user', error: null }
 }
 
 export async function requireAdmin(event) {
@@ -66,6 +64,12 @@ export async function requireAdmin(event) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const isValidUUID = (id) => typeof id === 'string' && UUID_RE.test(id)
+
+export function getPathParam(event, fnName) {
+  const url    = new URL(event.rawUrl || `http://x${event.path}`, 'http://x')
+  const prefix = `/.netlify/functions/${fnName}/`
+  return url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : null
+}
 
 export const CORS = {
   'Access-Control-Allow-Origin':  '*',

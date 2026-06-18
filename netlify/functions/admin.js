@@ -1,4 +1,4 @@
-import { requireAdmin, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAdmin, adminSupabase, ok, err, options, isValidUUID, getPathParam } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 // Default monitoring thresholds (Supabase Pro tier) — overridable via env vars.
@@ -27,7 +27,10 @@ export const handler = async (event) => {
   if (error) return err(error, error === 'Forbidden' ? 403 : 401)
 
   const supabase = adminSupabase()
-  const action   = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('action')
+  const pathParam    = getPathParam(event, 'admin') || ''
+  const pathSegments = pathParam.split('/')
+  const action       = pathSegments[0] || null
+  const pathUserId   = pathSegments[1] || null
 
   // ── GET users (with current-cycle usage) ─────────────────────
   if (event.httpMethod === 'GET' && action === 'users') {
@@ -183,8 +186,7 @@ export const handler = async (event) => {
 
   // ── GET per-user usage detail ─────────────────────────────────
   if (event.httpMethod === 'GET' && action === 'user-usage') {
-    const userId = new URL(event.rawUrl || `http://x${event.path}`, 'http://x').searchParams.get('userId')
-    // Fix 7: validate userId is a real UUID before querying
+    const userId = pathUserId
     if (!isValidUUID(userId)) return err('userId required')
     const usage = await getUserUsage(userId, supabase)
     return ok(usage)
@@ -195,7 +197,7 @@ export const handler = async (event) => {
     // Fix 2: guard against malformed request body
     let patchBody = {}
     try { patchBody = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }
-    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, billing_state } = patchBody
+    const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, setCredits, billing_state } = patchBody
     if (!isValidUUID(userId)) return err('userId required')
 
     // Handle manual credit grant — increments purchased_credits via RPC
@@ -204,6 +206,16 @@ export const handler = async (event) => {
       if (isNaN(pts) || pts <= 0) return err('grantCredits must be a positive integer')
       const { error: rpcErr } = await supabase.rpc('increment_purchased_credits', { p_user_id: userId, p_points: pts })
       if (rpcErr) return err(rpcErr.message)
+      const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
+      return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
+    }
+
+    // Handle direct credit override — sets purchased_credits to an exact value to correct mistakes
+    if (setCredits !== undefined) {
+      const pts = parseInt(setCredits, 10)
+      if (isNaN(pts) || pts < 0) return err('setCredits must be a non-negative integer')
+      const { error: setErr } = await supabase.from('profiles').update({ purchased_credits: pts }).eq('id', userId)
+      if (setErr) return err(setErr.message)
       const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
       return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
     }
