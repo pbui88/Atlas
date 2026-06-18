@@ -133,13 +133,11 @@ function injectZip(address, zip) {
 }
 
 async function geocodePoint(pt, googleKey, supabase) {
-  // Skip only if address exists AND is not a raw coordinate string
-  if (pt.address && !looksLikeLatLng(pt.address)) {
+  // Skip only if address already has a 5-digit zip — it's complete.
+  // Re-geocode if address is null, a raw coordinate, or missing a zip
+  // so that re-running a scan fills in incomplete addresses.
+  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
-  }
-
-  if (pt.address) {
-    console.warn(`[geocode] re-geocoding ${pt.id} — existing address is a coordinate: "${pt.address}"`)
   }
 
   try {

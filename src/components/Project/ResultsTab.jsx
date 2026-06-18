@@ -297,13 +297,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (abortRef.current) { setRunning(false); setPhase(''); return }
 
     // ── Phase 2: Reverse geocode addresses ─────────────────────
-    // Pick up ANY point missing an address (any status), so retries fill
-    // in gaps left from previous runs where the point already progressed.
+    // Fetch ALL points every run so re-running an existing scan refreshes
+    // addresses (e.g. fills in missing zip codes via the Nominatim fallback).
+    // geocode-points.js skips points that already have a complete address
+    // (with zip), so only incomplete/missing addresses incur API calls.
     setPhase('geocoding')
     try {
       const dloaded = await fetchAllRows((from, to) =>
         supabase.from('scan_points').select('id')
-          .eq('project_id', project.id).is('address', null)
+          .eq('project_id', project.id)
           .not('lat', 'is', null).not('lng', 'is', null)
           .range(from, to)
       )
