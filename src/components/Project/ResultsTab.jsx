@@ -61,9 +61,10 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
   const score      = point.ai_analyses?.[0]?.overall_score
   const signals    = point.ai_analyses?.[0]?.signals || []
   const noCoverage = point.status === 'no_coverage'
+  const thumb      = point.images?.find(i => i.storage_url)
   return (
     <div
-      className={`px-3 py-3 border-b border-white/[0.04] transition-colors flex items-start gap-2 group ${
+      className={`px-3 py-2 border-b border-white/[0.04] transition-colors flex items-start gap-2 group ${
         isSelected ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : 'hover:bg-white/[0.03]'
       }`}
     >
@@ -76,19 +77,35 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
         disabled={noCoverage}
       />
       <div className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-        <span className={`text-base font-bold tabular-nums shrink-0 leading-tight mt-0.5 ${noCoverage ? 'text-slate-600' : scoreTextColor(score)}`}>
-          {noCoverage ? '—' : scoreLabel(score)}
-        </span>
+        {/* Thumbnail */}
+        <div className="shrink-0 w-14 h-11 rounded overflow-hidden bg-slate-800 border border-white/[0.06]">
+          {thumb
+            ? <img src={thumb.storage_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+            : <div className="w-full h-full flex items-center justify-center">
+                <svg className="w-4 h-4 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+              </div>
+          }
+        </div>
         <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className={`text-sm font-bold tabular-nums shrink-0 leading-tight ${noCoverage ? 'text-slate-600' : scoreTextColor(score)}`}>
+              {noCoverage ? '—' : scoreLabel(score)}
+            </span>
+            {point.images?.length > 1 && (
+              <span className="text-[9px] text-slate-500 font-medium">{point.images.length} imgs</span>
+            )}
+          </div>
           <p className="text-xs text-slate-200 font-medium truncate leading-snug">
             {point.address
               ? point.address.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
               : <span className="text-slate-500 italic">Address pending</span>}
           </p>
           {noCoverage ? (
-            <span className="inline-block mt-1 px-1.5 py-0 rounded text-[10px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-500">No Street View</span>
+            <span className="inline-block mt-0.5 px-1.5 py-0 rounded text-[10px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-500">No Street View</span>
           ) : signals.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
+            <div className="flex flex-wrap gap-1 mt-0.5">
               {signals.slice(0, 2).map(sig => {
                 const s = SIGNAL_MAP[sig]
                 return s ? (
@@ -164,18 +181,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     const pts = await fetchAllRows((from, to) =>
       supabase
         .from('scan_points')
-        .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes)')
+        .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes), images(id, storage_url, direction, image_source)')
         .eq('project_id', project.id)
         .in('status', ['complete', 'no_coverage'])
         .order('created_at')
         .range(from, to)
     )
 
-    // Normalize ai_analyses (Supabase returns object for one-to-one, not array)
+    // Normalize one-to-one relations (Supabase returns object instead of array)
     const normalized = (pts || []).map(pt => ({
       ...pt,
       ai_analyses: pt.ai_analyses
         ? (Array.isArray(pt.ai_analyses) ? pt.ai_analyses : [pt.ai_analyses])
+        : [],
+      images: pt.images
+        ? (Array.isArray(pt.images) ? pt.images : [pt.images])
         : [],
     }))
 
@@ -207,8 +227,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     const COORD_DEG = spacing / 111320
     const NC_DEG    = Math.max(spacing, 30) / 111320
 
-    const seen   = new Map()   // key → winning scan point
-    const allIds = new Map()   // key → all scan_point_ids for same property (for image fetch)
+    const seen     = new Map()   // key → winning scan point
+    const allIds   = new Map()   // key → all scan_point_ids for same property
+    const allImgs  = new Map()   // key → merged images from all sibling points
 
     for (const pt of normalized) {
       // Include all no_coverage points (even without address) — they show as "No Street View"
@@ -222,13 +243,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1
       if (!existing || score > exScore) seen.set(key, pt)
       allIds.set(key, [...(allIds.get(key) || []), pt.id])
+      // Accumulate images from every sibling so the detail panel shows them all
+      allImgs.set(key, [...(allImgs.get(key) || []), ...(pt.images || [])])
     }
 
-    // Attach all scan_point_ids (including deduped ones) so the image panel
-    // can show every downloaded image for the property, not just the winner's.
+    // Attach merged image list and all scan_point_ids to each winning point.
     setPoints(Array.from(seen.entries()).map(([key, pt]) => ({
       ...pt,
       allPointIds: allIds.get(key) || [pt.id],
+      images:      allImgs.get(key) || pt.images || [],
     })))
     setResLoading(false)
   }, [project.id])
@@ -278,12 +301,18 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noCreditsBlocked])
 
   // ── Image fetch when property selected ─────────────────────
+  // Images are pre-loaded in fetchResults so no extra round-trip is needed in
+  // most cases. We only do a full DB fetch when the pre-loaded list is empty
+  // (e.g. a scan that completed before this session loaded the results).
   useEffect(() => {
     if (!selected) { setSelImages([]); return }
+    if (selected.images?.length) {
+      setSelImages(selected.images)
+      setImgLoading(false)
+      return
+    }
     setSelImages([])
     setImgLoading(true)
-    // Fetch images for the winning scan point AND any deduped sibling points
-    // (allPointIds is populated during dedup so all angles are shown).
     const ids = selected.allPointIds?.length ? selected.allPointIds : [selected.id]
     supabase.from('images').select('*').in('scan_point_id', ids)
       .then(({ data }) => { setSelImages(data || []); setImgLoading(false) })
