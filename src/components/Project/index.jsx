@@ -48,7 +48,6 @@ export default function ProjectPage() {
   const loadProject = async () => {
     const { data: proj } = await supabase.from('projects').select('*').eq('id', id).single()
     if (!proj) { navigate('/dashboard'); return }
-    setProject(proj)
 
     const { data: pts } = await supabase
       .from('scan_points')
@@ -56,6 +55,18 @@ export default function ProjectPage() {
       .eq('project_id', id)
       .limit(5000)
     setScanPoints(pts || [])
+
+    // Auto-correct project status: if the project is stuck in a non-terminal
+    // state but all scan_points are already done, mark it complete.
+    let effectiveProj = proj
+    if (['analyzing', 'collecting', 'queued'].includes(proj.status) && pts?.length > 0) {
+      const hasIncomplete = pts.some(p => ['pending', 'downloading', 'downloaded', 'analyzing'].includes(p.status))
+      if (!hasIncomplete) {
+        await supabase.from('projects').update({ status: 'complete' }).eq('id', proj.id)
+        effectiveProj = { ...proj, status: 'complete' }
+      }
+    }
+    setProject(effectiveProj)
     setLoading(false)
 
     if (pts?.length > 0) {

@@ -399,6 +399,14 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
     setPhase('')
     setRunning(false)
+
+    // Mark project complete so the dashboard badge updates correctly.
+    if (!abortRef.current) {
+      await supabase.from('projects')
+        .update({ status: 'complete' })
+        .eq('id', project.id)
+    }
+
     await fetchStats()
     await fetchResults()
     onProjectUpdate?.()
