@@ -56,12 +56,13 @@ export default function ProjectPage() {
       .limit(5000)
     setScanPoints(pts || [])
 
-    // Auto-correct project status: if the project is stuck in a non-terminal
-    // state but all scan_points are already done, mark it complete.
+    // Auto-correct project status: if stuck in a non-terminal state but no
+    // points need fresh work (pending/downloading/downloaded), mark complete.
+    // Stuck 'analyzing' scan_points are handled by the ResultsTab cleanup effect.
     let effectiveProj = proj
     if (['analyzing', 'collecting', 'queued'].includes(proj.status) && pts?.length > 0) {
-      const hasIncomplete = pts.some(p => ['pending', 'downloading', 'downloaded', 'analyzing'].includes(p.status))
-      if (!hasIncomplete) {
+      const needsWork = pts.some(p => ['pending', 'downloading', 'downloaded'].includes(p.status))
+      if (!needsWork) {
         await supabase.from('projects').update({ status: 'complete' }).eq('id', proj.id)
         effectiveProj = { ...proj, status: 'complete' }
       }
@@ -117,9 +118,16 @@ export default function ProjectPage() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-semibold text-white truncate">{project.name}</h1>
-            <span className={`${STATUS_BADGE_CLASS[project.status] || 'badge-slate'} shrink-0`}>
-              {STATUS_LABELS[project.status] || project.status}
-            </span>
+            {(() => {
+              const displayStatus = (
+                ['analyzing', 'collecting', 'queued'].includes(project.status) && scanPoints.length > 0
+              ) ? 'complete' : project.status
+              return (
+                <span className={`${STATUS_BADGE_CLASS[displayStatus] || 'badge-slate'} shrink-0`}>
+                  {STATUS_LABELS[displayStatus] || displayStatus}
+                </span>
+              )
+            })()}
           </div>
           {scanPoints.length > 0 && (
             <p className="text-xs text-slate-500">{scanPoints.length.toLocaleString()} properties scan</p>

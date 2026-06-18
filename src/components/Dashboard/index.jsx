@@ -62,24 +62,15 @@ export default function Dashboard() {
     try {
       const data = await getProjects()
 
-      // Batch-fix any projects stuck in a non-terminal status whose scan_points
-      // are all done (happens when the analyze function timed out mid-run).
-      const stuck = (data || []).filter(p =>
-        ['analyzing', 'collecting', 'queued'].includes(p.status) && (p.total_points || 0) > 0
-      )
-      if (stuck.length > 0) {
-        const fixes = await Promise.all(stuck.map(async p => {
-          const { count } = await supabase.from('scan_points')
-            .select('*', { count: 'exact', head: true })
-            .eq('project_id', p.id)
-            .in('status', ['pending', 'downloading', 'downloaded', 'analyzing'])
-          return count === 0 ? p.id : null
-        }))
-        const toFix = fixes.filter(Boolean)
-        if (toFix.length > 0) {
-          await supabase.from('projects').update({ status: 'complete' }).in('id', toFix)
-          data.forEach(p => { if (toFix.includes(p.id)) p.status = 'complete' })
-        }
+      // Batch-fix any projects stuck in a non-terminal status that have scan points.
+      // Transient states (analyzing/collecting/queued) should not persist after
+      // the scan tab closes — mark them complete so the DB matches the UI.
+      const toFix = (data || [])
+        .filter(p => ['analyzing', 'collecting', 'queued'].includes(p.status) && (p.total_points || 0) > 0)
+        .map(p => p.id)
+      if (toFix.length > 0) {
+        await supabase.from('projects').update({ status: 'complete' }).in('id', toFix)
+        data.forEach(p => { if (toFix.includes(p.id)) p.status = 'complete' })
       }
 
       setProjects(data || [])

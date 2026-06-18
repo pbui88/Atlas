@@ -5,6 +5,12 @@ export default function ProjectCard({ project, onDelete }) {
   const navigate = useNavigate()
   const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
+  // Transient states (analyzing/collecting/queued) should never persist on the
+  // dashboard — if the project has scan points it's effectively complete.
+  const displayStatus = (
+    ['analyzing', 'collecting', 'queued'].includes(project.status) && (project.total_points || 0) > 0
+  ) ? 'complete' : project.status
+
   return (
     <div
       onClick={() => navigate(`/projects/${project.id}`)}
@@ -12,8 +18,8 @@ export default function ProjectCard({ project, onDelete }) {
     >
       {/* Top row: status + menu */}
       <div className="flex items-start justify-between mb-3">
-        <span className={STATUS_BADGE_CLASS[project.status] || 'badge-slate'}>
-          {STATUS_LABELS[project.status] || project.status}
+        <span className={STATUS_BADGE_CLASS[displayStatus] || 'badge-slate'}>
+          {STATUS_LABELS[displayStatus] || displayStatus}
         </span>
         <button
           onClick={e => { e.stopPropagation(); onDelete(project.id) }}
