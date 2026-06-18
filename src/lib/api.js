@@ -10,6 +10,7 @@ async function getToken() {
 
 async function call(fn, method = 'GET', body = null) {
   const token = await getToken()
+  if (!token) console.warn('[api] getToken() returned null — no active session for', fn)
   const res = await fetch(`/.netlify/functions/${fn}`, {
     method,
     headers: {
@@ -19,7 +20,8 @@ async function call(fn, method = 'GET', body = null) {
     ...(body != null ? { body: JSON.stringify(body) } : {}),
   })
   if (res.status === 401) {
-    // Token gone or invalid — sign out and reload so user re-authenticates
+    const body401 = await res.json().catch(() => ({}))
+    console.error('[api] 401 from', fn, '— reason:', body401.error, '— token present:', !!token)
     await supabase.auth.signOut()
     window.location.reload()
     throw new Error('Session expired. Please sign in again.')
