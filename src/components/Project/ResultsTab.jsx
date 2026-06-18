@@ -179,23 +179,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         : [],
     }))
 
-    // Build a normalized dedup key from an address.
-    // Positionstack returns inconsistent formats (Avenue vs Ave, Texas vs TX),
-    // so we normalize street types and directions, then key on street+city only
-    // (dropping state/zip/country which vary the most across results).
-    const ST = { avenue:'ave',boulevard:'blvd',circle:'cir',court:'ct',drive:'dr',
-                 lane:'ln',place:'pl',road:'rd',street:'st',trail:'trl',
-                 parkway:'pkwy',highway:'hwy',way:'way' }
-    const DIR = { north:'n',south:'s',east:'e',west:'w',
-                  northeast:'ne',northwest:'nw',southeast:'se',southwest:'sw' }
-    const normWord  = w => ST[w] || DIR[w] || w
-    const normPart  = s => s.toLowerCase().replace(/[.,#]/g, '').split(/\s+/).map(normWord).join(' ').trim()
-    const addrKey   = raw => {
+    // Build a dedup key: house-number + core street name + city.
+    // Strips direction prefixes (North/N) and type suffixes (Avenue/Ave/St)
+    // so "603 North Belmont Avenue, Odessa, TX" and "603 N Belmont Ave, Odessa, Texas"
+    // both produce "603|belmont|odessa" and collapse to one entry.
+    const DIRS  = new Set(['n','s','e','w','ne','nw','se','sw','north','south','east','west','northeast','northwest','southeast','southwest'])
+    const TYPES = new Set(['ave','avenue','blvd','boulevard','cir','circle','ct','court','dr','drive','ln','lane','pl','place','rd','road','st','street','trl','trail','pkwy','parkway','hwy','highway','way'])
+    const addrKey = raw => {
       if (!raw) return null
-      const parts = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
-      const street = normPart(parts[0] || '')
-      const city   = normPart(parts[1] || '')
-      return street ? `${street}|${city}` : null
+      const parts  = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
+      const words  = (parts[0] || '').toLowerCase().replace(/[.,#]/g, '').split(/\s+/).filter(Boolean)
+      const num    = words[0]
+      if (!num || !/^\d/.test(num)) return null
+      const name   = words.slice(1).filter(w => !DIRS.has(w) && !TYPES.has(w)).join('-')
+      const city   = (parts[1] || '').toLowerCase().trim().replace(/\s+/g, '-')
+      return `${num}|${name}|${city}`
     }
     const COORD_DEG = 10 / 111320
 
