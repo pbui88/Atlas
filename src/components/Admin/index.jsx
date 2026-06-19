@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
+  adminGetSkipTraceStats,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
 import { US_STATES } from '../../../shared/taxRates.js'
@@ -229,14 +230,156 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
   )
 }
 
+function SkipTraceMonitor({ stats, onRefresh }) {
+  const { tracerfy, platform, alerts } = stats
+
+  const balanceColor = !tracerfy.available
+    ? 'text-slate-500'
+    : tracerfy.balance < 10
+      ? 'text-red-400'
+      : tracerfy.balance < tracerfy.lowThreshold
+        ? 'text-amber-400'
+        : 'text-emerald-400'
+
+  const statusDot = !tracerfy.available
+    ? null
+    : tracerfy.balance < 10
+      ? 'bg-red-400 animate-pulse'
+      : tracerfy.balance < tracerfy.lowThreshold
+        ? 'bg-amber-400'
+        : 'bg-emerald-400'
+
+  return (
+    <div className="space-y-6">
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((a, i) => <AlertBanner key={i} alert={a} />)}
+        </div>
+      )}
+
+      {/* Tracerfy account */}
+      <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-sm font-semibold text-slate-300">Tracerfy Account Balance</h3>
+          <button
+            onClick={onRefresh}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Refresh
+          </button>
+        </div>
+
+        <div className="flex items-end gap-3 mb-4">
+          {statusDot && <span className={`w-2.5 h-2.5 rounded-full shrink-0 mb-1.5 ${statusDot}`} />}
+          <p className={`text-4xl font-bold font-display tabular-nums ${balanceColor}`}>
+            {tracerfy.available ? `$${tracerfy.balance.toFixed(2)}` : '—'}
+          </p>
+          <p className="text-sm text-slate-600 mb-1">
+            {tracerfy.available ? 'available on Tracerfy' : 'balance unavailable — check Tracerfy dashboard'}
+          </p>
+        </div>
+
+        {tracerfy.available && (
+          <div className="text-xs text-slate-600">
+            Low-balance alert threshold: <span className="text-slate-400">${tracerfy.lowThreshold.toFixed(2)}</span>
+            {' · set via '}
+            <span className="font-mono text-slate-500">TRACERFY_LOW_BALANCE_USD</span> env var
+          </div>
+        )}
+
+        {!tracerfy.available && (
+          <div className="flex items-start gap-2 bg-white/[0.02] border border-white/[0.05] rounded-lg px-3 py-2.5 text-xs text-slate-500">
+            <svg className="w-3.5 h-3.5 text-slate-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            </svg>
+            Tracerfy doesn't expose a public balance endpoint — manage credits directly in your Tracerfy dashboard.
+            Use the platform liability metrics below to estimate when a top-up is needed.
+          </div>
+        )}
+      </div>
+
+      {/* Platform liability */}
+      <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+        <h3 className="text-sm font-semibold text-slate-300 mb-5">Platform Liability</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">User Balances</p>
+            <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalUserBalance.toFixed(2)}</p>
+            <p className="text-xs text-slate-600 mt-1">outstanding deposits</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pending Jobs</p>
+            <p className="text-2xl font-bold font-display text-white tabular-nums">{platform.pendingJobsCount}</p>
+            <p className="text-xs text-slate-600 mt-1">
+              {platform.pendingJobsCount > 0 ? `$${platform.pendingJobsCost.toFixed(2)} committed` : 'no active jobs'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">API Spend (30d)</p>
+            <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalSpent30d.toFixed(2)}</p>
+            <p className="text-xs text-slate-600 mt-1">Tracerfy charges</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">All-time Spend</p>
+            <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalSpentAllTime.toFixed(2)}</p>
+            <p className="text-xs text-slate-600 mt-1">cumulative</p>
+          </div>
+        </div>
+
+        {/* Liability vs Tracerfy balance bar */}
+        {tracerfy.available && platform.totalUserBalance > 0 && (
+          <div className="mt-5 pt-5 border-t border-white/[0.05]">
+            <div className="flex items-center justify-between mb-1.5 text-xs">
+              <span className="text-slate-500">User liability vs Tracerfy balance</span>
+              <span className={`font-medium ${platform.totalUserBalance > tracerfy.balance ? 'text-amber-400' : 'text-emerald-400'}`}>
+                ${platform.totalUserBalance.toFixed(2)} / ${tracerfy.balance.toFixed(2)}
+              </span>
+            </div>
+            <div className="h-2 w-full bg-white/[0.06] rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${platform.totalUserBalance > tracerfy.balance ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                style={{ width: `${Math.min(100, (platform.totalUserBalance / Math.max(platform.totalUserBalance, tracerfy.balance)) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-600 mt-1.5">
+              {platform.totalUserBalance > tracerfy.balance
+                ? 'Top up Tracerfy — liability exceeds available balance'
+                : `$${(tracerfy.balance - platform.totalUserBalance).toFixed(2)} headroom`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* How to top up */}
+      <div className="flex items-start gap-2.5 bg-violet-600/5 border border-violet-600/15 rounded-xl px-4 py-3.5 text-xs text-slate-500">
+        <svg className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+        </svg>
+        <span>
+          Top up Tracerfy credits at <span className="text-violet-400 font-mono">tracerfy.com</span> → Account → Credits.
+          Recommended: top up when user liability approaches your Tracerfy balance, or set{' '}
+          <span className="font-mono text-slate-400">TRACERFY_LOW_BALANCE_USD</span> (currently{' '}
+          <span className="text-slate-400">${stats.tracerfy.lowThreshold.toFixed(2)}</span>) to get an automatic low-balance alert.
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
-  const [users,          setUsers]          = useState([])
-  const [usage,          setUsage]          = useState(null)
-  const [monitor,        setMonitor]        = useState(null)
-  const [loading,        setLoading]        = useState(true)
-  const [monitorLoading, setMonitorLoading] = useState(false)
-  const [tab,            setTab]            = useState('users')
+  const [users,           setUsers]           = useState([])
+  const [usage,           setUsage]           = useState(null)
+  const [monitor,         setMonitor]         = useState(null)
+  const [skipTraceStats,  setSkipTraceStats]  = useState(null)
+  const [loading,         setLoading]         = useState(true)
+  const [monitorLoading,  setMonitorLoading]  = useState(false)
+  const [stLoading,       setStLoading]       = useState(false)
+  const [tab,             setTab]             = useState('users')
 
   const safe = (p, ms = 20000) => {
     const t = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
@@ -268,6 +411,17 @@ export default function AdminPanel() {
       setMonitor(data || null)
     } finally {
       setMonitorLoading(false)
+    }
+  }
+
+  const loadSkipTraceStats = async (force = false) => {
+    if ((skipTraceStats || stLoading) && !force) return
+    setStLoading(true)
+    try {
+      const data = await safe(adminGetSkipTraceStats(), 20000)
+      setSkipTraceStats(data || null)
+    } finally {
+      setStLoading(false)
     }
   }
 
@@ -367,18 +521,27 @@ export default function AdminPanel() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-navy-800 border border-white/[0.06] rounded-lg p-1 w-fit">
-        {['users', 'usage', 'monitor'].map(t => (
+      <div className="flex gap-1 mb-6 bg-navy-800 border border-white/[0.06] rounded-lg p-1 w-fit flex-wrap">
+        {[
+          { key: 'users',      label: 'Users' },
+          { key: 'usage',      label: 'Usage' },
+          { key: 'monitor',    label: 'Monitor' },
+          { key: 'skip-trace', label: 'Skip Trace' },
+        ].map(({ key, label }) => (
           <button
-            key={t}
-            onClick={() => { setTab(t); if (t === 'monitor') loadMonitor() }}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition ${
-              tab === t
+            key={key}
+            onClick={() => {
+              setTab(key)
+              if (key === 'monitor')    loadMonitor()
+              if (key === 'skip-trace') loadSkipTraceStats()
+            }}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+              tab === key
                 ? 'bg-brand-600/20 text-brand-400 border border-brand-600/25'
                 : 'text-slate-500 hover:text-slate-300'
             }`}
           >
-            {t}
+            {label}
           </button>
         ))}
       </div>
@@ -468,17 +631,18 @@ export default function AdminPanel() {
             <p className="text-sm text-slate-600">No usage data yet.</p>
           )}
         </div>
-      ) : monitorLoading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : !monitor ? (
-        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6 text-center">
-          <p className="text-sm text-slate-500">Monitor data unavailable.</p>
-          <p className="text-xs text-slate-600 mt-1">Run migration <code className="text-slate-400">012_admin_monitoring.sql</code> on your Supabase project, then refresh.</p>
-          <button onClick={loadMonitor} className="mt-3 text-xs text-brand-400 hover:text-brand-300 underline underline-offset-2">Try again</button>
-        </div>
-      ) : (
+      ) : tab === 'monitor' ? (
+        monitorLoading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : !monitor ? (
+          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6 text-center">
+            <p className="text-sm text-slate-500">Monitor data unavailable.</p>
+            <p className="text-xs text-slate-600 mt-1">Run migration <code className="text-slate-400">012_admin_monitoring.sql</code> on your Supabase project, then refresh.</p>
+            <button onClick={loadMonitor} className="mt-3 text-xs text-brand-400 hover:text-brand-300 underline underline-offset-2">Try again</button>
+          </div>
+        ) : (
         <div className="space-y-6">
           {/* Alerts */}
           {monitor.alerts.length > 0 && (
@@ -589,7 +753,24 @@ export default function AdminPanel() {
             </div>
           </div>
         </div>
-      )}
+        )
+      ) : tab === 'skip-trace' ? (
+        stLoading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : !skipTraceStats ? (
+          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6 text-center">
+            <p className="text-sm text-slate-500">Skip trace stats unavailable.</p>
+            <button onClick={() => loadSkipTraceStats(true)} className="mt-3 text-xs text-brand-400 hover:text-brand-300 underline underline-offset-2">Try again</button>
+          </div>
+        ) : (
+          <SkipTraceMonitor
+            stats={skipTraceStats}
+            onRefresh={() => { setSkipTraceStats(null); loadSkipTraceStats(true) }}
+          />
+        )
+      ) : null}
     </div>
   )
 }
