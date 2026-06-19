@@ -231,10 +231,18 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
 }
 
 function SkipTraceMonitor({ stats, onRefresh }) {
-  const { platform } = stats
+  const { platform, platformBalance, pct, alert } = stats
+
+  const barColor = pct === null ? 'bg-slate-600'
+    : pct >= 90 ? 'bg-red-500'
+    : pct >= 70 ? 'bg-amber-400'
+    : 'bg-emerald-500'
 
   return (
     <div className="space-y-6">
+      {/* Warning / critical alert */}
+      {alert && <AlertBanner alert={alert} />}
+
       {/* Platform liability */}
       <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
         <div className="flex items-center justify-between mb-5">
@@ -249,6 +257,7 @@ function SkipTraceMonitor({ stats, onRefresh }) {
             Refresh
           </button>
         </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">User Balances</p>
@@ -273,6 +282,33 @@ function SkipTraceMonitor({ stats, onRefresh }) {
             <p className="text-xs text-slate-600 mt-1">cumulative</p>
           </div>
         </div>
+
+        {/* Progress bar vs Tracerfy credit */}
+        {platformBalance ? (
+          <div className="mt-5 pt-5 border-t border-white/[0.05]">
+            <div className="flex items-center justify-between mb-1.5 text-xs">
+              <span className="text-slate-500">User balances vs Tracerfy credit</span>
+              <span className={`font-semibold tabular-nums ${pct >= 90 ? 'text-red-400' : pct >= 70 ? 'text-amber-400' : 'text-slate-300'}`}>
+                ${platform.totalUserBalance.toFixed(2)} / ${platformBalance.toFixed(2)} ({pct}%)
+              </span>
+            </div>
+            <div className="h-2.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                style={{ width: `${Math.min(100, pct)}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-600 mt-1.5">
+              {pct >= 70
+                ? `Top up Tracerfy — $${(platformBalance - platform.totalUserBalance).toFixed(2)} headroom remaining`
+                : `$${(platformBalance - platform.totalUserBalance).toFixed(2)} headroom — looking good`}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-600 mt-5 pt-5 border-t border-white/[0.05]">
+            Set <span className="font-mono text-slate-500">TRACERFY_PLATFORM_BALANCE_USD</span> in your Netlify env vars to see a usage bar and get automatic warnings at 70%.
+          </p>
+        )}
       </div>
 
       {/* Top-up reminder */}
@@ -282,7 +318,7 @@ function SkipTraceMonitor({ stats, onRefresh }) {
         </svg>
         <span>
           Top up Tracerfy credits at <span className="text-violet-400 font-mono">tracerfy.com</span> → Account → Credits.
-          Keep your Tracerfy balance above the total user deposits shown above to ensure all jobs can process without interruption.
+          After topping up, update <span className="font-mono text-slate-400">TRACERFY_PLATFORM_BALANCE_USD</span> in Netlify env vars to the new balance so the warning stays accurate.
         </span>
       </div>
     </div>
