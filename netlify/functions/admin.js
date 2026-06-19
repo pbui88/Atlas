@@ -122,12 +122,15 @@ export const handler = async (event) => {
     const DAY     = 24 * 60 * 60 * 1000
     const since30 = new Date(Date.now() - 30 * DAY)
 
+    // Wrap each RPC individually so a single slow/failed query doesn't block the whole response.
+    const safeRpc = (p) => p.then(r => r).catch(() => ({ data: null, error: null }))
+
     const [summaryRes, trendRes, dbSizeRes, tableSizesRes, storageRes] = await Promise.all([
-      supabase.rpc('get_usage_summary',    { p_since: since30.toISOString() }),
-      supabase.rpc('get_daily_cost_trend', { p_since: since30.toISOString() }),
-      supabase.rpc('get_database_size'),
-      supabase.rpc('get_table_sizes'),
-      supabase.rpc('get_storage_usage'),
+      safeRpc(supabase.rpc('get_usage_summary',    { p_since: since30.toISOString() })),
+      safeRpc(supabase.rpc('get_daily_cost_trend', { p_since: since30.toISOString() })),
+      safeRpc(supabase.rpc('get_database_size')),
+      safeRpc(supabase.rpc('get_table_sizes')),
+      safeRpc(supabase.rpc('get_storage_usage')),
     ])
 
     const byService = (summaryRes.data || []).map(r => ({

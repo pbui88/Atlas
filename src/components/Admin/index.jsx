@@ -231,27 +231,44 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
 
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
-  const [users,   setUsers]   = useState([])
-  const [usage,   setUsage]   = useState(null)
-  const [monitor, setMonitor] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [tab,     setTab]     = useState('users')
+  const [users,          setUsers]          = useState([])
+  const [usage,          setUsage]          = useState(null)
+  const [monitor,        setMonitor]        = useState(null)
+  const [loading,        setLoading]        = useState(true)
+  const [monitorLoading, setMonitorLoading] = useState(false)
+  const [tab,            setTab]            = useState('users')
+
+  const safe = (p, ms = 20000) => {
+    const t = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+    return Promise.race([p, t]).catch(e => { console.error('[admin]', e.message); return null })
+  }
 
   const load = async () => {
     setLoading(true)
-    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
-    const safe    = (p)  => Promise.race([p, timeout(20000)]).catch(e => { console.error(e); return null })
+    try {
+      // Load users + usage only — monitor is heavy (5 RPCs) and loaded lazily on tab click
+      const [usersData, usageData] = await Promise.all([
+        safe(adminGetUsers()),
+        safe(adminGetUsage()),
+      ])
+      if (usersData) setUsers(usersData)
+      if (usageData) setUsage(usageData)
+    } catch (e) {
+      console.error('[admin] load failed:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
 
-    const [usersData, usageData, monitorData] = await Promise.all([
-      safe(adminGetUsers()),
-      safe(adminGetUsage()),
-      safe(adminGetMonitor()),
-    ])
-    if (usersData)   setUsers(usersData)
-    if (usageData)   setUsage(usageData)
-    if (monitorData) setMonitor(monitorData)
-    else             setMonitor(null)
-    setLoading(false)
+  const loadMonitor = async () => {
+    if (monitor || monitorLoading) return
+    setMonitorLoading(true)
+    try {
+      const data = await safe(adminGetMonitor(), 25000)
+      setMonitor(data || null)
+    } finally {
+      setMonitorLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
@@ -354,7 +371,7 @@ export default function AdminPanel() {
         {['users', 'usage', 'monitor'].map(t => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); if (t === 'monitor') loadMonitor() }}
             className={`px-4 py-1.5 rounded-md text-sm font-medium capitalize transition ${
               tab === t
                 ? 'bg-brand-600/20 text-brand-400 border border-brand-600/25'
@@ -451,10 +468,15 @@ export default function AdminPanel() {
             <p className="text-sm text-slate-600">No usage data yet.</p>
           )}
         </div>
+      ) : monitorLoading ? (
+        <div className="flex justify-center py-16">
+          <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        </div>
       ) : !monitor ? (
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6 text-center">
           <p className="text-sm text-slate-500">Monitor data unavailable.</p>
           <p className="text-xs text-slate-600 mt-1">Run migration <code className="text-slate-400">012_admin_monitoring.sql</code> on your Supabase project, then refresh.</p>
+          <button onClick={loadMonitor} className="mt-3 text-xs text-brand-400 hover:text-brand-300 underline underline-offset-2">Try again</button>
         </div>
       ) : (
         <div className="space-y-6">
