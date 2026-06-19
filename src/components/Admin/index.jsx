@@ -231,95 +231,45 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
 }
 
 function SkipTraceMonitor({ stats, onRefresh }) {
-  const { platform, platformBalance, pct, alert } = stats
-
-  const barColor = pct === null ? 'bg-slate-600'
-    : pct >= 90 ? 'bg-red-500'
-    : pct >= 70 ? 'bg-amber-400'
-    : 'bg-emerald-500'
+  const { platform } = stats
 
   return (
-    <div className="space-y-6">
-      {/* Warning / critical alert */}
-      {alert && <AlertBanner alert={alert} />}
-
-      {/* Platform liability */}
-      <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-sm font-semibold text-slate-300">Skip Trace Usage</h3>
-          <button
-            onClick={onRefresh}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            Refresh
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">User Balances</p>
-            <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalUserBalance.toFixed(2)}</p>
-            <p className="text-xs text-slate-600 mt-1">outstanding deposits</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pending Jobs</p>
-            <p className="text-2xl font-bold font-display text-white tabular-nums">{platform.pendingJobsCount}</p>
-            <p className="text-xs text-slate-600 mt-1">
-              {platform.pendingJobsCount > 0 ? `$${platform.pendingJobsCost.toFixed(2)} committed` : 'no active jobs'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">API Spend (30d)</p>
-            <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalSpent30d.toFixed(2)}</p>
-            <p className="text-xs text-slate-600 mt-1">Tracerfy charges</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">All-time Spend</p>
-            <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalSpentAllTime.toFixed(2)}</p>
-            <p className="text-xs text-slate-600 mt-1">cumulative</p>
-          </div>
-        </div>
-
-        {/* Progress bar vs Tracerfy credit */}
-        {platformBalance ? (
-          <div className="mt-5 pt-5 border-t border-white/[0.05]">
-            <div className="flex items-center justify-between mb-1.5 text-xs">
-              <span className="text-slate-500">User balances vs Tracerfy credit</span>
-              <span className={`font-semibold tabular-nums ${pct >= 90 ? 'text-red-400' : pct >= 70 ? 'text-amber-400' : 'text-slate-300'}`}>
-                ${platform.totalUserBalance.toFixed(2)} / ${platformBalance.toFixed(2)} ({pct}%)
-              </span>
-            </div>
-            <div className="h-2.5 w-full bg-white/[0.06] rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                style={{ width: `${Math.min(100, pct)}%` }}
-              />
-            </div>
-            <p className="text-xs text-slate-600 mt-1.5">
-              {pct >= 70
-                ? `Top up Tracerfy — $${(platformBalance - platform.totalUserBalance).toFixed(2)} headroom remaining`
-                : `$${(platformBalance - platform.totalUserBalance).toFixed(2)} headroom — looking good`}
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-slate-600 mt-5 pt-5 border-t border-white/[0.05]">
-            Set <span className="font-mono text-slate-500">TRACERFY_PLATFORM_BALANCE_USD</span> in your Netlify env vars to see a usage bar and get automatic warnings at 70%.
-          </p>
-        )}
+    <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-sm font-semibold text-slate-300">Skip Trace Usage</h3>
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Refresh
+        </button>
       </div>
-
-      {/* Top-up reminder */}
-      <div className="flex items-start gap-2.5 bg-violet-600/5 border border-violet-600/15 rounded-xl px-4 py-3.5 text-xs text-slate-500">
-        <svg className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-        </svg>
-        <span>
-          Top up Tracerfy credits at <span className="text-violet-400 font-mono">tracerfy.com</span> → Account → Credits.
-          After topping up, update <span className="font-mono text-slate-400">TRACERFY_PLATFORM_BALANCE_USD</span> in Netlify env vars to the new balance so the warning stays accurate.
-        </span>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">User Balances</p>
+          <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalUserBalance.toFixed(2)}</p>
+          <p className="text-xs text-slate-600 mt-1">outstanding deposits</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pending Jobs</p>
+          <p className="text-2xl font-bold font-display text-white tabular-nums">{platform.pendingJobsCount}</p>
+          <p className="text-xs text-slate-600 mt-1">
+            {platform.pendingJobsCount > 0 ? `$${platform.pendingJobsCost.toFixed(2)} committed` : 'no active jobs'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">API Spend (30d)</p>
+          <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalSpent30d.toFixed(2)}</p>
+          <p className="text-xs text-slate-600 mt-1">Tracerfy charges</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">All-time Spend</p>
+          <p className="text-2xl font-bold font-display text-white tabular-nums">${platform.totalSpentAllTime.toFixed(2)}</p>
+          <p className="text-xs text-slate-600 mt-1">cumulative</p>
+        </div>
       </div>
     </div>
   )

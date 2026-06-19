@@ -119,8 +119,7 @@ export const handler = async (event) => {
 
   // ── GET skip-trace-stats: platform liability metrics ─────────────────────
   if (event.httpMethod === 'GET' && action === 'skip-trace-stats') {
-    const since30          = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const platformBalance  = parseFloat(process.env.TRACERFY_PLATFORM_BALANCE_USD) || null
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
     const [balancesRes, pendingRes, spent30dRes, spentAllRes] = await Promise.all([
       supabase.from('profiles').select('skip_trace_balance').neq('role', 'admin'),
@@ -135,18 +134,7 @@ export const handler = async (event) => {
     const spent30d         = (spent30dRes.data || []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
     const spentAllTime     = (spentAllRes.data || []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
 
-    const pct   = platformBalance > 0 ? Math.round((totalUserBalance / platformBalance) * 100) : null
-    const alert = pct !== null && pct >= 70
-      ? {
-          level:   pct >= 90 ? 'critical' : 'warning',
-          message: `User balances ($${totalUserBalance.toFixed(2)}) have reached ${pct}% of your Tracerfy credit ($${platformBalance.toFixed(2)}) — top up soon to avoid job failures`,
-        }
-      : null
-
     return ok({
-      platformBalance: platformBalance ? Math.round(platformBalance * 100) / 100 : null,
-      pct,
-      alert,
       platform: {
         totalUserBalance:  Math.round(totalUserBalance * 100) / 100,
         pendingJobsCount:  pendingJobs.length,
