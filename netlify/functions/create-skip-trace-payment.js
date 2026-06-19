@@ -8,9 +8,8 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
 
-  const { user, role, error } = await requireAuth(event)
+  const { user, error } = await requireAuth(event)
   if (error) return err(error, 401)
-  if (role !== 'admin') return err('Forbidden', 403)
 
   let body = {}
   try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid request body', 400) }

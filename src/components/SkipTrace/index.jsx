@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import {
@@ -94,7 +94,8 @@ function StatusBadge({ status }) {
 // ── Main page ─────────────────────────────────────────────────
 export default function SkipTracePage() {
   const { openSidebar } = useOutletContext()
-  const { user } = useAuth()
+  const { user, usage, isAdmin } = useAuth()
+  const navigate = useNavigate()
 
   const [records,          setRecords]          = useState([])
   const [loading,          setLoading]          = useState(true)
@@ -227,6 +228,10 @@ export default function SkipTracePage() {
       pendingTraceIdsRef.current = null
     }
   }, [records])
+
+  // ── Balance helpers ───────────────────────────────────────
+  const skipTraceBalance    = usage?.skipTraceBalance ?? 0
+  const estimatedTraceCost  = Math.round(COST_PER_RECORD * (checkedIds.size || 0) * 100) / 100
 
   // ── Selection helpers ─────────────────────────────────────
   const savedRecords     = records.filter(r => r.status === 'saved')
@@ -474,6 +479,17 @@ export default function SkipTracePage() {
 
           {/* Action buttons */}
           <div className="shrink-0 flex items-center gap-2">
+            {/* Balance chip — only for non-admins */}
+            {!isAdmin && usage && (
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border ${
+                skipTraceBalance <= 0
+                  ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                  : 'bg-violet-600/10 border-violet-600/20 text-violet-300'
+              }`}>
+                <span className="text-slate-500">Balance:</span>
+                <span className="font-semibold tabular-nums">${skipTraceBalance.toFixed(2)}</span>
+              </div>
+            )}
             {records.some(r => r.status === 'submitted' || r.status === 'processing') && (
               <button
                 onClick={handleCheckResults}
@@ -547,7 +563,12 @@ export default function SkipTracePage() {
         {(submitError || uploadError || dncSubmitError) && (
           <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3.5 mb-5">
             <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-            <p className="text-sm text-red-300 font-medium flex-1">{submitError || uploadError || dncSubmitError}</p>
+            <p className="text-sm text-red-300 font-medium flex-1">
+              {submitError || uploadError || dncSubmitError}
+              {(submitError || dncSubmitError || '').startsWith('Insufficient') && (
+                <> — <button onClick={() => navigate('/credits')} className="underline hover:text-red-200">Deposit funds →</button></>
+              )}
+            </p>
             <button onClick={() => { setSubmitError(null); setUploadError(null); setDncSubmitError(null) }} className="text-red-500 hover:text-red-300 p-1"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
@@ -680,75 +701,124 @@ export default function SkipTracePage() {
         )}
 
         {/* Skip Trace confirm dialog */}
-        {showConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-            <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-              <h3 className="text-base font-bold text-white mb-3">Confirm Skip Trace</h3>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Records</span>
-                  <span className="text-white font-semibold">{checkedSaved.length}</span>
+        {showConfirm && (() => {
+          const traceCost = Math.round(COST_PER_RECORD * checkedSaved.length * 100) / 100
+          const canAfford = isAdmin || skipTraceBalance >= traceCost
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+              <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                <h3 className="text-base font-bold text-white mb-3">Confirm Skip Trace</h3>
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Records</span>
+                    <span className="text-white font-semibold">{checkedSaved.length}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Rate</span>
+                    <span className="text-white font-semibold">$0.08 / record</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Est. Cost</span>
+                    <span className="text-brand-400 font-bold">${traceCost.toFixed(2)}</span>
+                  </div>
+                  {!isAdmin && (
+                    <>
+                      <div className="flex justify-between text-sm pt-1 border-t border-white/[0.06]">
+                        <span className="text-slate-500">Your Balance</span>
+                        <span className={`font-semibold ${canAfford ? 'text-white' : 'text-red-400'}`}>
+                          ${skipTraceBalance.toFixed(2)}
+                        </span>
+                      </div>
+                      {canAfford ? (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">After this job</span>
+                          <span className="text-slate-300 font-semibold">${(skipTraceBalance - traceCost).toFixed(2)}</span>
+                        </div>
+                      ) : (
+                        <div className="pt-1">
+                          <p className="text-xs text-red-400">
+                            Insufficient funds — you need ${(traceCost - skipTraceBalance).toFixed(2)} more.{' '}
+                            <button onClick={() => { setShowConfirm(false); navigate('/credits') }} className="underline hover:text-red-300">Deposit funds →</button>
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="pt-1 border-t border-white/[0.06]">
+                    <p className="text-[11px] text-slate-600">
+                      Returns owner name, phones &amp; emails. Charged per matched record only — no charge on misses.
+                      After results arrive, you can optionally run DNC scrub on the completed records.
+                    </p>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Rate</span>
-                  <span className="text-white font-semibold">$0.08 / record</span>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
+                  <button onClick={handleSubmit} disabled={!canAfford} className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition shadow-md shadow-brand-600/30">Confirm</button>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Est. Cost</span>
-                  <span className="text-brand-400 font-bold">${(COST_PER_RECORD * checkedSaved.length).toFixed(2)}</span>
-                </div>
-                <div className="pt-1 border-t border-white/[0.06]">
-                  <p className="text-[11px] text-slate-600">
-                    Returns owner name, phones &amp; emails. Charged per matched record only — no charge on misses.
-                    After results arrive, you can optionally run DNC scrub on the completed records.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
-                <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition shadow-md shadow-brand-600/30">Confirm</button>
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* DNC Scrub confirm dialog */}
-        {showDncConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-            <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-              <h3 className="text-base font-bold text-white mb-1">Confirm DNC Scrub</h3>
-              <p className="text-xs text-slate-500 mb-2">Checks phone numbers against these databases:</p>
-              <div className="space-y-2 mb-4">
-                <DncInfoRow label="National DNC" info="Federal Do Not Call Registry managed by the FTC. Calling registered numbers without consent risks fines up to $51,744 per violation." />
-                <DncInfoRow label="State DNC" info="State-level Do Not Call registries. These may include numbers not on the federal list; rules and penalties vary by state." />
-                <DncInfoRow label="DMA" info="Direct Marketing Association Telephone Preference Service — an industry opt-out list for consumers who have requested no telemarketing calls." />
-                <DncInfoRow label="Litigator" info="Known TCPA serial litigators who have previously filed or threatened lawsuits for unsolicited calls. Contacting these numbers carries significant legal risk." />
-              </div>
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Records</span>
-                  <span className="text-white font-semibold">{dncCandidates.length}</span>
+        {showDncConfirm && (() => {
+          const dncCost    = Math.round(totalPhonesForDnc * 0.02 * 100) / 100
+          const canAfford  = isAdmin || skipTraceBalance >= dncCost
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+              <div className="bg-navy-900 border border-white/[0.08] rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                <h3 className="text-base font-bold text-white mb-1">Confirm DNC Scrub</h3>
+                <p className="text-xs text-slate-500 mb-2">Checks phone numbers against these databases:</p>
+                <div className="space-y-2 mb-4">
+                  <DncInfoRow label="National DNC" info="Federal Do Not Call Registry managed by the FTC. Calling registered numbers without consent risks fines up to $51,744 per violation." />
+                  <DncInfoRow label="State DNC" info="State-level Do Not Call registries. These may include numbers not on the federal list; rules and penalties vary by state." />
+                  <DncInfoRow label="DMA" info="Direct Marketing Association Telephone Preference Service — an industry opt-out list for consumers who have requested no telemarketing calls." />
+                  <DncInfoRow label="Litigator" info="Known TCPA serial litigators who have previously filed or threatened lawsuits for unsolicited calls. Contacting these numbers carries significant legal risk." />
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Phones to check</span>
-                  <span className="text-white font-semibold">{totalPhonesForDnc}</span>
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mb-5 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Records</span>
+                    <span className="text-white font-semibold">{dncCandidates.length}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Phones to check</span>
+                    <span className="text-white font-semibold">{totalPhonesForDnc}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Rate</span>
+                    <span className="text-white font-semibold">$0.02 / phone</span>
+                  </div>
+                  <div className="flex justify-between text-sm pt-1 border-t border-white/[0.06]">
+                    <span className="text-slate-500">Est. Cost</span>
+                    <span className="text-violet-400 font-bold">${dncCost.toFixed(2)}</span>
+                  </div>
+                  {!isAdmin && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Your Balance</span>
+                        <span className={`font-semibold ${canAfford ? 'text-white' : 'text-red-400'}`}>
+                          ${skipTraceBalance.toFixed(2)}
+                        </span>
+                      </div>
+                      {!canAfford && (
+                        <div className="pt-1">
+                          <p className="text-xs text-red-400">
+                            Insufficient funds — you need ${(dncCost - skipTraceBalance).toFixed(2)} more.{' '}
+                            <button onClick={() => { setShowDncConfirm(false); navigate('/credits') }} className="underline hover:text-red-300">Deposit funds →</button>
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Rate</span>
-                  <span className="text-white font-semibold">$0.02 / phone</span>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowDncConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
+                  <button onClick={handleScrubDnc} disabled={!canAfford} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition shadow-md shadow-violet-600/30">Confirm</button>
                 </div>
-                <div className="flex justify-between text-sm pt-1 border-t border-white/[0.06]">
-                  <span className="text-slate-500">Est. Cost</span>
-                  <span className="text-violet-400 font-bold">${(totalPhonesForDnc * 0.02).toFixed(2)}</span>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowDncConfirm(false)} className="flex-1 py-2.5 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.05] text-sm font-medium transition">Cancel</button>
-                <button onClick={handleScrubDnc} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition shadow-md shadow-violet-600/30">Confirm</button>
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Records grouped by list */}
         {loading ? (

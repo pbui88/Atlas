@@ -52,7 +52,7 @@ function redirectToHostedForm(formUrl, token) {
 
 export default function BuyCreditsPage() {
   const { openSidebar } = useOutletContext()
-  const { usage, refreshUsage, isAdmin } = useAuth()
+  const { usage, refreshUsage } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [loading,      setLoading]      = useState(null)
@@ -358,9 +358,8 @@ export default function BuyCreditsPage() {
           })}
         </div>
 
-        {/* ── Skip Trace Services (admin only) ── */}
-        {isAdmin && (
-          <>
+        {/* ── Skip Trace Services ── */}
+        <>
             <div className="flex items-center gap-3 mb-5 mt-4">
               <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest whitespace-nowrap">Skip Trace Services</p>
               <div className="flex-1 h-px bg-white/[0.05]" />
@@ -459,11 +458,11 @@ export default function BuyCreditsPage() {
                 <p className="text-xs text-slate-500 mt-2">
                   ≈ <span className="text-slate-400">{Math.floor(parseFloat(depositAmount) / 0.08).toLocaleString()}</span> skip trace records
                   {' '}or <span className="text-slate-400">{Math.floor(parseFloat(depositAmount) / 0.02).toLocaleString()}</span> DNC phone checks
+                  {' '}· <span className="text-slate-500">Sales tax may apply</span>
                 </p>
               )}
             </div>
           </>
-        )}
 
         {/* Footer */}
         <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
