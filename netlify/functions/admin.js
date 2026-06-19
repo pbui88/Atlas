@@ -117,12 +117,8 @@ export const handler = async (event) => {
     })
   }
 
-  // ── GET skip-trace-stats: platform liability + optional Tracerfy balance ──
+  // ── GET skip-trace-stats: platform liability metrics ─────────────────────
   if (event.httpMethod === 'GET' && action === 'skip-trace-stats') {
-    const TRACERFY_API_KEY  = process.env.TRACERFY_API_KEY
-    const TRACERFY_BASE     = 'https://tracerfy.com/v1/api'
-    const LOW_BALANCE_USD   = parseFloat(process.env.TRACERFY_LOW_BALANCE_USD) || 50
-
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
     const [balancesRes, pendingRes, spent30dRes, spentAllRes] = await Promise.all([
@@ -138,59 +134,7 @@ export const handler = async (event) => {
     const spent30d         = (spent30dRes.data || []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
     const spentAllTime     = (spentAllRes.data || []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
 
-    // Try common Tracerfy account/balance endpoints — fall back gracefully if none exist.
-    let tracerfyBalance   = null
-    let tracerfyAvailable = false
-    if (TRACERFY_API_KEY) {
-      const endpoints = ['/account/', '/account/balance/', '/user/', '/credits/']
-      for (const ep of endpoints) {
-        try {
-          const res = await Promise.race([
-            fetch(`${TRACERFY_BASE}${ep}`, { headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` } }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
-          ])
-          if (!res.ok) continue
-          const data = await res.json().catch(() => null)
-          if (!data || typeof data !== 'object') continue
-          // Accept any field that looks like a numeric balance
-          const val = data.balance ?? data.credits ?? data.credit_balance ??
-                      data.credits_balance ?? data.account_balance ?? data.remaining_credits ?? null
-          if (val !== null && isFinite(Number(val))) {
-            tracerfyBalance   = Math.round(Number(val) * 100) / 100
-            tracerfyAvailable = true
-            break
-          }
-        } catch {}
-      }
-    }
-
-    const stAlerts = []
-    if (tracerfyAvailable) {
-      if (tracerfyBalance < LOW_BALANCE_USD) {
-        stAlerts.push({
-          level:   tracerfyBalance < 10 ? 'critical' : 'warning',
-          message: `Tracerfy balance is low ($${tracerfyBalance.toFixed(2)}) — top up to prevent job failures`,
-        })
-      }
-      if (totalUserBalance > tracerfyBalance) {
-        stAlerts.push({
-          level:   'warning',
-          message: `User liability ($${totalUserBalance.toFixed(2)}) exceeds Tracerfy balance ($${tracerfyBalance.toFixed(2)})`,
-        })
-      }
-    } else if (totalUserBalance > LOW_BALANCE_USD) {
-      stAlerts.push({
-        level:   'warning',
-        message: `User skip-trace liability is $${totalUserBalance.toFixed(2)} — ensure your Tracerfy account has sufficient credits`,
-      })
-    }
-
     return ok({
-      tracerfy: {
-        balance:      tracerfyBalance,
-        available:    tracerfyAvailable,
-        lowThreshold: LOW_BALANCE_USD,
-      },
       platform: {
         totalUserBalance:  Math.round(totalUserBalance * 100) / 100,
         pendingJobsCount:  pendingJobs.length,
@@ -198,7 +142,6 @@ export const handler = async (event) => {
         totalSpent30d:     Math.round(spent30d         * 100) / 100,
         totalSpentAllTime: Math.round(spentAllTime     * 100) / 100,
       },
-      alerts: stAlerts,
     })
   }
 
