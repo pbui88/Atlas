@@ -124,15 +124,20 @@ export const handler = async (event) => {
     const [balancesRes, pendingRes, spent30dRes, spentAllRes] = await Promise.all([
       supabase.from('profiles').select('skip_trace_balance').neq('role', 'admin'),
       supabase.from('skip_trace_orders').select('id, cost_usd').eq('status', 'processing'),
-      supabase.from('skip_trace_orders').select('cost_usd').eq('status', 'completed').gte('completed_at', since30),
-      supabase.from('skip_trace_orders').select('cost_usd').eq('status', 'completed'),
+      supabase.rpc('get_skip_trace_spend_since', { p_since: since30 }),
+      supabase.rpc('get_skip_trace_total_spend'),
     ])
+
+    if (balancesRes.error) console.error('[skip-trace-stats] balances:', balancesRes.error.message)
+    if (pendingRes.error)  console.error('[skip-trace-stats] pending:',  pendingRes.error.message)
+    if (spent30dRes.error) console.error('[skip-trace-stats] spent30d:', spent30dRes.error.message)
+    if (spentAllRes.error) console.error('[skip-trace-stats] spentAll:', spentAllRes.error.message)
 
     const totalUserBalance = (balancesRes.data || []).reduce((s, r) => s + (Number(r.skip_trace_balance) || 0), 0)
     const pendingJobs      = pendingRes.data || []
     const pendingCost      = pendingJobs.reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
-    const spent30d         = (spent30dRes.data || []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
-    const spentAllTime     = (spentAllRes.data || []).reduce((s, r) => s + (Number(r.cost_usd) || 0), 0)
+    const spent30d         = Number(spent30dRes.data) || 0
+    const spentAllTime     = Number(spentAllRes.data) || 0
 
     return ok({
       platform: {

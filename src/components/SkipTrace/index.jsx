@@ -230,8 +230,7 @@ export default function SkipTracePage() {
   }, [records])
 
   // ── Balance helpers ───────────────────────────────────────
-  const skipTraceBalance    = usage?.skipTraceBalance ?? 0
-  const estimatedTraceCost  = Math.round(COST_PER_RECORD * (checkedIds.size || 0) * 100) / 100
+  const skipTraceBalance = usage?.skipTraceBalance ?? 0
 
   // ── Selection helpers ─────────────────────────────────────
   const savedRecords     = records.filter(r => r.status === 'saved')
@@ -790,7 +789,7 @@ export default function SkipTracePage() {
                   </div>
                   <div className="flex justify-between text-sm pt-1 border-t border-white/[0.06]">
                     <span className="text-slate-500">Est. Cost</span>
-                    <span className="text-violet-400 font-bold">${dncCost.toFixed(2)}</span>
+                    <span className="text-violet-400 font-bold">${dncCost.toFixed(2)} <span className="text-slate-600 font-normal text-[10px]">max</span></span>
                   </div>
                   {!isAdmin && (
                     <>
