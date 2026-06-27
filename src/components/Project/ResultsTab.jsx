@@ -783,27 +783,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </div>
         )}
 
-        {/* Active filter chips */}
-        {hasFilters && (
-          <div className="px-4 py-2 bg-brand-600/10 border-b border-brand-600/20 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest shrink-0">Active:</span>
-            {minScore > 0 && (
-              <button onClick={() => setMinScore(0)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/[0.06] border border-brand-500/30 rounded-full text-[11px] text-brand-400 hover:bg-brand-600/20 transition">
-                Score ≥ {minScore}<span className="font-bold ml-0.5">×</span>
-              </button>
-            )}
-            {sigFilter.map(sig => (
-              <button key={sig} onClick={() => toggleSignal(sig)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/[0.04] border border-white/[0.10] rounded-full text-[11px] text-slate-400 hover:bg-white/[0.08] transition">
-                {SIGNAL_MAP[sig]?.label}<span className="font-bold ml-0.5">×</span>
-              </button>
-            ))}
-            <button onClick={() => { setMinScore(0); setSigFilter([]) }}
-              className="ml-auto text-[11px] text-brand-400 hover:underline font-medium">Clear all</button>
-          </div>
-        )}
-
         {/* Count + select-all + refresh */}
         <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2">
           {sorted.length > 0 && (
