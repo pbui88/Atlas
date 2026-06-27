@@ -20,6 +20,7 @@ const PHASE_LABEL = {
 }
 
 const SIGNAL_MAP = Object.fromEntries(DISTRESS_SIGNALS.map(s => [s.id, s]))
+const SEVERITY_DOT = { high: 'bg-red-500', medium: 'bg-orange-500', low: 'bg-amber-500' }
 
 function scoreTextColor(score) {
   if (score == null) return 'text-slate-400'
@@ -146,6 +147,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [selected,   setSelected]   = useState(null)
   const [minScore,   setMinScore]   = useState(0)
   const [sigFilter,  setSigFilter]  = useState([])
+  const [sigMenuOpen, setSigMenuOpen] = useState(false)
   const [exporting,    setExporting]    = useState(false)
   const [selImages,    setSelImages]    = useState([])
   const [imgLoading,   setImgLoading]   = useState(false)
@@ -156,6 +158,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [traceListName,  setTraceListName]  = useState('')
   const [traceModalPts,  setTraceModalPts]  = useState([])
   const selectAllRef = useRef(null)
+  const sigMenuRef   = useRef(null)
 
   // ── Scan state ─────────────────────────────────────────────
   const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
@@ -257,6 +260,19 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }, [project.id])
 
   useEffect(() => { fetchStats(); fetchResults() }, [project.id])
+
+  // Close the signal dropdown on outside click or Escape.
+  useEffect(() => {
+    if (!sigMenuOpen) return
+    const onDown = e => { if (sigMenuRef.current && !sigMenuRef.current.contains(e.target)) setSigMenuOpen(false) }
+    const onKey  = e => { if (e.key === 'Escape') setSigMenuOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [sigMenuOpen])
 
   // If the scan is not running but points are stuck in 'analyzing' (left over from
   // a function timeout in a previous run), reset them to 'failed' immediately so
@@ -712,17 +728,57 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               <input type="range" min={0} max={90} step={5} value={minScore}
                 onChange={e => setMinScore(+e.target.value)} className="w-full accent-brand-500" />
             </div>
-            <div className="flex flex-wrap gap-1">
-              {DISTRESS_SIGNALS.map(sig => (
-                <button key={sig.id} onClick={() => toggleSignal(sig.id)}
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
-                    sigFilter.includes(sig.id)
-                      ? 'bg-brand-600 border-brand-600 text-white'
-                      : 'bg-white/[0.04] border-white/[0.10] text-slate-400 hover:border-brand-500/50 hover:text-brand-400'
-                  }`}>
-                  {sig.label}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Signal</span>
+                {sigFilter.length > 0 && (
+                  <button onClick={() => setSigFilter([])} className="text-[10px] text-slate-500 hover:text-brand-400 transition">Clear</button>
+                )}
+              </div>
+              <div className="relative" ref={sigMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setSigMenuOpen(o => !o)}
+                  className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.10] text-xs hover:border-brand-500/50 transition"
+                >
+                  <span className={`min-w-0 truncate ${sigFilter.length === 0 ? 'text-slate-500' : 'text-slate-200 font-medium'}`}>
+                    {sigFilter.length === 0
+                      ? 'All signals'
+                      : `${sigFilter.length} selected: ${sigFilter.map(s => SIGNAL_MAP[s]?.label).filter(Boolean).join(', ')}`
+                    }
+                  </span>
+                  <svg className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform ${sigMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
                 </button>
-              ))}
+                {sigMenuOpen && (
+                  <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto rounded-lg bg-navy-900 border border-white/[0.10] shadow-2xl py-1">
+                    {DISTRESS_SIGNALS.map(sig => {
+                      const checked = sigFilter.includes(sig.id)
+                      return (
+                        <button
+                          key={sig.id}
+                          type="button"
+                          onClick={() => toggleSignal(sig.id)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-white/[0.04] transition"
+                        >
+                          <span className={`w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${
+                            checked ? 'bg-brand-600 border-brand-600' : 'border-white/[0.20]'
+                          }`}>
+                            {checked && (
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className={`text-xs ${checked ? 'text-white' : 'text-slate-300'}`}>{sig.label}</span>
+                          <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${SEVERITY_DOT[sig.severity]}`} title={sig.severity} />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
