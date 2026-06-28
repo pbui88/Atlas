@@ -54,7 +54,7 @@ function extractAddress(results) {
   const property = results.find(r => r.number != null && String(r.number).trim() !== '')
   if (!property) return null
 
-  const postal     = (property.postal_code || '').trim()
+  const postal     = (property.postal_code || '').replace(/\s*-?\s*\d{4}$/, '').trim()
   const regionCode = (property.region_code || property.region || '').trim()
 
   // Use Positionstack's formatted label as the base.
