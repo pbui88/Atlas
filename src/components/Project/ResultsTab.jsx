@@ -695,19 +695,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           <button
             type="button"
             onClick={() => { setSigMenuOpen(false); setControlsOpen(o => !o) }}
-            className="w-full px-4 py-1.5 border-b border-white/[0.06] flex items-center gap-1.5 text-[11px] text-slate-400 hover:bg-white/[0.03] transition"
+            className={`w-full px-4 py-2 border-b border-white/[0.06] flex items-center gap-2 transition ${
+              hasFilters ? 'bg-brand-600/10 hover:bg-brand-600/15' : 'bg-white/[0.04] hover:bg-white/[0.07]'
+            }`}
           >
-            <svg className={`w-3 h-3 shrink-0 text-slate-500 transition-transform ${controlsOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <svg className={`w-3 h-3 shrink-0 transition-transform ${controlsOpen ? 'rotate-90' : ''} ${hasFilters ? 'text-brand-400' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
-            <span className="truncate flex-1 text-left">
+            <span className={`truncate flex-1 text-left text-[11px] font-semibold uppercase tracking-wide ${hasFilters ? 'text-brand-300' : 'text-slate-300'}`}>
               {(minScore > 0 || sigFilter.length > 0)
                 ? `Filters: ${[minScore > 0 ? `Min ${minScore}` : null, sigFilter.length > 0 ? `${sigFilter.length} signal${sigFilter.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ')}`
                 : 'Stats & filters'}
             </span>
             {controlsOpen && (minScore > 0 || sigFilter.length > 0) && (
               <span onClick={e => { e.stopPropagation(); setMinScore(0); setSigFilter([]) }}
-                className="shrink-0 text-slate-500 hover:text-brand-400">Clear</span>
+                className="shrink-0 text-[10px] text-slate-500 hover:text-brand-400">Clear</span>
             )}
           </button>
         )}
