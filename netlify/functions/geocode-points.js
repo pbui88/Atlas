@@ -115,7 +115,8 @@ async function lookupZip(lat, lng) {
       { headers: { 'User-Agent': 'AtlasApp/1.0' } }
     )
     const data = await res.json()
-    return data.address?.postcode?.replace(/\s*-?\d{4}$/, '').trim() || null
+    const pc = data.address?.postcode || ''
+    return pc.replace(/^(\d{5})[\s-]\d{4}$/, '$1').trim() || null
   } catch {
     return null
   }
