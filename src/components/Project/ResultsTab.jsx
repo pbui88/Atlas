@@ -15,8 +15,27 @@ const GEO_CONCUR        = 2    // parallel function calls during geocoding
 
 
 const PHASE_LABEL = {
-  collecting: 'Collecting Street View images…',
-  analyzing:  'Running AI distress analysis…',
+  geocoding:     'Geocoding property addresses…',
+  deduplicating: 'Finding unique properties…',
+  collecting:    'Collecting Street View images…',
+  analyzing:     'Running AI distress analysis…',
+}
+
+// Address dedup key: house-number + core street name + city.
+// Strips direction prefixes (North/N) and type suffixes (Avenue/Ave/St).
+const DIRS  = new Set(['n','s','e','w','ne','nw','se','sw','north','south','east','west','northeast','northwest','southeast','southwest'])
+const TYPES = new Set(['ave','avenue','blvd','boulevard','cir','circle','ct','court','dr','drive','ln','lane','pl','place','rd','road','st','street','trl','trail','pkwy','parkway','hwy','highway','way'])
+function addrKey(raw) {
+  if (!raw) return null
+  const parts       = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
+  const words       = (parts[0] || '').toLowerCase().replace(/[.,#]/g, '').split(/\s+/).filter(Boolean)
+  const num         = words[0]
+  if (!num || !/^\d/.test(num)) return null
+  const streetWords = words.slice(1)
+  const coreWords   = streetWords.filter(w => !DIRS.has(w) && !TYPES.has(w))
+  const name        = (coreWords.length ? coreWords : streetWords).join('-')
+  const city        = (parts[1] || '').toLowerCase().trim().replace(/\s+/g, '-')
+  return `${num}|${name}|${city}`
 }
 
 const SIGNAL_MAP = Object.fromEntries(DISTRESS_SIGNALS.map(s => [s.id, s]))
@@ -201,27 +220,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         : [],
     }))
 
-    // Build a dedup key: house-number + core street name + city.
-    // Strips direction prefixes (North/N) and type suffixes (Avenue/Ave/St)
-    // so "603 North Belmont Avenue, Odessa, TX" and "603 N Belmont Ave, Odessa, Texas"
-    // both produce "603|belmont|odessa" and collapse to one entry.
-    // Falls back to full street words when stripping removes everything (e.g. "North Street")
-    // so "123 North Street" and "123 South Avenue" don't share the same empty-name key.
-    const DIRS  = new Set(['n','s','e','w','ne','nw','se','sw','north','south','east','west','northeast','northwest','southeast','southwest'])
-    const TYPES = new Set(['ave','avenue','blvd','boulevard','cir','circle','ct','court','dr','drive','ln','lane','pl','place','rd','road','st','street','trl','trail','pkwy','parkway','hwy','highway','way'])
-    const addrKey = raw => {
-      if (!raw) return null
-      const parts       = raw.replace(/,?\s*(United States|USA|US)\s*$/i, '').split(',').map(s => s.trim())
-      const words       = (parts[0] || '').toLowerCase().replace(/[.,#]/g, '').split(/\s+/).filter(Boolean)
-      const num         = words[0]
-      if (!num || !/^\d/.test(num)) return null
-      const streetWords = words.slice(1)
-      const coreWords   = streetWords.filter(w => !DIRS.has(w) && !TYPES.has(w))
-      const name        = (coreWords.length ? coreWords : streetWords).join('-')
-      const city        = (parts[1] || '').toLowerCase().trim().replace(/\s+/g, '-')
-      return `${num}|${name}|${city}`
-    }
-
     // Coordinate fallback: use project scan spacing so nearby same-property points collapse.
     // no_coverage points use a wider cell (≥30 m) to avoid many "No Street View" entries
     // for the same coverage gap.
@@ -367,7 +365,71 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .update({ status: 'downloaded', updated_at: new Date().toISOString() })
       .eq('project_id', project.id).eq('status', 'analyzing')
 
-    // ── Phase 1: Collect Street View images ────────────────────
+    // ── Phase 1: Geocode pending points first ──────────────────
+    // Addresses must be known before we can deduplicate by property.
+    // geocode-points.js skips points that already have a complete address.
+    setPhase('geocoding')
+    try {
+      const toGeocode = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id).in('status', ['pending', 'failed'])
+          .not('lat', 'is', null).range(from, to)
+      )
+      if (toGeocode?.length) {
+        const chunks = chunkArray(toGeocode.map(p => p.id), GEO_BATCH)
+        for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
+          if (abortRef.current) break
+          await Promise.allSettled(
+            chunks.slice(i, i + GEO_CONCUR).map(batch =>
+              geocodePoints(project.id, batch).catch(() => {})
+            )
+          )
+        }
+      }
+    } catch { /* continue */ }
+
+    if (abortRef.current) { setRunning(false); setPhase(''); return }
+
+    // ── Phase 2: Address-based dedup (1 point per property) ───
+    // After geocoding, group pending points by address. Mark all but the
+    // first occurrence of each address as complete — they share the primary's
+    // image later via the collect-images proximity dedup.
+    setPhase('deduplicating')
+    try {
+      const pendingPts = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id, lat, lng, address')
+          .eq('project_id', project.id).in('status', ['pending', 'failed'])
+          .range(from, to)
+      )
+      if (pendingPts?.length) {
+        const spacing   = project.point_spacing_meters || 30
+        const COORD_DEG = spacing / 111320
+        const seen      = new Map()   // key → primary id
+        const dupIds    = []
+        for (const pt of pendingPts) {
+          const key = addrKey(pt.address) ||
+            `${Math.round(pt.lat / COORD_DEG)},${Math.round(pt.lng / COORD_DEG)}`
+          if (seen.has(key)) {
+            dupIds.push(pt.id)
+          } else {
+            seen.set(key, pt.id)
+          }
+        }
+        if (dupIds.length) {
+          for (const chunk of chunkArray(dupIds, 200)) {
+            await supabase.from('scan_points')
+              .update({ status: 'complete', updated_at: new Date().toISOString() })
+              .in('id', chunk)
+          }
+          await fetchStats()
+        }
+      }
+    } catch { /* continue */ }
+
+    if (abortRef.current) { setRunning(false); setPhase(''); return }
+
+    // ── Phase 3: Collect Street View images ────────────────────
+    // Only unique-property points (pending/failed) reach this phase.
     setPhase('collecting')
     try {
       const pending = await fetchAllRows((from, to) =>
@@ -396,34 +458,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             }
           }
           await fetchStats()
-        }
-      }
-    } catch { /* continue */ }
-
-    if (abortRef.current) { setRunning(false); setPhase(''); return }
-
-    // ── Phase 2: Reverse geocode addresses ─────────────────────
-    // Fetch ALL points every run so re-running an existing scan refreshes
-    // addresses (e.g. fills in missing zip codes via the Nominatim fallback).
-    // geocode-points.js skips points that already have a complete address
-    // (with zip), so only incomplete/missing addresses incur API calls.
-    setPhase('geocoding')
-    try {
-      const dloaded = await fetchAllRows((from, to) =>
-        supabase.from('scan_points').select('id')
-          .eq('project_id', project.id)
-          .not('lat', 'is', null).not('lng', 'is', null)
-          .range(from, to)
-      )
-      if (dloaded?.length) {
-        const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
-        for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
-          if (abortRef.current) break
-          await Promise.allSettled(
-            chunks.slice(i, i + GEO_CONCUR).map(batch =>
-              geocodePoints(project.id, batch).catch(() => {})
-            )
-          )
         }
       }
     } catch { /* continue */ }
