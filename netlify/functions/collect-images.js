@@ -204,7 +204,9 @@ export const handler = async (event) => {
   // Check against already-downloaded points in DB (cross-batch) and within this batch.
   // Duplicate scan points get the source's image copied — no extra download, but still
   // have an image record so AI analysis can run on them.
-  const spacingDeg = (project.point_spacing_meters || 30) / 111320
+  // Use half the spacing as dedup radius — in urban areas full spacing would incorrectly
+  // treat two neighboring properties as duplicates.
+  const spacingDeg = ((project.point_spacing_meters || 30) / 2) / 111320
   const minLat = Math.min(...pts.map(p => p.lat)) - spacingDeg
   const maxLat = Math.max(...pts.map(p => p.lat)) + spacingDeg
   const minLng = Math.min(...pts.map(p => p.lng)) - spacingDeg
