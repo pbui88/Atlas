@@ -184,7 +184,7 @@ export const handler = async (event) => {
 
   // Verify project belongs to this user
   const { data: project } = await supabase
-    .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
+    .from('projects').select('id, point_spacing_meters').eq('id', projectId).eq('user_id', user.id).maybeSingle()
   if (!project) return err('Project not found', 404)
 
   const { ownKey, ownKeyCapacity, platformKey, deductPurchased, remaining } = await resolveApiKeyAndMode(user.id, supabase)
@@ -200,17 +200,72 @@ export const handler = async (event) => {
 
   if (!pts?.length) return ok({ results: [] })
 
+  // Proximity dedup: only download one image per property.
+  // Check against already-downloaded points in DB (cross-batch) and within this batch.
+  // Duplicate scan points get the source's image copied — no extra download, but still
+  // have an image record so AI analysis can run on them.
+  const spacingDeg = (project.point_spacing_meters || 30) / 111320
+  const minLat = Math.min(...pts.map(p => p.lat)) - spacingDeg
+  const maxLat = Math.max(...pts.map(p => p.lat)) + spacingDeg
+  const minLng = Math.min(...pts.map(p => p.lng)) - spacingDeg
+  const maxLng = Math.max(...pts.map(p => p.lng)) + spacingDeg
+  const { data: donePts } = await supabase
+    .from('scan_points').select('id, lat, lng')
+    .eq('project_id', projectId)
+    .gte('lat', minLat).lte('lat', maxLat)
+    .gte('lng', minLng).lte('lng', maxLng)
+    .in('status', ['downloaded', 'complete'])
+
+  const primaries  = []                 // pts to actually download
+  const duplicates = []                 // { pt, sourceId } — copy image from sourceId
+  for (const pt of pts) {
+    const dbDone = (donePts || []).find(d =>
+      Math.abs(d.lat - pt.lat) <= spacingDeg && Math.abs(d.lng - pt.lng) <= spacingDeg
+    )
+    if (dbDone) { duplicates.push({ pt, sourceId: dbDone.id }); continue }
+
+    const batchPrimary = primaries.find(p =>
+      Math.abs(p.lat - pt.lat) <= spacingDeg && Math.abs(p.lng - pt.lng) <= spacingDeg
+    )
+    if (batchPrimary) duplicates.push({ pt, sourceId: batchPrimary.id })
+    else              primaries.push(pt)
+  }
+
   const settled = await Promise.allSettled(
-    pts.map((pt, i) => processPoint(pt, projectId, user.id, i < ownKeyCapacity ? ownKey : platformKey, supabase))
+    primaries.map((pt, i) => processPoint(pt, projectId, user.id, i < ownKeyCapacity ? ownKey : platformKey, supabase))
   )
 
   // Surface API key errors as 503 so the frontend scan aborts with a clear message
   const keyError = settled.find(s => s.status === 'rejected' && s.reason?.message?.includes('API key error'))
   if (keyError) return err(keyError.reason.message, 503)
 
-  const results = settled.map(s =>
-    s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }
+  // Copy the source image to each duplicate scan point
+  const dupResults = await Promise.allSettled(
+    duplicates.map(async ({ pt, sourceId }) => {
+      const { data: src } = await supabase.from('images')
+        .select('direction, heading, storage_path, storage_url, image_hash, image_source, size_bytes')
+        .eq('scan_point_id', sourceId).limit(1).maybeSingle()
+      if (src) {
+        await supabase.from('images').insert({ scan_point_id: pt.id, ...src })
+        await supabase.from('scan_points')
+          .update({ status: 'downloaded', updated_at: new Date().toISOString() })
+          .eq('id', pt.id)
+        return { pointId: pt.id, status: 'downloaded' }
+      }
+      // Source had no image (no_coverage/failed) — match that status
+      const { data: srcPt } = await supabase.from('scan_points')
+        .select('status').eq('id', sourceId).maybeSingle()
+      const status = srcPt?.status === 'no_coverage' ? 'no_coverage' : 'complete'
+      await supabase.from('scan_points')
+        .update({ status, updated_at: new Date().toISOString() }).eq('id', pt.id)
+      return { pointId: pt.id, status }
+    })
   )
+
+  const results = [
+    ...settled.map(s => s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }),
+    ...dupResults.map(s => s.status === 'fulfilled' ? s.value : { pointId: null, status: 'error' }),
+  ]
 
   // Non-admin users always deduct from their lifetime purchased/granted credit
   // balance, regardless of which key was billed (deductPurchased is false only
