@@ -140,8 +140,9 @@ async function geocodePoint(pt, googleKey, supabase) {
     return { pointId: pt.id, status: 'skipped' }
   }
 
-  // Address exists but missing zip — skip Positionstack, only need Nominatim.
-  if (pt.address && !looksLikeLatLng(pt.address)) {
+  // Address exists with a house number but missing zip — skip Positionstack, only need Nominatim.
+  // Addresses without a house number fall through to full Positionstack re-geocode.
+  if (pt.address && !looksLikeLatLng(pt.address) && /^\d/.test(pt.address.trim())) {
     try {
       const zip = await lookupZip(pt.lat, pt.lng)
       if (zip) {
