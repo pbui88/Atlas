@@ -148,6 +148,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [minScore,   setMinScore]   = useState(0)
   const [sigFilter,  setSigFilter]  = useState([])
   const [sigMenuOpen, setSigMenuOpen] = useState(false)
+  const [controlsOpen, setControlsOpen] = useState(false)   // collapsed once results exist
   const [exporting,    setExporting]    = useState(false)
   const [selImages,    setSelImages]    = useState([])
   const [imgLoading,   setImgLoading]   = useState(false)
@@ -652,8 +653,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       {/* ── Left panel ── hidden on mobile when a property is selected */}
       <div className={`${selected ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-navy-800 border-b md:border-b-0 md:border-r border-white/[0.06] shrink-0`}>
 
-        {/* Results header */}
-        <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
+        {/* Results header — always visible */}
+        <div className="px-4 py-2 border-b border-white/[0.06] flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-white">Results</h3>
             {running && PHASE_LABEL[phase] && (
@@ -688,9 +689,35 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </div>
         </div>
 
+        {/* Collapsible controls summary — click to expand progress/status/filters.
+            Hidden while running (detail is force-shown then so progress is visible). */}
+        {(stats.total > 0 || points.length > 0) && !running && (
+          <button
+            type="button"
+            onClick={() => { setSigMenuOpen(false); setControlsOpen(o => !o) }}
+            className="w-full px-4 py-1.5 border-b border-white/[0.06] flex items-center gap-1.5 text-[11px] text-slate-400 hover:bg-white/[0.03] transition"
+          >
+            <svg className={`w-3 h-3 shrink-0 text-slate-500 transition-transform ${controlsOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+            <span className="truncate flex-1 text-left">
+              {(minScore > 0 || sigFilter.length > 0)
+                ? `Filters: ${[minScore > 0 ? `Min ${minScore}` : null, sigFilter.length > 0 ? `${sigFilter.length} signal${sigFilter.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ')}`
+                : 'Stats & filters'}
+            </span>
+            {controlsOpen && (minScore > 0 || sigFilter.length > 0) && (
+              <span onClick={e => { e.stopPropagation(); setMinScore(0); setSigFilter([]) }}
+                className="shrink-0 text-slate-500 hover:text-brand-400">Clear</span>
+            )}
+          </button>
+        )}
+
+        {/* Detail blocks: progress, status, filters — shown while running or when expanded */}
+        {(controlsOpen || running) && (<>
+
         {/* Progress bars — shown while running or when scan has started */}
         {stats.total > 0 && (
-          <div className="px-4 py-3 border-b border-white/[0.06] space-y-2.5">
+          <div className="px-4 py-2 border-b border-white/[0.06] space-y-1.5">
             <ProgressBar label="Collecting Property Images" value={stats.total - stats.pending} max={stats.total} />
             <ProgressBar label="Atlas Analyzing" value={stats.complete + stats.no_coverage + stats.failed} max={stats.total} color="bg-green-500" />
           </div>
@@ -698,7 +725,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
         {/* Status breakdown — explains any gap from stats.total */}
         {(stats.no_coverage > 0 || stats.failed > 0 || stats.pending > 0) && (
-          <div className="px-4 pb-3 border-b border-white/[0.06] flex flex-wrap gap-1.5">
+          <div className="px-4 pb-2 border-b border-white/[0.06] flex flex-wrap gap-1">
             {stats.no_coverage > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-400">
                 {stats.no_coverage} no Street View coverage
@@ -719,7 +746,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
         {/* Filters — only shown once there are results */}
         {points.length > 0 && (
-          <div className="px-4 py-3 border-b border-white/[0.06] space-y-3">
+          <div className="px-4 py-2 border-b border-white/[0.06] space-y-2">
             <div>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Min Score</span>
@@ -783,8 +810,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </div>
         )}
 
+        </>)}
+
         {/* Count + select-all + refresh */}
-        <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white/[0.06] flex items-center gap-2">
           {sorted.length > 0 && (
             <input
               ref={selectAllRef}
@@ -851,51 +880,35 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           )}
         </div>
 
-        {/* Export */}
-        <div className="p-4 border-t border-white/[0.06]">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Export</p>
-            {checkedCount > 0 && (
-              <span className="text-[10px] text-brand-600 font-medium">{checkedCount} selected</span>
-            )}
+        {/* Export + Save to Skip Trace — compact single row */}
+        {sorted.length > 0 && (
+          <div className="p-3 border-t border-white/[0.06] flex items-center gap-2">
+            <button
+              onClick={() => handleExport('CSV')}
+              disabled={exporting}
+              className="flex-1 btn-outline py-1.5 text-xs disabled:opacity-50"
+              title={checkedCount > 0 ? `Download ${checkedCount} selected` : 'Download all filtered'}
+            >
+              {exporting ? '…' : 'Download'}
+            </button>
+            <button
+              onClick={() => {
+                const pts = checkedCount > 0 ? exportable.filter(pt => checkedIds.has(pt.id)) : exportable
+                openSaveModal(pts)
+              }}
+              disabled={savingTrace}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-brand-600/10 border border-brand-600/20 text-brand-400 hover:bg-brand-600/20 hover:text-brand-300 transition text-xs font-medium disabled:opacity-50"
+            >
+              {savingTrace ? (
+                <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Saving…</>
+              ) : traceSaved != null ? (
+                <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>{traceSaved} saved</>
+              ) : (
+                <>Skip Trace{checkedCount > 0 ? ` (${checkedCount})` : ''}</>
+              )}
+            </button>
           </div>
-          <div className="flex gap-2">
-            {exporting ? (
-              <span className="text-xs text-slate-400">Exporting…</span>
-            ) : (
-              ['CSV'].map(fmt => (
-                <button key={fmt} onClick={() => handleExport(fmt)} className="flex-1 btn-outline py-1.5 text-xs">
-                  Download
-                </button>
-              ))
-            )}
-          </div>
-          {checkedCount === 0 && sorted.length > 0 && (
-            <p className="text-[10px] text-slate-400 mt-1.5">Check rows to export a subset</p>
-          )}
-
-          {/* Save to Skip Trace */}
-          {sorted.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/[0.05]">
-              <button
-                onClick={() => {
-                  const pts = checkedCount > 0 ? exportable.filter(pt => checkedIds.has(pt.id)) : exportable
-                  openSaveModal(pts)
-                }}
-                disabled={savingTrace}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-brand-600/10 border border-brand-600/20 text-brand-400 hover:bg-brand-600/20 hover:text-brand-300 transition text-xs font-medium disabled:opacity-50"
-              >
-                {savingTrace ? (
-                  <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Saving…</>
-                ) : traceSaved != null ? (
-                  <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>{traceSaved} saved to Skip Trace</>
-                ) : (
-                  <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>Save {checkedCount > 0 ? `${checkedCount} selected` : 'all'} to Skip Trace</>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* ── Right panel: image viewer — hidden on mobile when nothing selected ── */}
