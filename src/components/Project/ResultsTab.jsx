@@ -651,7 +651,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     <div className="flex flex-col md:flex-row h-full">
 
       {/* ── Left panel ── hidden on mobile when a property is selected */}
-      <div className={`${selected ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 bg-navy-800 border-b md:border-b-0 md:border-r border-white/[0.06] shrink-0`}>
+      <div className={`${selected ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[28rem] bg-navy-800 border-b md:border-b-0 md:border-r border-white/[0.06] shrink-0`}>
 
         {/* Results header — always visible */}
         <div className="px-4 py-2 border-b border-white/[0.06] flex items-center justify-between gap-3">
