@@ -133,10 +133,11 @@ function injectZip(address, zip) {
 }
 
 async function geocodePoint(pt, googleKey, supabase) {
-  // Skip only if address already has a 5-digit zip — it's complete.
-  // Re-geocode if address is null, a raw coordinate, or missing a zip
-  // so that re-running a scan fills in incomplete addresses.
-  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}/.test(pt.address)) {
+  // Skip only if the address is complete (5-digit zip) AND we already have the
+  // property location. Re-geocode when the address is null/raw/zip-less, or when
+  // property_lat is null, so re-running a scan backfills property coords for
+  // points geocoded before the property-aiming feature.
+  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}/.test(pt.address) && pt.property_lat != null) {
     return { pointId: pt.id, status: 'skipped' }
   }
 
@@ -179,7 +180,7 @@ async function geocodePoint(pt, googleKey, supabase) {
 
     if (address) {
       await supabase.from('scan_points')
-        .update({ address, updated_at: new Date().toISOString() })
+        .update({ address, property_lat: geocodeLat, property_lng: geocodeLng, updated_at: new Date().toISOString() })
         .eq('id', pt.id)
       return { pointId: pt.id, status: 'geocoded', address }
     }
@@ -213,17 +214,17 @@ export const handler = async (event) => {
     .from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle()
   if (!project) return err('Project not found', 404)
 
-  // Fetch the requested points (road_bearing needed to offset toward the property)
+  // Fetch the requested points (road_bearing + property_lat needed for offset/aim)
   const { data: requested } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing')
+    .select('id, lat, lng, address, road_bearing, property_lat')
     .in('id', validIds.slice(0, CAP))
 
   // Also find any points in this project that have a lat/lng-looking address
   // so they get cleaned up even if not in the current batch
   const { data: badAddressed } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing')
+    .select('id, lat, lng, address, road_bearing, property_lat')
     .eq('project_id', projectId)
     .not('address', 'is', null)
 

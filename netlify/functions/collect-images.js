@@ -79,18 +79,24 @@ async function downloadGoogleImage(lat, lng, heading, apiKey) {
 }
 
 async function processPoint(pt, projectId, userId, apiKey, supabase) {
-  const { id: pointId, lat, lng, road_bearing } = pt
+  const { id: pointId, lat, lng, road_bearing, property_lat, property_lng } = pt
 
   try {
     if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
-    // Get the actual panorama position (free metadata call) and aim the camera
-    // from there toward the scan point. This always faces the property regardless
-    // of which side of the road it's on or whether road_bearing is available.
-    // Falls back to road_bearing + 90 only if the metadata call fails.
+    // Get the actual panorama position (free metadata call) — that's where the
+    // Street View camera physically was, so it's the origin for the camera heading.
     const pano = await getPanoramaLocation(lat, lng, apiKey)
     let heading
-    if (pano) {
+    if (property_lat != null && property_lng != null) {
+      // Aim from the camera at the geocoded property point (20 m off the road on
+      // the correct side) so the image faces the house, not the road. Falls back
+      // to perpendicular-to-road if the panorama metadata call failed.
+      heading = pano
+        ? Math.round(bearingTo(pano.lat, pano.lng, property_lat, property_lng))
+        : Math.round((road_bearing ?? 0) + 90) % 360
+    } else if (pano) {
+      // No property coords (geocode failed): aim from the camera at the scan point.
       const dist = Math.abs(pano.lat - lat) + Math.abs(pano.lng - lng)
       heading = dist > 1e-7
         ? Math.round(bearingTo(pano.lat, pano.lng, lat, lng))   // panorama → scan point
@@ -195,7 +201,7 @@ export const handler = async (event) => {
 
   const { data: pts } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, road_bearing')
+    .select('id, lat, lng, road_bearing, property_lat, property_lng')
     .in('id', ids)
 
   if (!pts?.length) return ok({ results: [] })

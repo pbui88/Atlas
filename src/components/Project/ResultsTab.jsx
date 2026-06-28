@@ -15,6 +15,7 @@ const GEO_CONCUR        = 2    // parallel function calls during geocoding
 
 
 const PHASE_LABEL = {
+  geocoding:  'Locating property addresses…',
   collecting: 'Collecting Street View images…',
   analyzing:  'Running AI distress analysis…',
 }
@@ -348,7 +349,36 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .update({ status: 'downloaded', updated_at: new Date().toISOString() })
       .eq('project_id', project.id).eq('status', 'analyzing')
 
-    // ── Phase 1: Collect Street View images ────────────────────
+    // ── Phase 1: Reverse geocode addresses + property location ──
+    // Runs FIRST so collect-images can aim at the geocoded property point
+    // (20 m off the road on the correct side) instead of the road centerline.
+    // Fetch ALL points every run so re-running a scan backfills property coords
+    // and refreshes addresses. geocode-points.js skips points that already have
+    // a complete address AND property coords, so only incomplete ones cost calls.
+    setPhase('geocoding')
+    try {
+      const dloaded = await fetchAllRows((from, to) =>
+        supabase.from('scan_points').select('id')
+          .eq('project_id', project.id)
+          .not('lat', 'is', null).not('lng', 'is', null)
+          .range(from, to)
+      )
+      if (dloaded?.length) {
+        const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
+        for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
+          if (abortRef.current) break
+          await Promise.allSettled(
+            chunks.slice(i, i + GEO_CONCUR).map(batch =>
+              geocodePoints(project.id, batch).catch(() => {})
+            )
+          )
+        }
+      }
+    } catch { /* continue */ }
+
+    if (abortRef.current) { setRunning(false); setPhase(''); return }
+
+    // ── Phase 2: Collect Street View images ────────────────────
     setPhase('collecting')
     try {
       const pending = await fetchAllRows((from, to) =>
@@ -377,34 +407,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             }
           }
           await fetchStats()
-        }
-      }
-    } catch { /* continue */ }
-
-    if (abortRef.current) { setRunning(false); setPhase(''); return }
-
-    // ── Phase 2: Reverse geocode addresses ─────────────────────
-    // Fetch ALL points every run so re-running an existing scan refreshes
-    // addresses (e.g. fills in missing zip codes via the Nominatim fallback).
-    // geocode-points.js skips points that already have a complete address
-    // (with zip), so only incomplete/missing addresses incur API calls.
-    setPhase('geocoding')
-    try {
-      const dloaded = await fetchAllRows((from, to) =>
-        supabase.from('scan_points').select('id')
-          .eq('project_id', project.id)
-          .not('lat', 'is', null).not('lng', 'is', null)
-          .range(from, to)
-      )
-      if (dloaded?.length) {
-        const chunks = chunkArray(dloaded.map(p => p.id), GEO_BATCH)
-        for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
-          if (abortRef.current) break
-          await Promise.allSettled(
-            chunks.slice(i, i + GEO_CONCUR).map(batch =>
-              geocodePoints(project.id, batch).catch(() => {})
-            )
-          )
         }
       }
     } catch { /* continue */ }
