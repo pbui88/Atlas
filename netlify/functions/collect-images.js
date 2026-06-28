@@ -270,7 +270,8 @@ export const handler = async (event) => {
   // Non-admin users always deduct from their lifetime purchased/granted credit
   // balance, regardless of which key was billed (deductPurchased is false only
   // for admins — see resolveApiKeyAndMode).
-  const downloadedCount = results.filter(r => r.status === 'downloaded').length
+  // Only count real downloads (primaries) — copied duplicate images cost nothing.
+  const downloadedCount = settled.filter(s => s.status === 'fulfilled' && s.value?.status === 'downloaded').length
   if (deductPurchased && downloadedCount > 0) {
     await supabase.rpc('increment_purchased_credits_used', {
       p_user_id: user.id,
