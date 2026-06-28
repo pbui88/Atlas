@@ -54,31 +54,27 @@ function extractAddress(results) {
   const property = results.find(r => r.number != null && String(r.number).trim() !== '')
   if (!property) return null
 
-  const postal     = (property.postal_code || '').trim()
   const regionCode = (property.region_code || property.region || '').trim()
 
-  // Use Positionstack's formatted label as the base.
-  // If the zip is available but not already in the label, splice it in after the
-  // state abbreviation so we always produce "..., City, ST 12345" format.
+  // Never use Positionstack's postal_code — it returns malformed values in
+  // some areas (e.g. "797 69", "982 27"). Nominatim always fills the zip.
   if (property.label && !looksLikeLatLng(property.label)) {
+    // Strip any zip or zip+4 PS embedded in the label, then country tokens.
     let label = property.label
-    if (postal && !label.includes(postal)) {
-      // Try to insert after a 2-letter state code: ", AZ," → ", AZ 85001,"
-      const patched = label.replace(/(,\s*)([A-Z]{2})(,)/, `$1$2 ${postal}$3`)
-      label = (patched !== label) ? patched : `${label} ${postal}`
-    }
-    // Strip trailing country tokens so the stored address is clean
-    label = label.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
+      .replace(/\b\d{5}([\s-]+\d{4})?\b/g, '')
+      .replace(/,?\s*(United States|USA|US)\s*$/i, '')
+      .replace(/,\s*,/g, ',')
+      .replace(/,\s*$/, '')
+      .trim()
     return looksLikeLatLng(label) ? null : label
   }
 
-  // Fallback: build manually — join state and zip together ("AZ 85001")
+  // Fallback: build manually without zip (Nominatim fills it afterwards)
   const houseNum   = String(property.number).trim()
   const street     = property.street || property.name || ''
   const locality   = property.locality || property.county || ''
   const streetAddr = [houseNum, street].filter(Boolean).join(' ')
-  const stateZip   = [regionCode, postal].filter(Boolean).join(' ')
-  const parts      = [streetAddr, locality, stateZip].filter(Boolean)
+  const parts      = [streetAddr, locality, regionCode].filter(Boolean)
 
   const address = parts.join(', ')
   return (!address || looksLikeLatLng(address)) ? null : address
@@ -136,7 +132,7 @@ async function geocodePoint(pt, googleKey, supabase) {
   // Skip only if address already has a 5-digit zip — it's complete.
   // Re-geocode if address is null, a raw coordinate, or missing a zip
   // so that re-running a scan fills in incomplete addresses.
-  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}/.test(pt.address)) {
+  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}\s*$/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
   }
 
@@ -171,8 +167,9 @@ async function geocodePoint(pt, googleKey, supabase) {
       if (!address) address = await reverseGeocode(baseLat, baseLng)
     }
 
-    // If Positionstack returned an address but no zip, fill it in via Nominatim
-    if (address && !/\d{5}/.test(address)) {
+    // Always get the zip from Nominatim — Positionstack's postal data is
+    // unreliable (returns malformed values like "797 69" in some areas).
+    if (address) {
       const zip = await lookupZip(geocodeLat, geocodeLng)
       if (zip) address = injectZip(address, zip)
     }
