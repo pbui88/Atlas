@@ -61,7 +61,10 @@ function extractAddress(results) {
   // If the zip is available but not already in the label, splice it in after the
   // state abbreviation so we always produce "..., City, ST 12345" format.
   if (property.label && !looksLikeLatLng(property.label)) {
-    let label = property.label
+    // Strip ZIP+4 ("-1234" / " 1234") from the label so the stored address is
+    // always the bare 5-digit form. Positionstack's label often carries the +4
+    // even after `postal` above is stripped.
+    let label = property.label.replace(/(\d{5})[\s-]+\d{4}\b/, '$1')
     if (postal && !label.includes(postal)) {
       // Try to insert after a 2-letter state code: ", AZ," → ", AZ 85001,"
       const patched = label.replace(/(,\s*)([A-Z]{2})(,)/, `$1$2 ${postal}$3`)
@@ -133,10 +136,12 @@ function injectZip(address, zip) {
 }
 
 async function geocodePoint(pt, googleKey, supabase) {
-  // Skip only if address already has a 5-digit zip — it's complete.
-  // Re-geocode if address is null, a raw coordinate, or missing a zip
+  // Skip only if the address ends in a real 5-digit zip — it's complete.
+  // A bare /\d{5}/ check would falsely match 5-digit house numbers
+  // (e.g. "13020 76th Ave, Seattle, WA") and freeze them without a zip forever.
+  // Re-geocode if address is null, a raw coordinate, or missing a trailing zip
   // so that re-running a scan fills in incomplete addresses.
-  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}/.test(pt.address)) {
+  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}\s*$/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
   }
 
@@ -171,8 +176,10 @@ async function geocodePoint(pt, googleKey, supabase) {
       if (!address) address = await reverseGeocode(baseLat, baseLng)
     }
 
-    // If Positionstack returned an address but no zip, fill it in via Nominatim
-    if (address && !/\d{5}/.test(address)) {
+    // If Positionstack returned an address but no trailing zip, fill it in via
+    // Nominatim. Match on a trailing 5-digit group so a 5-digit house number
+    // elsewhere doesn't fool us into thinking a zip is already present.
+    if (address && !/\d{5}\s*$/.test(address)) {
       const zip = await lookupZip(geocodeLat, geocodeLng)
       if (zip) address = injectZip(address, zip)
     }
