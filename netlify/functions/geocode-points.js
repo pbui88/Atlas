@@ -54,10 +54,7 @@ function extractAddress(results) {
   const property = results.find(r => r.number != null && String(r.number).trim() !== '')
   if (!property) return null
 
-  // Only trust a clean 5-digit zip. Strip a +4 suffix first, then reject
-  // anything malformed (e.g. "797 69") so Nominatim can refill it downstream.
-  const rawPostal  = (property.postal_code || '').replace(/\s*-?\s*\d{4}$/, '').trim()
-  const postal     = /^\d{5}$/.test(rawPostal) ? rawPostal : ''
+  const postal     = (property.postal_code || '').replace(/\s*-?\s*\d{4}$/, '').trim()
   const regionCode = (property.region_code || property.region || '').trim()
 
   // Use Positionstack's formatted label as the base.
@@ -138,16 +135,6 @@ function injectZip(address, zip) {
   return patched !== address ? patched : `${address} ${zip}`
 }
 
-// Strip a trailing digit run that isn't a clean 5-digit zip. Positionstack
-// sometimes returns malformed zips (e.g. "TX 797 69", "CO 8", "85001-1234")
-// that would otherwise be stored verbatim and freeze the row on rerun.
-// "AZ 85001" is kept; "TX 797 69" → "TX"; "13020 76th Ave" is untouched
-// (ends in a non-digit).
-function cleanTrailingZip(address) {
-  if (!address) return address
-  return address.replace(/[\s,]*\d[\d\s-]*$/, m => /^\s*\d{5}\s*$/.test(m) ? m : '').trim()
-}
-
 async function geocodePoint(pt, googleKey, supabase) {
   // Skip only if the address ends in a real 5-digit zip — it's complete.
   // A bare /\d{5}/ check would falsely match 5-digit house numbers
@@ -189,13 +176,9 @@ async function geocodePoint(pt, googleKey, supabase) {
       if (!address) address = await reverseGeocode(baseLat, baseLng)
     }
 
-    // Drop any malformed trailing zip from Positionstack (e.g. "TX 797 69",
-    // "CO 8") before deciding whether Nominatim needs to fill one in.
-    if (address) address = cleanTrailingZip(address)
-
-    // If the address has no trailing 5-digit zip, fill it in via Nominatim.
-    // Match on a trailing 5-digit group so a 5-digit house number elsewhere
-    // doesn't fool us into thinking a zip is already present.
+    // If Positionstack returned an address but no trailing zip, fill it in via
+    // Nominatim. Match on a trailing 5-digit group so a 5-digit house number
+    // elsewhere doesn't fool us into thinking a zip is already present.
     if (address && !/\d{5}\s*$/.test(address)) {
       const zip = await lookupZip(geocodeLat, geocodeLng)
       if (zip) address = injectZip(address, zip)
