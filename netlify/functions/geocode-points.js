@@ -135,8 +135,8 @@ function injectZip(address, zip) {
 }
 
 async function geocodePoint(pt, googleKey, supabase) {
-  // Skip only if address already has a 5-digit zip — it's complete.
-  if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}\s*$/.test(pt.address)) {
+  // Skip only if address has a house number AND a 5-digit zip — it's complete.
+  if (pt.address && !looksLikeLatLng(pt.address) && /^\d/.test(pt.address.trim()) && /\d{5}\s*$/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
   }
 

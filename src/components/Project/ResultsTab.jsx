@@ -320,7 +320,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // geocode-points, which now skips Positionstack and only calls Nominatim (free).
   useEffect(() => {
     if (zipFillDone.current || resLoading || running || points.length === 0) return
-    const noZip = points.filter(pt => pt.address && !/\d{5}\s*$/.test(pt.address))
+    const noZip = points.filter(pt => {
+      if (!pt.address) return false
+      const addr = pt.address.trim()
+      return !/\d{5}\s*$/.test(addr) || !/^\d/.test(addr)  // missing zip OR missing house number
+    })
     if (noZip.length === 0) return
     zipFillDone.current = true
     const ids = [...new Set(noZip.flatMap(pt => pt.allPointIds || [pt.id]))]
