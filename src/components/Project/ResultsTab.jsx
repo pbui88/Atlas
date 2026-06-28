@@ -107,15 +107,12 @@ function PropertyRow({ point, isSelected, isChecked, onCheck, onClick }) {
             <span className="inline-block mt-0.5 px-1.5 py-0 rounded text-[10px] font-medium bg-slate-500/10 border border-slate-500/20 text-slate-500">No Street View</span>
           ) : signals.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-0.5">
-              {signals.slice(0, 2).map(sig => {
+              {signals.map(sig => {
                 const s = SIGNAL_MAP[sig]
                 return s ? (
                   <span key={sig} className={`${SIGNAL_BADGE[s.severity]} text-[10px] px-1.5 py-0`}>{s.label}</span>
                 ) : null
               })}
-              {signals.length > 2 && (
-                <span className="badge-slate text-[10px] px-1.5 py-0">+{signals.length - 2}</span>
-              )}
             </div>
           )}
         </div>
@@ -906,7 +903,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               ) : traceSaved != null ? (
                 <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>{traceSaved} saved</>
               ) : (
-                <>Skip Trace{checkedCount > 0 ? ` (${checkedCount})` : ''}</>
+                <>Save to Skip Trace{checkedCount > 0 ? ` (${checkedCount})` : ''}</>
               )}
             </button>
           </div>
