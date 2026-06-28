@@ -122,10 +122,15 @@ async function lookupZip(lat, lng) {
 }
 
 // Inject a zip code into an address that already has a 2-letter state abbreviation.
-// "123 Main St, Phoenix, AZ" → "123 Main St, Phoenix, AZ 85001"
+// Strips any existing trailing digits first (partial or wrong zip from Positionstack)
+// so we never get "TX 7 79763" or "TX 79769 79763".
+// "123 Main St, Phoenix, AZ"       → "123 Main St, Phoenix, AZ 85001"
+// "123 Main St, Phoenix, AZ 7"     → "123 Main St, Phoenix, AZ 85001"
+// "123 Main St, Phoenix, AZ 79769" → "123 Main St, Phoenix, AZ 85001"
 function injectZip(address, zip) {
-  const patched = address.replace(/(,\s*)([A-Z]{2})\s*$/, `$1$2 ${zip}`)
-  return patched !== address ? patched : `${address} ${zip}`
+  const stripped = address.replace(/[\s\d-]+$/, '').trim()
+  const patched  = stripped.replace(/(,\s*)([A-Z]{2})$/, `$1$2 ${zip}`)
+  return patched !== stripped ? patched : `${stripped} ${zip}`
 }
 
 async function geocodePoint(pt, googleKey, supabase) {
