@@ -231,7 +231,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
     const seen     = new Map()   // key → winning scan point
     const allIds   = new Map()   // key → all scan_point_ids for same property
-    const allImgs  = new Map()   // key → merged images from all sibling points
 
     for (const pt of normalized) {
       // Include all no_coverage points (even without address) — they show as "No Street View"
@@ -245,15 +244,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       const exScore  = existing?.ai_analyses?.[0]?.overall_score ?? -1
       if (!existing || score > exScore) seen.set(key, pt)
       allIds.set(key, [...(allIds.get(key) || []), pt.id])
-      // Accumulate images from every sibling so the detail panel shows them all
-      allImgs.set(key, [...(allImgs.get(key) || []), ...(pt.images || [])])
     }
 
-    // Attach merged image list and all scan_point_ids to each winning point.
+    // Each property shows only the winning point's image (no sibling merging).
     setPoints(Array.from(seen.entries()).map(([key, pt]) => ({
       ...pt,
       allPointIds: allIds.get(key) || [pt.id],
-      images:      allImgs.get(key) || pt.images || [],
+      images:      pt.images?.slice(0, 1) || [],
     })))
     setResLoading(false)
   }, [project.id])
