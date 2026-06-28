@@ -155,8 +155,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [showTraceModal, setShowTraceModal] = useState(false)
   const [traceListName,  setTraceListName]  = useState('')
   const [traceModalPts,  setTraceModalPts]  = useState([])
-  const selectAllRef = useRef(null)
-  const sigMenuRef   = useRef(null)
+  const selectAllRef  = useRef(null)
+  const sigMenuRef    = useRef(null)
+  const zipFillDone   = useRef(false)
 
   // ── Scan state ─────────────────────────────────────────────
   const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
@@ -313,6 +314,22 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     runScan()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noCreditsBlocked])
+
+  // Auto-fill missing zip codes once after results load.
+  // Points that have an address but no trailing 5-digit zip are passed through
+  // geocode-points, which now skips Positionstack and only calls Nominatim (free).
+  useEffect(() => {
+    if (zipFillDone.current || resLoading || running || points.length === 0) return
+    const noZip = points.filter(pt => pt.address && !/\d{5}\s*$/.test(pt.address))
+    if (noZip.length === 0) return
+    zipFillDone.current = true
+    const ids = [...new Set(noZip.flatMap(pt => pt.allPointIds || [pt.id]))]
+    const chunks = chunkArray(ids, GEO_BATCH)
+    Promise.allSettled(chunks.map(b => geocodePoints(project.id, b).catch(() => {}))).then(() => {
+      fetchResults()
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points, resLoading, running])
 
   // ── Image fetch when property selected ─────────────────────
   // Images are pre-loaded in fetchResults so no extra round-trip is needed in

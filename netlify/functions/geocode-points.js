@@ -135,10 +135,25 @@ function injectZip(address, zip) {
 
 async function geocodePoint(pt, googleKey, supabase) {
   // Skip only if address already has a 5-digit zip — it's complete.
-  // Re-geocode if address is null, a raw coordinate, or missing a zip
-  // so that re-running a scan fills in incomplete addresses.
   if (pt.address && !looksLikeLatLng(pt.address) && /\d{5}\s*$/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
+  }
+
+  // Address exists but missing zip — skip Positionstack, only need Nominatim.
+  if (pt.address && !looksLikeLatLng(pt.address)) {
+    try {
+      const zip = await lookupZip(pt.lat, pt.lng)
+      if (zip) {
+        const address = injectZip(pt.address, zip)
+        await supabase.from('scan_points')
+          .update({ address, updated_at: new Date().toISOString() })
+          .eq('id', pt.id)
+        return { pointId: pt.id, status: 'geocoded', address }
+      }
+    } catch (e) {
+      console.error(`Zip lookup failed ${pt.id}:`, e.message)
+    }
+    return { pointId: pt.id, status: 'no_zip' }
   }
 
   try {
