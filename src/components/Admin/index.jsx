@@ -605,6 +605,13 @@ export default function AdminPanel() {
 
   useEffect(() => { load() }, [])
 
+  // Auto-refresh Street View Quota every 60s while Monitor tab is active
+  useEffect(() => {
+    if (tab !== 'monitor') return
+    const id = setInterval(() => loadSvQuota(quotaStart, quotaEnd), 60000)
+    return () => clearInterval(id)
+  }, [tab, quotaStart, quotaEnd])
+
   const toggleRole   = async (user) => {
     const newRole = user.role === 'admin' ? 'user' : 'admin'
     if (!confirm(`Change ${user.email} to ${newRole}?`)) return
