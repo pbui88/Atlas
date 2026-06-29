@@ -546,7 +546,7 @@ export default function AdminPanel() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                    {['User', 'Calls', 'Est. Cost'].map(h => (
+                    {['User', 'API Breakdown', 'Total Calls', 'Est. Cost'].map(h => (
                       <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -554,10 +554,11 @@ export default function AdminPanel() {
                 <tbody className="divide-y divide-white/[0.04]">
                   {usage.byUser.map(row => {
                     const u = users.find(x => x.id === row.userId)
+                    if (u?.role === 'admin') return null
                     const initial = (u?.full_name || u?.email || '?')[0].toUpperCase()
                     return (
                       <tr key={row.userId} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="px-4 py-2.5">
+                        <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
                               <span className="text-xs font-bold text-brand-400">{initial}</span>
@@ -568,10 +569,23 @@ export default function AdminPanel() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-sm font-semibold text-slate-200 tabular-nums">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {(row.services || []).map(svc => (
+                              <span key={svc.service} className="inline-flex items-center gap-1 text-xs bg-navy-700 border border-white/[0.06] rounded-md px-2 py-1">
+                                <span className="text-slate-400 capitalize">{svc.service.replace(/_/g, ' ')}</span>
+                                <span className="text-slate-200 font-semibold tabular-nums">{svc.total_count.toLocaleString()}</span>
+                                {svc.total_cost > 0 && (
+                                  <span className="text-slate-600 tabular-nums">${svc.total_cost.toFixed(2)}</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm font-semibold text-slate-200 tabular-nums whitespace-nowrap">
                           {row.total_count.toLocaleString()}
                         </td>
-                        <td className="px-4 py-2.5 text-sm text-slate-400 tabular-nums">
+                        <td className="px-4 py-3 text-sm text-slate-400 tabular-nums whitespace-nowrap">
                           ${row.total_cost.toFixed(2)}
                         </td>
                       </tr>

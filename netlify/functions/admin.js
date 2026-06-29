@@ -101,8 +101,9 @@ export const handler = async (event) => {
       .from('projects')
       .select('*', { count: 'exact', head: true })
 
-    const aggregated = {}
-    const byUserMap  = {}
+    const aggregated    = {}
+    const byUserMap     = {}
+    const byUserSvcMap  = {}
     for (const row of logs || []) {
       if (!aggregated[row.service]) aggregated[row.service] = { service: row.service, total_count: 0, total_cost: 0 }
       aggregated[row.service].total_count += row.count || 0
@@ -111,15 +112,29 @@ export const handler = async (event) => {
       if (!byUserMap[row.user_id]) byUserMap[row.user_id] = { userId: row.user_id, total_count: 0, total_cost: 0 }
       byUserMap[row.user_id].total_count += row.count || 0
       byUserMap[row.user_id].total_cost  += row.cost_usd || 0
+
+      const svcKey = `${row.user_id}:${row.service}`
+      if (!byUserSvcMap[svcKey]) byUserSvcMap[svcKey] = { userId: row.user_id, service: row.service, total_count: 0, total_cost: 0 }
+      byUserSvcMap[svcKey].total_count += row.count || 0
+      byUserSvcMap[svcKey].total_cost  += row.cost_usd || 0
     }
 
     const totalCalls30d = Object.values(aggregated).reduce((s, r) => s + r.total_count, 0)
+
+    const byUser = Object.values(byUserMap)
+      .sort((a, b) => b.total_cost - a.total_cost)
+      .map(u => ({
+        ...u,
+        services: Object.values(byUserSvcMap)
+          .filter(s => s.userId === u.userId)
+          .sort((a, b) => b.total_count - a.total_count),
+      }))
 
     return ok({
       totalProjects,
       totalCalls30d,
       byService: Object.values(aggregated),
-      byUser: Object.values(byUserMap).sort((a, b) => b.total_cost - a.total_cost),
+      byUser,
     })
   }
 
