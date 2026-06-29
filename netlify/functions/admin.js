@@ -83,6 +83,39 @@ export const handler = async (event) => {
     return ok(users)
   }
 
+  // ── GET today's scan activity (per-log with user info) ───────
+  if (event.httpMethod === 'GET' && action === 'scan-activity') {
+    const todayStart = new Date()
+    todayStart.setUTCHours(0, 0, 0, 0)
+
+    const [logsRes, profilesRes] = await Promise.all([
+      fetchAllRows((from, to) =>
+        supabase.from('usage_logs')
+          .select('id, user_id, service, count, metadata, created_at')
+          .in('service', ['street_view', 'streetlevel_gsv', 'mapillary'])
+          .gte('created_at', todayStart.toISOString())
+          .order('created_at', { ascending: false })
+          .range(from, to)
+      ),
+      supabase.from('profiles').select('id, email, full_name').order('email'),
+    ])
+
+    const userMap = Object.fromEntries((profilesRes.data || []).map(p => [p.id, p]))
+
+    const rows = (logsRes || []).map(log => ({
+      id:         log.id,
+      user_id:    log.user_id,
+      email:      userMap[log.user_id]?.email    ?? '(unknown)',
+      full_name:  userMap[log.user_id]?.full_name ?? null,
+      service:    log.service,
+      count:      log.count ?? 1,
+      project_id: log.metadata?.projectId ?? null,
+      created_at: log.created_at,
+    }))
+
+    return ok(rows)
+  }
+
   // ── GET usage summary ─────────────────────────────────────────
   if (event.httpMethod === 'GET' && action === 'usage') {
     const usageUrl   = new URL(event.rawUrl || `http://x${event.path}`, 'http://x')

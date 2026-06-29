@@ -107,3 +107,4 @@ export const adminResetUserCycle = (userId)                => call('admin', 'PAT
 export const adminSetUserKey     = (userId, key)           => call('admin', 'PATCH', { userId, googleMapsKey: key || null })
 export const adminGrantCredits   = (userId, points) => call('admin', 'PATCH', { userId, grantCredits: points })
 export const adminSetCredits     = (userId, points) => call('admin', 'PATCH', { userId, setCredits: points })
+export const adminGetScanActivity = ()              => call('admin/scan-activity')

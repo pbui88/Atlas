@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer,
 } from 'recharts'
 import {
-  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
+  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor, adminGetScanActivity,
   adminGetSkipTraceStats, adminGetStreetViewQuota,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
@@ -522,8 +522,11 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,           setUsers]           = useState([])
-  const [usersLoading,    setUsersLoading]    = useState(false)
-  const [usersRefreshedAt, setUsersRefreshedAt] = useState(null)
+  const [usersLoading,      setUsersLoading]      = useState(false)
+  const [usersRefreshedAt,  setUsersRefreshedAt]  = useState(null)
+  const [activity,          setActivity]          = useState(null)
+  const [activityLoading,   setActivityLoading]   = useState(false)
+  const [activityRefreshedAt, setActivityRefreshedAt] = useState(null)
   const [usage,           setUsage]           = useState(null)
   const [monitor,         setMonitor]         = useState(null)
   const [svQuota,         setSvQuota]         = useState(null)
@@ -633,6 +636,24 @@ export default function AdminPanel() {
     return () => clearInterval(id)
   }, [tab])
 
+  const loadActivity = async () => {
+    setActivityLoading(true)
+    try {
+      const data = await safe(adminGetScanActivity(), 15000)
+      if (data) { setActivity(data); setActivityRefreshedAt(new Date()) }
+    } finally {
+      setActivityLoading(false)
+    }
+  }
+
+  // Auto-refresh Activity tab every 30s while active
+  useEffect(() => {
+    if (tab !== 'activity') return
+    loadActivity()
+    const id = setInterval(() => loadActivity(), 30000)
+    return () => clearInterval(id)
+  }, [tab])
+
   const toggleRole   = async (user) => {
     const newRole = user.role === 'admin' ? 'user' : 'admin'
     if (!confirm(`Change ${user.email} to ${newRole}?`)) return
@@ -730,6 +751,7 @@ export default function AdminPanel() {
       <div className="flex gap-1 mb-6 bg-navy-800 border border-white/[0.06] rounded-lg p-1 w-fit flex-wrap">
         {[
           { key: 'users',      label: 'Users' },
+          { key: 'activity',   label: 'Activity' },
           { key: 'usage',      label: 'Usage' },
           { key: 'monitor',    label: 'Monitor' },
           { key: 'skip-trace', label: 'Skip Trace' },
@@ -835,6 +857,75 @@ export default function AdminPanel() {
             </table>
           {users.length === 0 && (
             <p className="text-center text-sm text-slate-600 py-10">No users found.</p>
+          )}
+        </div>
+      ) : tab === 'activity' ? (
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-semibold text-slate-300">Today's Scan Activity</h3>
+              {activityRefreshedAt && (
+                <span className="text-xs text-slate-600">
+                  Updated {activityRefreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+              {activityLoading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
+            </div>
+            <button
+              onClick={loadActivity}
+              disabled={activityLoading}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition"
+            >
+              <svg className={`w-3.5 h-3.5 ${activityLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              Refresh
+            </button>
+          </div>
+          {!activity && !activityLoading && (
+            <p className="text-center text-sm text-slate-600 py-10">Loading…</p>
+          )}
+          {activity && activity.length === 0 && (
+            <p className="text-center text-sm text-slate-600 py-10">No scans yet today.</p>
+          )}
+          {activity && activity.length > 0 && (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.06] bg-navy-900/50">
+                  {['Time', 'User', 'Service', 'Points', 'Project'].map(h => (
+                    <th key={h} className="text-left px-3 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {activity.map(row => {
+                  const ts = new Date(row.created_at)
+                  const svc = row.service === 'street_view' || row.service === 'streetlevel_gsv'
+                    ? 'Street View' : row.service === 'mapillary' ? 'Mapillary' : row.service
+                  return (
+                    <tr key={row.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="text-xs font-mono text-slate-300">{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                        <span className="text-xs text-slate-600 ml-2">{ts.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <p className="text-xs font-medium text-slate-200">{row.full_name || row.email}</p>
+                        {row.full_name && <p className="text-xs text-slate-600">{row.email}</p>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-xs text-slate-400">{svc}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-xs font-semibold text-slate-200">{(row.count ?? 1).toLocaleString()}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-xs text-slate-600 font-mono">{row.project_id ? row.project_id.slice(0, 8) + '…' : '—'}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       ) : tab === 'usage' ? (
