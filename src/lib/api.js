@@ -85,7 +85,13 @@ export const submitDncScrub        = (recordIds) => call('scrub-dnc', 'POST', { 
 // ── Admin ────────────────────────────────────────────────────
 export const adminGetUsers       = ()                      => call('admin/users')
 export const adminUpdateUser     = (userId, updates)       => call('admin', 'PATCH', { userId, ...updates })
-export const adminGetUsage       = ()                      => call('admin/usage')
+export const adminGetUsage       = (start, end) => {
+  const params = new URLSearchParams()
+  if (start) params.set('start', start)
+  if (end)   params.set('end', end)
+  const qs = params.toString()
+  return call(`admin/usage${qs ? `?${qs}` : ''}`)
+}
 export const adminGetMonitor        = ()                      => call('admin/monitor')
 export const adminGetSkipTraceStats = ()                      => call('admin/skip-trace-stats')
 export const adminDeleteUser     = (userId)                => call('admin', 'DELETE', { userId })

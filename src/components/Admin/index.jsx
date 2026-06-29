@@ -534,6 +534,9 @@ export default function AdminPanel() {
   const [quotaStart,  setQuotaStart]  = useState(defaultStart)
   const [quotaEnd,    setQuotaEnd]    = useState(defaultEnd)
   const [quotaSearch, setQuotaSearch] = useState('')
+  const [usageStart,  setUsageStart]  = useState(defaultStart)
+  const [usageEnd,    setUsageEnd]    = useState(defaultEnd)
+  const [usageLoading, setUsageLoading] = useState(false)
   const [tab,             setTab]             = useState('users')
 
   const safe = (p, ms = 20000) => {
@@ -541,13 +544,22 @@ export default function AdminPanel() {
     return Promise.race([p, t]).catch(e => { console.error('[admin]', e.message); return null })
   }
 
+  const loadUsage = async (start, end) => {
+    setUsageLoading(true)
+    try {
+      const data = await safe(adminGetUsage(start, end))
+      if (data) setUsage(data)
+    } finally {
+      setUsageLoading(false)
+    }
+  }
+
   const load = async () => {
     setLoading(true)
     try {
-      // Load users + usage only — monitor is heavy (5 RPCs) and loaded lazily on tab click
       const [usersData, usageData] = await Promise.all([
         safe(adminGetUsers()),
-        safe(adminGetUsage()),
+        safe(adminGetUsage(usageStart, usageEnd)),
       ])
       if (usersData) setUsers(usersData)
       if (usageData) setUsage(usageData)
@@ -800,8 +812,30 @@ export default function AdminPanel() {
           </div>
 
           <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-white/[0.06]">
-              <h3 className="text-sm font-semibold text-slate-300">By User — Last 30 Days</h3>
+            <div className="px-6 py-4 border-b border-white/[0.06] flex flex-wrap items-center gap-4">
+              <h3 className="text-sm font-semibold text-slate-300 mr-auto">By User</h3>
+              <div className="flex items-center gap-2">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">From</label>
+                  <input
+                    type="date" value={usageStart} onChange={e => setUsageStart(e.target.value)}
+                    className="text-xs bg-navy-900 border border-white/[0.08] rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">To</label>
+                  <input
+                    type="date" value={usageEnd} onChange={e => setUsageEnd(e.target.value)}
+                    className="text-xs bg-navy-900 border border-white/[0.08] rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+                <button
+                  onClick={() => loadUsage(usageStart, usageEnd)} disabled={usageLoading}
+                  className="mt-5 px-3 py-1.5 text-xs font-medium bg-brand-600/20 text-brand-400 border border-brand-600/30 rounded-md hover:bg-brand-600/30 transition disabled:opacity-50"
+                >
+                  {usageLoading ? '…' : 'Apply'}
+                </button>
+              </div>
             </div>
             {usage?.byUser?.length > 0 ? (
               <table className="w-full text-sm">

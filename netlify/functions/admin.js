@@ -84,12 +84,19 @@ export const handler = async (event) => {
 
   // ── GET usage summary ─────────────────────────────────────────
   if (event.httpMethod === 'GET' && action === 'usage') {
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const usageUrl   = new URL(event.rawUrl || `http://x${event.path}`, 'http://x')
+    const sinceParam = usageUrl.searchParams.get('start')
+    const untilParam = usageUrl.searchParams.get('end')
+    const sinceDate  = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const untilDate  = untilParam ? new Date(untilParam) : new Date()
+    untilDate.setHours(23, 59, 59, 999)
+    const since = sinceDate.toISOString()
+    const until = untilDate.toISOString()
 
     const [[logs, nonAdminProfiles], { count: totalProjects }] = await Promise.all([
       Promise.all([
         fetchAllRows((from, to) =>
-          supabase.from('usage_logs').select('service, count, cost_usd, user_id').gte('created_at', since).range(from, to)
+          supabase.from('usage_logs').select('service, count, cost_usd, user_id').gte('created_at', since).lte('created_at', until).range(from, to)
         ),
         supabase.from('profiles').select('id').neq('role', 'admin').eq('is_active', true).then(r => r.data || []),
       ]),
