@@ -849,7 +849,7 @@ export default function AdminPanel() {
   useEffect(() => {
     if (tab !== 'activity') return
     loadActivity()
-    const id = setInterval(() => loadActivity(), 30000)
+    const id = setInterval(() => loadActivity(), 60000)
     return () => clearInterval(id)
   }, [tab])
 
