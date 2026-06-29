@@ -252,6 +252,68 @@ export const handler = async (event) => {
     })
   }
 
+  // ── GET street-view quota: per-user own-key vs platform-key split ──
+  if (event.httpMethod === 'GET' && action === 'street-view-quota') {
+    const MARKUP_PER_POINT   = 0.0014
+    const API_COST_PER_POINT = 0.007
+
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+
+    const [profilesRes, keyRowsRes, logsRes] = await Promise.all([
+      supabase.from('profiles')
+        .select('id, full_name, email, points_limit, cycle_anchor_date')
+        .neq('role', 'admin')
+        .eq('is_active', true),
+      supabase.from('user_keys').select('user_id').not('google_maps_key', 'is', null),
+      supabase.from('usage_logs')
+        .select('user_id, count, created_at')
+        .in('service', ['street_view', 'mapillary'])
+        .gte('created_at', since30.toISOString()),
+    ])
+
+    const usersWithKey = new Set((keyRowsRes.data || []).map(r => r.user_id))
+
+    // Compute each user's cycle start (same rolling-30-day logic as usage.js)
+    const cycleStartOf = (anchorStr) => {
+      const a = new Date(anchorStr)
+      a.setUTCHours(0, 0, 0, 0)
+      const elapsed = Math.floor((Date.now() - a.getTime()) / (30 * 24 * 60 * 60 * 1000))
+      const s = new Date(a)
+      s.setUTCDate(s.getUTCDate() + elapsed * 30)
+      return s
+    }
+
+    const cycleStarts = {}
+    for (const p of profilesRes.data || []) {
+      cycleStarts[p.id] = cycleStartOf(p.cycle_anchor_date ?? new Date().toISOString().slice(0, 10))
+    }
+
+    const cycleUsage = {}
+    for (const log of logsRes.data || []) {
+      const start = cycleStarts[log.user_id]
+      if (start && new Date(log.created_at) >= start) {
+        cycleUsage[log.user_id] = (cycleUsage[log.user_id] || 0) + (log.count || 0)
+      }
+    }
+
+    const users = (profilesRes.data || []).map(p => {
+      const hasOwnKey         = usersWithKey.has(p.id)
+      const limit             = p.points_limit ?? 10000
+      const used              = cycleUsage[p.id] || 0
+      const ownKeyUsed        = hasOwnKey ? Math.min(used, limit) : 0
+      const platformOverflow  = hasOwnKey ? Math.max(0, used - limit) : used
+      const markupRevenue     = Math.round(used * MARKUP_PER_POINT * 10000) / 10000
+      return { userId: p.id, fullName: p.full_name, email: p.email, hasOwnKey, limit, used, ownKeyUsed, platformOverflow, markupRevenue }
+    }).sort((a, b) => b.platformOverflow - a.platformOverflow || b.used - a.used)
+
+    const usersOverQuota       = users.filter(u => u.hasOwnKey && u.used > u.limit).length
+    const totalPlatformOverflow = users.reduce((s, u) => s + u.platformOverflow, 0)
+    const platformApiCost      = Math.round(totalPlatformOverflow * API_COST_PER_POINT * 10000) / 10000
+    const totalMarkupRevenue   = Math.round(users.reduce((s, u) => s + u.markupRevenue, 0) * 10000) / 10000
+
+    return ok({ summary: { usersOverQuota, totalPlatformOverflow, platformApiCost, totalMarkupRevenue }, users })
+  }
+
   // ── GET per-user usage detail ─────────────────────────────────
   if (event.httpMethod === 'GET' && action === 'user-usage') {
     const userId = pathUserId

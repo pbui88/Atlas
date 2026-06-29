@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
-  adminGetSkipTraceStats,
+  adminGetSkipTraceStats, adminGetStreetViewQuota,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
 import { US_STATES } from '../../../shared/taxRates.js'
@@ -275,11 +275,130 @@ function SkipTraceMonitor({ stats, onRefresh }) {
   )
 }
 
+function StreetViewQuota({ quota }) {
+  const { summary, users } = quota
+
+  const statusBadge = (u) => {
+    if (!u.hasOwnKey) return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
+        No own key
+      </span>
+    )
+    if (u.used > u.limit) return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+        <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />Over quota
+      </span>
+    )
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />Under quota
+      </span>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Over Quota</p>
+          <p className="text-3xl font-bold font-display text-red-400">{summary.usersOverQuota}</p>
+          <p className="text-xs text-slate-600 mt-1">users this cycle</p>
+        </div>
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Platform Overflow</p>
+          <p className="text-3xl font-bold font-display text-amber-400">{summary.totalPlatformOverflow.toLocaleString()}</p>
+          <p className="text-xs text-slate-600 mt-1">pts billed to platform key</p>
+        </div>
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Platform API Cost</p>
+          <p className="text-3xl font-bold font-display text-white">${summary.platformApiCost.toFixed(2)}</p>
+          <p className="text-xs text-slate-600 mt-1">est. Google charges (cycle)</p>
+        </div>
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Markup Revenue</p>
+          <p className="text-3xl font-bold font-display text-emerald-400">${summary.totalMarkupRevenue.toFixed(2)}</p>
+          <p className="text-xs text-slate-600 mt-1">$0.0014 × all pts (cycle)</p>
+        </div>
+      </div>
+
+      {/* Per-user table */}
+      <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-300">Street View Quota — Current Cycle</h3>
+          <span className="text-xs text-slate-600">{users.length} users</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/[0.06] bg-navy-900/50">
+              {['User', 'Status', 'Cycle Used', 'Own Key', 'Platform Overflow', 'Markup'].map(h => (
+                <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/[0.04]">
+            {users.map(u => {
+              const overQuota = u.hasOwnKey && u.used > u.limit
+              const pct = u.limit > 0 ? Math.min(100, Math.round((u.used / u.limit) * 100)) : 0
+              const initial = (u.fullName || u.email || '?')[0].toUpperCase()
+              return (
+                <tr key={u.userId} className={`transition-colors ${overQuota ? 'bg-red-500/[0.03] hover:bg-red-500/[0.06]' : 'hover:bg-white/[0.02]'}`}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-brand-400">{initial}</span>
+                      </div>
+                      <div>
+                        {u.fullName && <p className="text-xs font-semibold text-slate-200">{u.fullName}</p>}
+                        <p className="text-xs text-slate-500">{u.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">{statusBadge(u)}</td>
+                  <td className="px-4 py-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-xs font-semibold tabular-nums ${overQuota ? 'text-red-400' : 'text-slate-200'}`}>
+                          {u.used.toLocaleString()}
+                        </span>
+                        {u.hasOwnKey && <span className="text-xs text-slate-600">{pct}%</span>}
+                      </div>
+                      {u.hasOwnKey && (
+                        <div className="h-1 w-24 bg-white/[0.06] rounded-full overflow-hidden flex">
+                          <div className="h-full bg-brand-500 rounded-full" style={{ width: `${Math.min(100, pct)}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs tabular-nums text-slate-400">
+                    {u.hasOwnKey ? u.ownKeyUsed.toLocaleString() : <span className="text-slate-600">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {u.platformOverflow > 0
+                      ? <span className="text-xs font-semibold tabular-nums text-amber-400">{u.platformOverflow.toLocaleString()}</span>
+                      : <span className="text-xs text-slate-600">—</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-xs font-semibold tabular-nums text-emerald-400">
+                    ${u.markupRevenue.toFixed(2)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {users.length === 0 && <p className="text-sm text-slate-600 px-6 py-4">No active users.</p>}
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,           setUsers]           = useState([])
   const [usage,           setUsage]           = useState(null)
   const [monitor,         setMonitor]         = useState(null)
+  const [svQuota,         setSvQuota]         = useState(null)
   const [skipTraceStats,  setSkipTraceStats]  = useState(null)
   const [loading,         setLoading]         = useState(true)
   const [monitorLoading,  setMonitorLoading]  = useState(false)
@@ -312,8 +431,12 @@ export default function AdminPanel() {
     if (monitor || monitorLoading) return
     setMonitorLoading(true)
     try {
-      const data = await safe(adminGetMonitor(), 25000)
-      setMonitor(data || null)
+      const [monitorData, quotaData] = await Promise.all([
+        safe(adminGetMonitor(), 25000),
+        safe(adminGetStreetViewQuota(), 15000),
+      ])
+      setMonitor(monitorData || null)
+      setSvQuota(quotaData || null)
     } finally {
       setMonitorLoading(false)
     }
@@ -610,6 +733,14 @@ export default function AdminPanel() {
           </div>
         ) : (
         <div className="space-y-6">
+          {/* Street View quota tracker */}
+          {svQuota && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Street View Quota</h3>
+              <StreetViewQuota quota={svQuota} />
+            </div>
+          )}
+
           {/* Alerts */}
           {monitor.alerts.length > 0 && (
             <div className="space-y-2">
