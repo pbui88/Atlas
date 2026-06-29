@@ -519,6 +519,178 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
   )
 }
 
+function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
+  const [search,   setSearch]   = useState('')
+  const [expanded, setExpanded] = useState(new Set())
+
+  const toggle = (uid) => setExpanded(prev => {
+    const next = new Set(prev)
+    next.has(uid) ? next.delete(uid) : next.add(uid)
+    return next
+  })
+
+  const fmtSvc = s =>
+    s === 'street_view' || s === 'streetlevel_gsv' ? 'Street View'
+    : s === 'mapillary' ? 'Mapillary' : s
+
+  // Group by user, compute totals
+  const grouped = []
+  if (activity) {
+    const map = new Map()
+    for (const row of activity) {
+      if (!map.has(row.user_id)) {
+        map.set(row.user_id, {
+          user_id:   row.user_id,
+          email:     row.email,
+          full_name: row.full_name,
+          total:     0,
+          logs:      [],
+          first_at:  row.created_at,
+          last_at:   row.created_at,
+        })
+      }
+      const g = map.get(row.user_id)
+      g.total  += row.count ?? 1
+      g.logs.push(row)
+      if (row.created_at < g.first_at) g.first_at = row.created_at
+      if (row.created_at > g.last_at)  g.last_at  = row.created_at
+    }
+    grouped.push(...map.values())
+    grouped.sort((a, b) => b.last_at.localeCompare(a.last_at))
+  }
+
+  const q = search.trim().toLowerCase()
+  const filtered = grouped.filter(g =>
+    !q || g.email.toLowerCase().includes(q) || (g.full_name || '').toLowerCase().includes(q)
+  )
+
+  return (
+    <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
+        <div className="flex items-center gap-3 flex-1">
+          <h3 className="text-sm font-semibold text-slate-300 shrink-0">Today's Scan Activity</h3>
+          {refreshedAt && (
+            <span className="text-xs text-slate-600">
+              Updated {refreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+          {loading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search user…"
+            className="w-44 px-2.5 py-1 text-xs bg-navy-700 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
+          <button
+            onClick={onRefresh} disabled={loading}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition shrink-0"
+          >
+            <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Empty states */}
+      {!activity && !loading && <p className="text-center text-sm text-slate-600 py-10">Loading…</p>}
+      {activity && filtered.length === 0 && (
+        <p className="text-center text-sm text-slate-600 py-10">
+          {grouped.length === 0 ? 'No scans yet today.' : 'No users match your search.'}
+        </p>
+      )}
+
+      {/* Summary row */}
+      {activity && filtered.length > 0 && (
+        <div className="flex items-center gap-6 px-4 py-2.5 bg-navy-900/40 border-b border-white/[0.04] text-xs text-slate-500">
+          <span><span className="text-slate-300 font-semibold">{filtered.length}</span> user{filtered.length !== 1 ? 's' : ''}</span>
+          <span><span className="text-slate-300 font-semibold">{filtered.reduce((s, g) => s + g.total, 0).toLocaleString()}</span> points total</span>
+        </div>
+      )}
+
+      {/* User groups */}
+      <div className="divide-y divide-white/[0.04]">
+        {filtered.map(group => {
+          const open = expanded.has(group.user_id)
+          const initial = (group.full_name || group.email || 'U')[0].toUpperCase()
+          const lastTs  = new Date(group.last_at)
+          const firstTs = new Date(group.first_at)
+          return (
+            <div key={group.user_id}>
+              {/* Group header — click to expand */}
+              <button
+                onClick={() => toggle(group.user_id)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors text-left"
+              >
+                {/* Chevron */}
+                <svg className={`w-3.5 h-3.5 text-slate-600 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+                {/* Avatar */}
+                <div className="w-7 h-7 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold text-brand-400">{initial}</span>
+                </div>
+                {/* Name + email */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-200 truncate">{group.full_name || group.email}</p>
+                  {group.full_name && <p className="text-xs text-slate-600 truncate">{group.email}</p>}
+                </div>
+                {/* Stats */}
+                <div className="flex items-center gap-4 shrink-0 text-right">
+                  <div>
+                    <p className="text-xs font-bold text-slate-200">{group.total.toLocaleString()} pts</p>
+                    <p className="text-xs text-slate-600">{group.logs.length} event{group.logs.length !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="hidden sm:block">
+                    <p className="text-xs text-slate-400">{lastTs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
+                    <p className="text-xs text-slate-600">last scan</p>
+                  </div>
+                  {group.logs.length > 1 && (
+                    <div className="hidden sm:block">
+                      <p className="text-xs text-slate-400">{firstTs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
+                      <p className="text-xs text-slate-600">first scan</p>
+                    </div>
+                  )}
+                </div>
+              </button>
+
+              {/* Expanded log entries */}
+              {open && (
+                <div className="bg-navy-900/30 border-t border-white/[0.04]">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-white/[0.04]">
+                        {['Time', 'Service', 'Points', 'Project'].map(h => (
+                          <th key={h} className="text-left px-4 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider first:pl-14">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.03]">
+                      {group.logs.map(row => (
+                        <tr key={row.id} className="hover:bg-white/[0.01] transition-colors">
+                          <td className="px-4 py-2 pl-14 whitespace-nowrap font-mono text-slate-300">
+                            {new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-2 text-slate-500">{fmtSvc(row.service)}</td>
+                          <td className="px-4 py-2 font-semibold text-slate-300">{(row.count ?? 1).toLocaleString()}</td>
+                          <td className="px-4 py-2 font-mono text-slate-600">{row.project_id ? row.project_id.slice(0, 8) + '…' : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,           setUsers]           = useState([])
@@ -860,74 +1032,12 @@ export default function AdminPanel() {
           )}
         </div>
       ) : tab === 'activity' ? (
-        <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
-            <div className="flex items-center gap-3">
-              <h3 className="text-sm font-semibold text-slate-300">Today's Scan Activity</h3>
-              {activityRefreshedAt && (
-                <span className="text-xs text-slate-600">
-                  Updated {activityRefreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                </span>
-              )}
-              {activityLoading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
-            </div>
-            <button
-              onClick={loadActivity}
-              disabled={activityLoading}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition"
-            >
-              <svg className={`w-3.5 h-3.5 ${activityLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-              </svg>
-              Refresh
-            </button>
-          </div>
-          {!activity && !activityLoading && (
-            <p className="text-center text-sm text-slate-600 py-10">Loading…</p>
-          )}
-          {activity && activity.length === 0 && (
-            <p className="text-center text-sm text-slate-600 py-10">No scans yet today.</p>
-          )}
-          {activity && activity.length > 0 && (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                  {['Time', 'User', 'Service', 'Points', 'Project'].map(h => (
-                    <th key={h} className="text-left px-3 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {activity.map(row => {
-                  const ts = new Date(row.created_at)
-                  const svc = row.service === 'street_view' || row.service === 'streetlevel_gsv'
-                    ? 'Street View' : row.service === 'mapillary' ? 'Mapillary' : row.service
-                  return (
-                    <tr key={row.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="text-xs font-mono text-slate-300">{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                        <span className="text-xs text-slate-600 ml-2">{ts.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <p className="text-xs font-medium text-slate-200">{row.full_name || row.email}</p>
-                        {row.full_name && <p className="text-xs text-slate-600">{row.email}</p>}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="text-xs text-slate-400">{svc}</span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="text-xs font-semibold text-slate-200">{(row.count ?? 1).toLocaleString()}</span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="text-xs text-slate-600 font-mono">{row.project_id ? row.project_id.slice(0, 8) + '…' : '—'}</span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <ScanActivityPanel
+          activity={activity}
+          loading={activityLoading}
+          refreshedAt={activityRefreshedAt}
+          onRefresh={loadActivity}
+        />
       ) : tab === 'usage' ? (
         <div className="space-y-6">
           <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
