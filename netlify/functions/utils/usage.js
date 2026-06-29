@@ -14,12 +14,13 @@ function currentCycleStart(anchorDateStr) {
 export async function getUserUsage(userId, supabase) {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('points_limit, purchased_credits, purchased_credits_used, cycle_anchor_date, skip_trace_balance')
+    .select('points_limit, purchased_credits, granted_credits, purchased_credits_used, cycle_anchor_date, skip_trace_balance')
     .eq('id', userId)
     .maybeSingle()
 
   const monthlyLimit          = profile?.points_limit           ?? 10000
   const purchasedCredits      = profile?.purchased_credits      ?? 0
+  const grantedCredits        = profile?.granted_credits        ?? 0
   const purchasedCreditsUsed  = profile?.purchased_credits_used ?? 0
   const skipTraceBalance      = parseFloat(profile?.skip_trace_balance ?? 0)
   const anchor                = profile?.cycle_anchor_date      ?? new Date().toISOString().slice(0, 10)
@@ -33,7 +34,8 @@ export async function getUserUsage(userId, supabase) {
     .gte('created_at', cycleStart.toISOString())
 
   const cycleUsed          = count ?? 0
-  const purchasedRemaining = Math.max(0, purchasedCredits - purchasedCreditsUsed)
+  const totalCredits       = purchasedCredits + grantedCredits
+  const purchasedRemaining = Math.max(0, totalCredits - purchasedCreditsUsed)
 
   return {
     used:                 cycleUsed,
@@ -41,6 +43,8 @@ export async function getUserUsage(userId, supabase) {
     remaining:            purchasedRemaining,
     cycleStart:           cycleStart.toISOString(),
     purchasedCredits,
+    grantedCredits,
+    totalCredits,
     purchasedCreditsUsed,
     purchasedRemaining,
     skipTraceBalance,

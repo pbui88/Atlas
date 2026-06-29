@@ -275,8 +275,13 @@ function SkipTraceMonitor({ stats, onRefresh }) {
   )
 }
 
-function StreetViewQuota({ quota }) {
+function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, onSearch, loading }) {
   const { summary, adminSummary, users, adminUsers } = quota
+
+  const q = search.toLowerCase()
+  const filteredUsers = users.filter(u =>
+    !q || (u.fullName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+  )
 
   const statusBadge = (u) => {
     if (!u.hasOwnKey) return (
@@ -298,6 +303,38 @@ function StreetViewQuota({ quota }) {
 
   return (
     <div className="space-y-5">
+      {/* Toolbar: date range + search */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex items-center gap-2">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">From</label>
+            <input
+              type="date" value={start} onChange={e => onStart(e.target.value)}
+              className="text-xs bg-navy-800 border border-white/[0.08] rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">To</label>
+            <input
+              type="date" value={end} onChange={e => onEnd(e.target.value)}
+              className="text-xs bg-navy-800 border border-white/[0.08] rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+          </div>
+          <button
+            onClick={onApply} disabled={loading}
+            className="mt-5 px-3 py-1.5 text-xs font-medium bg-brand-600/20 text-brand-400 border border-brand-600/30 rounded-md hover:bg-brand-600/30 transition disabled:opacity-50"
+          >
+            {loading ? '…' : 'Apply'}
+          </button>
+        </div>
+        <div className="flex-1 min-w-[180px] mt-auto">
+          <input
+            type="text" placeholder="Search user…" value={search} onChange={e => onSearch(e.target.value)}
+            className="w-full text-xs bg-navy-800 border border-white/[0.08] rounded-md px-3 py-1.5 text-slate-300 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
+        </div>
+      </div>
+
       {/* KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
@@ -325,22 +362,23 @@ function StreetViewQuota({ quota }) {
       {/* Per-user table */}
       <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-300">Street View Quota — Current Cycle</h3>
-          <span className="text-xs text-slate-600">{users.length} users</span>
+          <h3 className="text-sm font-semibold text-slate-300">Street View Quota</h3>
+          <span className="text-xs text-slate-600">{filteredUsers.length} users</span>
         </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/[0.06] bg-navy-900/50">
-              {['User', 'Status', 'Cycle Used', 'Own Key', 'Platform Overflow', 'Markup'].map(h => (
-                <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+              {['User', 'Status', 'Cycle Used', 'Own Key', 'Platform Overflow', 'Granted Credits', 'Markup'].map(h => (
+                <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.04]">
-            {users.map(u => {
+            {filteredUsers.map(u => {
               const overQuota = u.hasOwnKey && u.used > u.limit
               const pct = u.limit > 0 ? Math.min(100, Math.round((u.used / u.limit) * 100)) : 0
               const initial = (u.fullName || u.email || '?')[0].toUpperCase()
+              const hasPurchased = (u.purchasedCredits ?? 0) > 0
               return (
                 <tr key={u.userId} className={`transition-colors ${overQuota ? 'bg-red-500/[0.03] hover:bg-red-500/[0.06]' : 'hover:bg-white/[0.02]'}`}>
                   <td className="px-4 py-3">
@@ -364,7 +402,7 @@ function StreetViewQuota({ quota }) {
                         {u.hasOwnKey && <span className="text-xs text-slate-600">{pct}%</span>}
                       </div>
                       {u.hasOwnKey && (
-                        <div className="h-1 w-24 bg-white/[0.06] rounded-full overflow-hidden flex">
+                        <div className="h-1 w-24 bg-white/[0.06] rounded-full overflow-hidden">
                           <div className="h-full bg-brand-500 rounded-full" style={{ width: `${Math.min(100, pct)}%` }} />
                         </div>
                       )}
@@ -376,18 +414,24 @@ function StreetViewQuota({ quota }) {
                   <td className="px-4 py-3">
                     {u.platformOverflow > 0
                       ? <span className="text-xs font-semibold tabular-nums text-amber-400">{u.platformOverflow.toLocaleString()}</span>
-                      : <span className="text-xs text-slate-600">—</span>
-                    }
+                      : <span className="text-xs text-slate-600">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-xs font-semibold tabular-nums text-emerald-400">
-                    ${u.markupRevenue.toFixed(2)}
+                  <td className="px-4 py-3 text-xs tabular-nums font-semibold text-brand-400">
+                    {(u.grantedCredits ?? 0) > 0 ? (u.grantedCredits).toLocaleString() : <span className="text-slate-600">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs font-semibold tabular-nums">
+                    {hasPurchased
+                      ? <span className="text-emerald-400">${u.markupRevenue.toFixed(2)}</span>
+                      : <span className="text-slate-600">—</span>}
                   </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-        {users.length === 0 && <p className="text-sm text-slate-600 px-6 py-4">No active users.</p>}
+        {filteredUsers.length === 0 && (
+          <p className="text-sm text-slate-600 px-6 py-4">{users.length === 0 ? 'No active users.' : 'No users match your search.'}</p>
+        )}
       </div>
 
       {/* Admin usage section */}
@@ -476,10 +520,17 @@ export default function AdminPanel() {
   const [usage,           setUsage]           = useState(null)
   const [monitor,         setMonitor]         = useState(null)
   const [svQuota,         setSvQuota]         = useState(null)
+  const [svQuotaLoading,  setSvQuotaLoading]  = useState(false)
   const [skipTraceStats,  setSkipTraceStats]  = useState(null)
   const [loading,         setLoading]         = useState(true)
   const [monitorLoading,  setMonitorLoading]  = useState(false)
   const [stLoading,       setStLoading]       = useState(false)
+
+  const defaultStart = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10) }
+  const defaultEnd   = () => new Date().toISOString().slice(0, 10)
+  const [quotaStart,  setQuotaStart]  = useState(defaultStart)
+  const [quotaEnd,    setQuotaEnd]    = useState(defaultEnd)
+  const [quotaSearch, setQuotaSearch] = useState('')
   const [tab,             setTab]             = useState('users')
 
   const safe = (p, ms = 20000) => {
@@ -504,19 +555,26 @@ export default function AdminPanel() {
     }
   }
 
+  const loadSvQuota = async (start, end) => {
+    setSvQuotaLoading(true)
+    try {
+      const data = await safe(adminGetStreetViewQuota(start, end), 15000)
+      setSvQuota(data || null)
+    } finally {
+      setSvQuotaLoading(false)
+    }
+  }
+
   const loadMonitor = async () => {
     if (monitor || monitorLoading) return
     setMonitorLoading(true)
     try {
-      const [monitorData, quotaData] = await Promise.all([
-        safe(adminGetMonitor(), 25000),
-        safe(adminGetStreetViewQuota(), 15000),
-      ])
+      const monitorData = await safe(adminGetMonitor(), 25000)
       setMonitor(monitorData || null)
-      setSvQuota(quotaData || null)
     } finally {
       setMonitorLoading(false)
     }
+    loadSvQuota(quotaStart, quotaEnd)
   }
 
   const loadSkipTraceStats = async (force = false) => {
@@ -811,10 +869,22 @@ export default function AdminPanel() {
         ) : (
         <div className="space-y-6">
           {/* Street View quota tracker */}
-          {svQuota && (
+          {(svQuota || svQuotaLoading) && (
             <div>
               <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Street View Quota</h3>
-              <StreetViewQuota quota={svQuota} />
+              {svQuotaLoading && !svQuota
+                ? <p className="text-sm text-slate-600 px-2 py-4">Loading…</p>
+                : svQuota && (
+                  <StreetViewQuota
+                    quota={svQuota}
+                    start={quotaStart} end={quotaEnd}
+                    onStart={setQuotaStart} onEnd={setQuotaEnd}
+                    onApply={() => loadSvQuota(quotaStart, quotaEnd)}
+                    search={quotaSearch} onSearch={setQuotaSearch}
+                    loading={svQuotaLoading}
+                  />
+                )
+              }
             </div>
           )}
 

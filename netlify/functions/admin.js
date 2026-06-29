@@ -262,13 +262,20 @@ export const handler = async (event) => {
   if (event.httpMethod === 'GET' && action === 'street-view-quota') {
     const MARKUP_PER_POINT   = 0.014
     const API_COST_PER_POINT = 0.007
-
-    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-
     const FREE_TIER          = 10000
+
+    // Accept optional date range; default to last 30 days
+    const reqUrl   = new URL(event.rawUrl || `http://x${event.path}`, 'http://x')
+    const sinceStr = reqUrl.searchParams.get('start')
+    const untilStr = reqUrl.searchParams.get('end')
+    const since    = sinceStr ? new Date(sinceStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const until    = untilStr ? new Date(untilStr) : new Date()
+    // Extend until to end-of-day so the selected end date is fully included
+    until.setHours(23, 59, 59, 999)
+
     const [profilesRes, adminProfilesRes, keyRowsRes, svLogs] = await Promise.all([
       supabase.from('profiles')
-        .select('id, full_name, email, points_limit, cycle_anchor_date')
+        .select('id, full_name, email, points_limit, cycle_anchor_date, purchased_credits, granted_credits')
         .neq('role', 'admin')
         .eq('is_active', true),
       supabase.from('profiles')
@@ -279,7 +286,8 @@ export const handler = async (event) => {
         supabase.from('usage_logs')
           .select('user_id, count, created_at')
           .in('service', ['street_view', 'streetlevel_gsv'])
-          .gte('created_at', since30.toISOString())
+          .gte('created_at', since.toISOString())
+          .lte('created_at', until.toISOString())
           .range(from, to)
       ),
     ])
@@ -302,28 +310,35 @@ export const handler = async (event) => {
       cycleStarts[p.id] = cycleStartOf(p.cycle_anchor_date ?? new Date().toISOString().slice(0, 10))
     }
 
-    const cycleUsage = {}
+    // When a custom range is selected, use it directly.
+    // For the default (last 30 days), also respect each user's cycle start.
+    const useCustomRange = !!(sinceStr || untilStr)
+    const usageInRange = {}
     for (const log of svLogs) {
-      const start = cycleStarts[log.user_id]
-      if (start && new Date(log.created_at) >= start) {
-        cycleUsage[log.user_id] = (cycleUsage[log.user_id] || 0) + (log.count || 0)
+      if (!useCustomRange) {
+        const start = cycleStarts[log.user_id]
+        if (start && new Date(log.created_at) < start) continue
       }
+      usageInRange[log.user_id] = (usageInRange[log.user_id] || 0) + (log.count || 0)
     }
 
     // Non-admin users: own-key vs platform-key split
     const users = (profilesRes.data || []).map(p => {
       const hasOwnKey        = usersWithKey.has(p.id)
       const limit            = p.points_limit ?? FREE_TIER
-      const used             = cycleUsage[p.id] || 0
+      const used             = usageInRange[p.id] || 0
       const ownKeyUsed       = hasOwnKey ? Math.min(used, limit) : 0
       const platformOverflow = hasOwnKey ? Math.max(0, used - limit) : used
-      const markupRevenue    = Math.round(used * MARKUP_PER_POINT * 10000) / 10000
-      return { userId: p.id, fullName: p.full_name, email: p.email, hasOwnKey, limit, used, ownKeyUsed, platformOverflow, markupRevenue }
+      const purchasedCredits = p.purchased_credits ?? 0
+      const grantedCredits   = p.granted_credits   ?? 0
+      // Markup only applies to paying users (purchased_credits > 0)
+      const markupRevenue    = purchasedCredits > 0 ? Math.round(used * MARKUP_PER_POINT * 10000) / 10000 : 0
+      return { userId: p.id, fullName: p.full_name, email: p.email, hasOwnKey, limit, used, ownKeyUsed, platformOverflow, purchasedCredits, grantedCredits, markupRevenue }
     }).sort((a, b) => b.platformOverflow - a.platformOverflow || b.used - a.used)
 
     // Admin users: first 10k free, over 10k at $0.007
     const adminUsers = (adminProfilesRes.data || []).map(p => {
-      const used          = cycleUsage[p.id] || 0
+      const used          = usageInRange[p.id] || 0
       const freePoints    = Math.min(used, FREE_TIER)
       const billable      = Math.max(0, used - FREE_TIER)
       const estimatedCost = Math.round(billable * API_COST_PER_POINT * 10000) / 10000
@@ -361,24 +376,30 @@ export const handler = async (event) => {
     const { userId, role, is_active, points_limit, cycle_anchor_date, googleMapsKey, grantCredits, setCredits, billing_state } = patchBody
     if (!isValidUUID(userId)) return err('userId required')
 
-    // Handle manual credit grant — increments purchased_credits via RPC
+    // Handle manual credit grant — increments granted_credits (admin-given, free)
     if (grantCredits !== undefined) {
       const pts = parseInt(grantCredits, 10)
       if (isNaN(pts) || pts <= 0) return err('grantCredits must be a positive integer')
-      const { error: rpcErr } = await supabase.rpc('increment_purchased_credits', { p_user_id: userId, p_points: pts })
+      const { error: rpcErr } = await supabase.rpc('increment_granted_credits', { p_user_id: userId, p_points: pts })
       if (rpcErr) return err(rpcErr.message)
-      const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
-      return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
+      const { data: updated } = await supabase.from('profiles').select('purchased_credits, granted_credits').eq('id', userId).maybeSingle()
+      return ok({
+        purchased_credits: (updated?.purchased_credits ?? 0) + (updated?.granted_credits ?? 0),
+        granted_credits:   updated?.granted_credits ?? 0,
+      })
     }
 
-    // Handle direct credit override — sets purchased_credits to an exact value to correct mistakes
+    // Handle direct credit override — sets granted_credits to an exact value
     if (setCredits !== undefined) {
       const pts = parseInt(setCredits, 10)
       if (isNaN(pts) || pts < 0) return err('setCredits must be a non-negative integer')
-      const { error: setErr } = await supabase.from('profiles').update({ purchased_credits: pts }).eq('id', userId)
+      const { error: setErr } = await supabase.from('profiles').update({ granted_credits: pts }).eq('id', userId)
       if (setErr) return err(setErr.message)
-      const { data: updated } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
-      return ok({ purchased_credits: updated?.purchased_credits ?? 0 })
+      const { data: updated } = await supabase.from('profiles').select('purchased_credits, granted_credits').eq('id', userId).maybeSingle()
+      return ok({
+        purchased_credits: (updated?.purchased_credits ?? 0) + (updated?.granted_credits ?? 0),
+        granted_credits:   updated?.granted_credits ?? 0,
+      })
     }
 
     // Handle Google Maps key separately (stored in user_keys, not profiles)

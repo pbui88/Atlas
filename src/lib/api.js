@@ -90,7 +90,13 @@ export const adminGetMonitor        = ()                      => call('admin/mon
 export const adminGetSkipTraceStats = ()                      => call('admin/skip-trace-stats')
 export const adminDeleteUser     = (userId)                => call('admin', 'DELETE', { userId })
 export const adminGetUserUsage         = (userId) => call(`admin/user-usage/${userId}`)
-export const adminGetStreetViewQuota   = ()       => call('admin/street-view-quota')
+export const adminGetStreetViewQuota   = (start, end) => {
+  const params = new URLSearchParams()
+  if (start) params.set('start', start)
+  if (end)   params.set('end', end)
+  const qs = params.toString()
+  return call(`admin/street-view-quota${qs ? `?${qs}` : ''}`)
+}
 export const adminResetUserCycle = (userId)                => call('admin', 'PATCH', { userId, cycle_anchor_date: new Date().toISOString().slice(0, 10) })
 export const adminSetUserKey     = (userId, key)           => call('admin', 'PATCH', { userId, googleMapsKey: key || null })
 export const adminGrantCredits   = (userId, points) => call('admin', 'PATCH', { userId, grantCredits: points })
