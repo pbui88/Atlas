@@ -1205,65 +1205,6 @@ export default function AdminPanel() {
             </div>
           )}
 
-          {/* Cost overview */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <CostCard label="API Cost — Today"  value={monitor.costs.today} />
-            <CostCard label="API Cost — 7 Days" value={monitor.costs.last7d} />
-            <CostCard
-              label="API Cost — 30 Days"
-              value={monitor.costs.last30d}
-              sub={monitor.costs.monthlyBudget ? `of $${monitor.costs.monthlyBudget.toFixed(2)} monthly budget` : null}
-            />
-          </div>
-
-          {/* Daily cost trend */}
-          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4">API Cost — Last 30 Days</h3>
-            {monitor.costs.dailyTrend.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={monitor.costs.dailyTrend}>
-                  <defs>
-                    <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                  <XAxis dataKey="date" tickFormatter={d => d.slice(5)} tick={{ fill: '#475569', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={v => `$${v}`} tick={{ fill: '#475569', fontSize: 11 }} axisLine={false} tickLine={false} width={50} />
-                  <Tooltip
-                    contentStyle={{ background: '#0d1526', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#94a3b8' }}
-                    formatter={(v) => [`$${(+v).toFixed(4)}`, 'Cost']}
-                  />
-                  <Area type="monotone" dataKey="cost" stroke="#3b82f6" fill="url(#costGradient)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-slate-600">No cost data yet.</p>
-            )}
-          </div>
-
-          {/* Cost by service */}
-          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4">Cost by Service — Last 30 Days</h3>
-            {monitor.costs.byService.length > 0 ? (
-              <div className="divide-y divide-white/[0.04]">
-                {monitor.costs.byService.map(row => (
-                  <div key={row.service} className="flex items-center justify-between py-3 text-sm">
-                    <span className="text-slate-500 capitalize">{row.service.replace(/_/g, ' ')}</span>
-                    <div className="text-right">
-                      <span className="text-slate-200 font-semibold">{row.totalCount.toLocaleString()} calls</span>
-                      <span className="text-slate-600 ml-3">${row.totalCost.toFixed(4)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-600">No usage data yet.</p>
-            )}
-          </div>
-
           {/* Database / storage usage */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <UsageGauge label="Database Size" used={monitor.database.sizeBytes} limit={monitor.database.limitBytes} />
