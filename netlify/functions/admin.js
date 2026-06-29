@@ -77,6 +77,7 @@ export const handler = async (event) => {
       cycle_anchor_date: p.cycle_anchor_date  ?? p.created_at?.slice(0, 10),
       points_used_cycle: usageByUser[p.id]   || 0,
       has_own_key:       usersWithKey.has(p.id),
+      total_credits:     (p.purchased_credits ?? 0) + (p.granted_credits ?? 0),
     }))
 
     return ok(users)
@@ -371,22 +372,30 @@ export const handler = async (event) => {
       const { error: rpcErr } = await supabase.rpc('increment_granted_credits', { p_user_id: userId, p_points: pts })
       if (rpcErr) return err(rpcErr.message)
       const { data: updated } = await supabase.from('profiles').select('purchased_credits, granted_credits').eq('id', userId).maybeSingle()
+      const purchasedCredits = updated?.purchased_credits ?? 0
+      const grantedCredits   = updated?.granted_credits   ?? 0
       return ok({
-        purchased_credits: (updated?.purchased_credits ?? 0) + (updated?.granted_credits ?? 0),
-        granted_credits:   updated?.granted_credits ?? 0,
+        purchased_credits: purchasedCredits,
+        granted_credits:   grantedCredits,
+        total_credits:     purchasedCredits + grantedCredits,
       })
     }
 
-    // Handle direct credit override — sets granted_credits to an exact value
+    // Handle direct credit override — sets the user's TOTAL available credits.
+    // purchased_credits (real payments) is left untouched; granted_credits is
+    // adjusted to make up the difference.
     if (setCredits !== undefined) {
       const pts = parseInt(setCredits, 10)
       if (isNaN(pts) || pts < 0) return err('setCredits must be a non-negative integer')
-      const { error: setErr } = await supabase.from('profiles').update({ granted_credits: pts }).eq('id', userId)
+      const { data: current } = await supabase.from('profiles').select('purchased_credits').eq('id', userId).maybeSingle()
+      const purchasedCredits = current?.purchased_credits ?? 0
+      const newGranted       = Math.max(0, pts - purchasedCredits)
+      const { error: setErr } = await supabase.from('profiles').update({ granted_credits: newGranted }).eq('id', userId)
       if (setErr) return err(setErr.message)
-      const { data: updated } = await supabase.from('profiles').select('purchased_credits, granted_credits').eq('id', userId).maybeSingle()
       return ok({
-        purchased_credits: (updated?.purchased_credits ?? 0) + (updated?.granted_credits ?? 0),
-        granted_credits:   updated?.granted_credits ?? 0,
+        purchased_credits: purchasedCredits,
+        granted_credits:   newGranted,
+        total_credits:     purchasedCredits + newGranted,
       })
     }
 

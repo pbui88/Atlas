@@ -187,7 +187,9 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
   const [value,   setValue]   = useState('')
   const [saving,  setSaving]  = useState(false)
 
-  const open = (m) => { setMode(m); setValue(m === 'set' ? String(user.purchased_credits ?? 0) : ''); setEditing(true) }
+  const totalCredits = user.total_credits ?? ((user.purchased_credits ?? 0) + (user.granted_credits ?? 0))
+
+  const open = (m) => { setMode(m); setValue(m === 'set' ? String(totalCredits) : ''); setEditing(true) }
 
   const save = async () => {
     const pts = parseInt(value, 10)
@@ -206,8 +208,8 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
   if (!editing) {
     return (
       <div className="flex items-center gap-2">
-        <span className={`text-xs font-medium ${(user.purchased_credits ?? 0) > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
-          {(user.purchased_credits ?? 0).toLocaleString()} pts
+        <span className={`text-xs font-medium ${totalCredits > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
+          {totalCredits.toLocaleString()} pts
         </span>
         <button onClick={() => open('add')} className="text-xs text-slate-600 hover:text-brand-400 transition underline underline-offset-2" title="Add credits">+</button>
         <button onClick={() => open('set')} className="text-xs text-slate-600 hover:text-amber-400 transition underline underline-offset-2" title="Set exact total">Edit</button>
@@ -638,12 +640,12 @@ export default function AdminPanel() {
     setUsers(u => u.map(x => x.id === userId ? { ...x, billing_state: state } : x))
   }
   const grantCredits = async (userId, points) => {
-    const { purchased_credits } = await adminGrantCredits(userId, points)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits } : x))
+    const { purchased_credits, granted_credits, total_credits } = await adminGrantCredits(userId, points)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits, granted_credits, total_credits } : x))
   }
   const setCredits = async (userId, points) => {
-    const { purchased_credits } = await adminSetCredits(userId, points)
-    setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits } : x))
+    const { purchased_credits, granted_credits, total_credits } = await adminSetCredits(userId, points)
+    setUsers(u => u.map(x => x.id === userId ? { ...x, purchased_credits, granted_credits, total_credits } : x))
   }
 
   const resetCycle   = async (user) => {
@@ -772,7 +774,7 @@ export default function AdminPanel() {
                     <td className="px-2 py-2.5">
                       {user.role === 'admin'
                         ? <span className="text-xs text-slate-600">Unlimited</span>
-                        : <UsageBar used={user.purchased_credits_used ?? 0} limit={user.purchased_credits ?? 0} />}
+                        : <UsageBar used={user.purchased_credits_used ?? 0} limit={user.total_credits ?? ((user.purchased_credits ?? 0) + (user.granted_credits ?? 0))} />}
                     </td>
                     <td className="px-2 py-2.5"><GrantCreditsEditor user={user} onGrant={grantCredits} onSet={setCredits} /></td>
                     <td className="px-2 py-2.5"><KeyEditor user={user} onSave={updateKey} /></td>
