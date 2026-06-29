@@ -845,11 +845,18 @@ export default function AdminPanel() {
     }
   }
 
-  // Auto-refresh Activity tab every 30s while active
+  // Auto-refresh Activity tab every 60s while active
   useEffect(() => {
     if (tab !== 'activity') return
     loadActivity()
     const id = setInterval(() => loadActivity(), 60000)
+    return () => clearInterval(id)
+  }, [tab])
+
+  // Auto-refresh Skip Trace stats every 60s while active
+  useEffect(() => {
+    if (tab !== 'skip-trace') return
+    const id = setInterval(() => loadSkipTraceStats(true), 60000)
     return () => clearInterval(id)
   }, [tab])
 
