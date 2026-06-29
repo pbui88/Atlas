@@ -254,7 +254,7 @@ export const handler = async (event) => {
 
   // ── GET street-view quota: per-user own-key vs platform-key split ──
   if (event.httpMethod === 'GET' && action === 'street-view-quota') {
-    const MARKUP_PER_POINT   = 0.0014
+    const MARKUP_PER_POINT   = 0.014
     const API_COST_PER_POINT = 0.007
 
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)

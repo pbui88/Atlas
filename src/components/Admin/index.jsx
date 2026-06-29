@@ -318,7 +318,7 @@ function StreetViewQuota({ quota }) {
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Markup Revenue</p>
           <p className="text-3xl font-bold font-display text-emerald-400">${summary.totalMarkupRevenue.toFixed(2)}</p>
-          <p className="text-xs text-slate-600 mt-1">$0.0014 × all pts (cycle)</p>
+          <p className="text-xs text-slate-600 mt-1">$0.014 × all pts (cycle)</p>
         </div>
       </div>
 
