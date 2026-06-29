@@ -368,7 +368,7 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/[0.06] bg-navy-900/50">
-              {['User', 'Status', 'Cycle Used', 'Own Key', 'Platform Overflow', 'Granted Credits', 'Markup'].map(h => (
+              {['User', 'Status', 'Cycle Used', 'Own Key', 'Platform Overflow', 'Purchased Credits', 'Granted Credits', 'Markup'].map(h => (
                 <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -415,6 +415,9 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
                     {u.platformOverflow > 0
                       ? <span className="text-xs font-semibold tabular-nums text-amber-400">{u.platformOverflow.toLocaleString()}</span>
                       : <span className="text-xs text-slate-600">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs tabular-nums font-semibold text-violet-400">
+                    {(u.purchasedCredits ?? 0) > 0 ? (u.purchasedCredits).toLocaleString() : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="px-4 py-3 text-xs tabular-nums font-semibold text-brand-400">
                     {(u.grantedCredits ?? 0) > 0 ? (u.grantedCredits).toLocaleString() : <span className="text-slate-600">—</span>}
