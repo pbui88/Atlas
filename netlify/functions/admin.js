@@ -39,27 +39,19 @@ export const handler = async (event) => {
       .select('*')
       .order('created_at', { ascending: false })
 
-    // Compute each user's current cycle start date (cycles are 30 days).
+    // All users share the same calendar-month cycle (1st of current UTC month),
+    // matching Google Street View API billing.
+    const calendarCycleStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))
     const userCycleStarts = Object.fromEntries(
-      (profiles || []).map(p => {
-        const anchor = new Date(p.cycle_anchor_date ?? p.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10))
-        anchor.setUTCHours(0, 0, 0, 0)
-        const elapsed    = Math.floor((Date.now() - anchor.getTime()) / (30 * 24 * 60 * 60 * 1000))
-        const cycleStart = new Date(anchor)
-        cycleStart.setUTCDate(cycleStart.getUTCDate() + elapsed * 30)
-        return [p.id, cycleStart]
-      })
+      (profiles || []).map(p => [p.id, calendarCycleStart])
     )
 
-    // Single batch query for all usage in the last 30 days, then filter
-    // per user to their specific cycle window client-side. Replaces N
-    // parallel queries that could exhaust Supabase connection pools.
-    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    // Single batch query from the start of the current calendar month.
     const recentLogs = await fetchAllRows((from, to) =>
       supabase.from('usage_logs')
         .select('user_id, count, created_at')
         .in('service', ['street_view', 'streetlevel_gsv', 'mapillary'])
-        .gte('created_at', since30.toISOString())
+        .gte('created_at', calendarCycleStart.toISOString())
         .range(from, to)
     )
 
@@ -294,21 +286,10 @@ export const handler = async (event) => {
 
     const usersWithKey = new Set((keyRowsRes.data || []).map(r => r.user_id))
 
-    // Compute each user's cycle start (same rolling-30-day logic as usage.js)
-    const cycleStartOf = (anchorStr) => {
-      const a = new Date(anchorStr)
-      a.setUTCHours(0, 0, 0, 0)
-      const elapsed = Math.floor((Date.now() - a.getTime()) / (30 * 24 * 60 * 60 * 1000))
-      const s = new Date(a)
-      s.setUTCDate(s.getUTCDate() + elapsed * 30)
-      return s
-    }
-
+    // All users share the same calendar-month cycle — matches Google billing.
+    const calCycleStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))
     const allProfiles = [...(profilesRes.data || []), ...(adminProfilesRes.data || [])]
-    const cycleStarts = {}
-    for (const p of allProfiles) {
-      cycleStarts[p.id] = cycleStartOf(p.cycle_anchor_date ?? new Date().toISOString().slice(0, 10))
-    }
+    const cycleStarts = Object.fromEntries(allProfiles.map(p => [p.id, calCycleStart]))
 
     // When a custom range is selected, use it directly.
     // For the default (last 30 days), also respect each user's cycle start.

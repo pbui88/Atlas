@@ -1,11 +1,7 @@
-// Computes the start of the user's current 30-day cycle from their anchor date.
-function currentCycleStart(anchorDateStr) {
-  const anchor = new Date(anchorDateStr)
-  anchor.setUTCHours(0, 0, 0, 0)
-  const elapsed = Math.floor((Date.now() - anchor.getTime()) / (30 * 24 * 60 * 60 * 1000))
-  const start   = new Date(anchor)
-  start.setUTCDate(start.getUTCDate() + elapsed * 30)
-  return start
+// Returns the 1st of the current UTC month — matches Google Street View API billing cycle.
+function currentCycleStart() {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
 }
 
 // Returns { used, limit, remaining, cycleStart, purchasedCredits, purchasedCreditsUsed, purchasedRemaining }.
@@ -23,8 +19,7 @@ export async function getUserUsage(userId, supabase) {
   const grantedCredits        = profile?.granted_credits        ?? 0
   const purchasedCreditsUsed  = profile?.purchased_credits_used ?? 0
   const skipTraceBalance      = parseFloat(profile?.skip_trace_balance ?? 0)
-  const anchor                = profile?.cycle_anchor_date      ?? new Date().toISOString().slice(0, 10)
-  const cycleStart            = currentCycleStart(anchor)
+  const cycleStart            = currentCycleStart()
 
   const { count } = await supabase
     .from('usage_logs')
