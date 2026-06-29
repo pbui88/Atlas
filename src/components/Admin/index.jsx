@@ -529,8 +529,8 @@ export default function AdminPanel() {
   const [monitorLoading,  setMonitorLoading]  = useState(false)
   const [stLoading,       setStLoading]       = useState(false)
 
-  const defaultStart = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10) }
-  const defaultEnd   = () => new Date().toISOString().slice(0, 10)
+  const defaultStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10) }
+  const defaultEnd   = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10) }
   const [quotaStart,  setQuotaStart]  = useState(defaultStart)
   const [quotaEnd,    setQuotaEnd]    = useState(defaultEnd)
   const [quotaSearch, setQuotaSearch] = useState('')
