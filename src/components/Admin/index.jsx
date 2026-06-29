@@ -519,6 +519,24 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
   )
 }
 
+// Merge consecutive log entries within 5 minutes into scan sessions
+function buildSessions(logs) {
+  const sorted = [...logs].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const sessions = []
+  for (const log of sorted) {
+    const prev = sessions[sessions.length - 1]
+    const gap  = prev ? (new Date(log.created_at) - new Date(prev.end_at)) / 60000 : Infinity
+    if (prev && gap <= 5) {
+      prev.points  += log.count ?? 1
+      prev.end_at   = log.created_at
+      prev.services.add(log.service)
+    } else {
+      sessions.push({ start_at: log.created_at, end_at: log.created_at, points: log.count ?? 1, services: new Set([log.service]) })
+    }
+  }
+  return sessions.reverse() // newest first
+}
+
 function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
   const [search,   setSearch]   = useState('')
   const [expanded, setExpanded] = useState(new Set())
@@ -533,24 +551,23 @@ function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
     s === 'street_view' || s === 'streetlevel_gsv' ? 'Street View'
     : s === 'mapillary' ? 'Mapillary' : s
 
-  // Group by user, compute totals
+  const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const fmtDuration = (start, end) => {
+    const mins = Math.round((new Date(end) - new Date(start)) / 60000)
+    if (mins < 1) return null
+    return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`
+  }
+
+  // Group by user
   const grouped = []
   if (activity) {
     const map = new Map()
     for (const row of activity) {
       if (!map.has(row.user_id)) {
-        map.set(row.user_id, {
-          user_id:   row.user_id,
-          email:     row.email,
-          full_name: row.full_name,
-          total:     0,
-          logs:      [],
-          first_at:  row.created_at,
-          last_at:   row.created_at,
-        })
+        map.set(row.user_id, { user_id: row.user_id, email: row.email, full_name: row.full_name, total: 0, logs: [], first_at: row.created_at, last_at: row.created_at })
       }
       const g = map.get(row.user_id)
-      g.total  += row.count ?? 1
+      g.total += row.count ?? 1
       g.logs.push(row)
       if (row.created_at < g.first_at) g.first_at = row.created_at
       if (row.created_at > g.last_at)  g.last_at  = row.created_at
@@ -564,17 +581,17 @@ function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
     !q || g.email.toLowerCase().includes(q) || (g.full_name || '').toLowerCase().includes(q)
   )
 
+  // For progress bars in sessions — find max points across all visible sessions
+  const allSessionPts = filtered.flatMap(g => buildSessions(g.logs).map(s => s.points))
+  const maxPts = Math.max(1, ...allSessionPts)
+
   return (
     <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
         <div className="flex items-center gap-3 flex-1">
           <h3 className="text-sm font-semibold text-slate-300 shrink-0">Today's Scan Activity</h3>
-          {refreshedAt && (
-            <span className="text-xs text-slate-600">
-              Updated {refreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-          )}
+          {refreshedAt && <span className="text-xs text-slate-600">Updated {refreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>}
           {loading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
         </div>
         <div className="flex items-center gap-2">
@@ -583,10 +600,7 @@ function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
             placeholder="Search user…"
             className="w-44 px-2.5 py-1 text-xs bg-navy-700 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
-          <button
-            onClick={onRefresh} disabled={loading}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition shrink-0"
-          >
+          <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition shrink-0">
             <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
             </svg>
@@ -603,84 +617,97 @@ function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
         </p>
       )}
 
-      {/* Summary row */}
+      {/* Summary strip */}
       {activity && filtered.length > 0 && (
-        <div className="flex items-center gap-6 px-4 py-2.5 bg-navy-900/40 border-b border-white/[0.04] text-xs text-slate-500">
-          <span><span className="text-slate-300 font-semibold">{filtered.length}</span> user{filtered.length !== 1 ? 's' : ''}</span>
-          <span><span className="text-slate-300 font-semibold">{filtered.reduce((s, g) => s + g.total, 0).toLocaleString()}</span> points total</span>
+        <div className="flex items-center gap-6 px-4 py-2 bg-navy-900/40 border-b border-white/[0.04] text-xs text-slate-500">
+          <span><span className="text-slate-300 font-semibold">{filtered.length}</span> user{filtered.length !== 1 ? 's' : ''} active</span>
+          <span><span className="text-slate-300 font-semibold">{filtered.reduce((s, g) => s + g.total, 0).toLocaleString()}</span> pts scanned</span>
         </div>
       )}
 
-      {/* User groups */}
+      {/* User cards */}
       <div className="divide-y divide-white/[0.04]">
         {filtered.map(group => {
-          const open = expanded.has(group.user_id)
-          const initial = (group.full_name || group.email || 'U')[0].toUpperCase()
-          const lastTs  = new Date(group.last_at)
-          const firstTs = new Date(group.first_at)
+          const open     = expanded.has(group.user_id)
+          const initial  = (group.full_name || group.email || 'U')[0].toUpperCase()
+          const sessions = buildSessions(group.logs)
+          const dur      = fmtDuration(group.first_at, group.last_at)
+
           return (
             <div key={group.user_id}>
-              {/* Group header — click to expand */}
+              {/* Collapsed row */}
               <button
                 onClick={() => toggle(group.user_id)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors text-left"
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.02] transition-colors text-left"
               >
-                {/* Chevron */}
-                <svg className={`w-3.5 h-3.5 text-slate-600 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className={`w-3.5 h-3.5 text-slate-600 shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
-                {/* Avatar */}
-                <div className="w-7 h-7 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-brand-400">{initial}</span>
                 </div>
-                {/* Name + email */}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-slate-200 truncate">{group.full_name || group.email}</p>
-                  {group.full_name && <p className="text-xs text-slate-600 truncate">{group.email}</p>}
+                  {group.full_name && <p className="text-[11px] text-slate-600 truncate">{group.email}</p>}
                 </div>
-                {/* Stats */}
-                <div className="flex items-center gap-4 shrink-0 text-right">
-                  <div>
-                    <p className="text-xs font-bold text-slate-200">{group.total.toLocaleString()} pts</p>
-                    <p className="text-xs text-slate-600">{group.logs.length} event{group.logs.length !== 1 ? 's' : ''}</p>
+                {/* Right-side stats */}
+                <div className="flex items-center gap-5 shrink-0">
+                  {/* Session count badge */}
+                  <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/[0.05] text-slate-500">
+                    {sessions.length} session{sessions.length !== 1 ? 's' : ''}
+                  </span>
+                  {/* Duration */}
+                  {dur && <span className="hidden sm:block text-xs text-slate-600">{dur}</span>}
+                  {/* Points */}
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-slate-200">{group.total.toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-600">pts today</p>
                   </div>
-                  <div className="hidden sm:block">
-                    <p className="text-xs text-slate-400">{lastTs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
-                    <p className="text-xs text-slate-600">last scan</p>
+                  {/* Last seen */}
+                  <div className="text-right hidden md:block">
+                    <p className="text-xs text-slate-400">{fmtTime(group.last_at)}</p>
+                    <p className="text-[10px] text-slate-600">last active</p>
                   </div>
-                  {group.logs.length > 1 && (
-                    <div className="hidden sm:block">
-                      <p className="text-xs text-slate-400">{firstTs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
-                      <p className="text-xs text-slate-600">first scan</p>
-                    </div>
-                  )}
                 </div>
               </button>
 
-              {/* Expanded log entries */}
+              {/* Expanded — session timeline */}
               {open && (
-                <div className="bg-navy-900/30 border-t border-white/[0.04]">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-white/[0.04]">
-                        {['Time', 'Service', 'Points', 'Project'].map(h => (
-                          <th key={h} className="text-left px-4 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider first:pl-14">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.03]">
-                      {group.logs.map(row => (
-                        <tr key={row.id} className="hover:bg-white/[0.01] transition-colors">
-                          <td className="px-4 py-2 pl-14 whitespace-nowrap font-mono text-slate-300">
-                            {new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </td>
-                          <td className="px-4 py-2 text-slate-500">{fmtSvc(row.service)}</td>
-                          <td className="px-4 py-2 font-semibold text-slate-300">{(row.count ?? 1).toLocaleString()}</td>
-                          <td className="px-4 py-2 font-mono text-slate-600">{row.project_id ? row.project_id.slice(0, 8) + '…' : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="bg-navy-900/25 border-t border-white/[0.04] px-4 py-3 space-y-2">
+                  {sessions.map((s, i) => {
+                    const svcLabels = [...s.services].map(fmtSvc)
+                    const barPct    = Math.round((s.points / maxPts) * 100)
+                    const sessDur   = fmtDuration(s.start_at, s.end_at)
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        {/* Time */}
+                        <div className="w-24 shrink-0 text-right">
+                          <p className="text-xs font-mono text-slate-400">{fmtTime(s.start_at)}</p>
+                          {sessDur && <p className="text-[10px] text-slate-600">{sessDur}</p>}
+                        </div>
+                        {/* Dot + line */}
+                        <div className="flex flex-col items-center gap-0.5 shrink-0">
+                          <div className="w-2 h-2 rounded-full bg-brand-500 ring-2 ring-brand-500/20" />
+                          {i < sessions.length - 1 && <div className="w-px h-4 bg-white/[0.06]" />}
+                        </div>
+                        {/* Session card */}
+                        <div className="flex-1 bg-navy-800 border border-white/[0.06] rounded-lg px-3 py-2">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {svcLabels.map(l => (
+                                <span key={l} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-600/10 text-brand-400 border border-brand-600/20">{l}</span>
+                              ))}
+                            </div>
+                            <span className="text-xs font-bold text-slate-200 shrink-0 ml-2">{s.points.toLocaleString()} pts</span>
+                          </div>
+                          {/* Mini bar */}
+                          <div className="h-1 w-full bg-white/[0.05] rounded-full overflow-hidden">
+                            <div className="h-full bg-brand-500/60 rounded-full transition-all duration-500" style={{ width: `${barPct}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
