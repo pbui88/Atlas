@@ -24,9 +24,9 @@ function UsageWidget() {
   const { usage } = useAuth()
   if (!usage) return null
 
-  const { purchasedCredits = 0, purchasedCreditsUsed = 0 } = usage
-  const remaining = Math.max(0, purchasedCredits - purchasedCreditsUsed)
-  const pct       = purchasedCredits > 0 ? Math.min(100, Math.round((purchasedCreditsUsed / purchasedCredits) * 100)) : 0
+  const { totalCredits = 0, purchasedCreditsUsed = 0 } = usage
+  const remaining = Math.max(0, totalCredits - purchasedCreditsUsed)
+  const pct       = totalCredits > 0 ? Math.min(100, Math.round((purchasedCreditsUsed / totalCredits) * 100)) : 0
   const empty     = remaining <= 0
   const low       = !empty && pct >= 75
 
@@ -45,7 +45,7 @@ function UsageWidget() {
         <div className="h-1 w-full bg-white/[0.06] rounded-full overflow-hidden mb-2">
           <div
             className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-            style={{ width: purchasedCredits > 0 ? `${100 - pct}%` : '0%' }}
+            style={{ width: totalCredits > 0 ? `${100 - pct}%` : '0%' }}
           />
         </div>
         <div className="flex items-center justify-between">
@@ -53,16 +53,16 @@ function UsageWidget() {
             {purchasedCreditsUsed.toLocaleString()} used
           </span>
           <span className="text-xs text-slate-600">
-            {purchasedCredits.toLocaleString()} total
+            {totalCredits.toLocaleString()} total
           </span>
         </div>
-        {empty && purchasedCredits > 0 && (
+        {empty && totalCredits > 0 && (
           <div className="mt-2 flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5">
             <span className="w-1.5 h-1.5 bg-red-400 rounded-full shrink-0" />
             <span className="text-xs text-red-400 font-medium">Credits exhausted</span>
           </div>
         )}
-        {empty && purchasedCredits === 0 && (
+        {empty && totalCredits === 0 && (
           <div className="mt-2 flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
             <span className="w-1.5 h-1.5 bg-amber-400 rounded-full shrink-0" />
             <span className="text-xs text-amber-400 font-medium">No credits — contact admin</span>

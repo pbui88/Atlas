@@ -250,22 +250,22 @@ export default function BuyCreditsPage() {
               <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-4">Account Balance</p>
               <div className="grid grid-cols-2 gap-4 sm:gap-6">
                 <StatCard value={usage.used.toLocaleString()} label="Used this cycle" />
-                {usage.purchasedCredits > 0 && (
+                {usage.totalCredits > 0 && (
                   <StatCard value={usage.purchasedRemaining.toLocaleString()} label="Credits left" accent />
                 )}
               </div>
-              {usage.purchasedCredits > 0 && (
+              {usage.totalCredits > 0 && (
                 <div className="mt-4 pt-4 border-t border-white/[0.05]">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs text-slate-500">Credits used</span>
                     <span className="text-xs text-slate-400 tabular-nums">
-                      {usage.purchasedCreditsUsed?.toLocaleString() ?? 0} / {usage.purchasedCredits.toLocaleString()}
+                      {usage.purchasedCreditsUsed?.toLocaleString() ?? 0} / {usage.totalCredits.toLocaleString()}
                     </span>
                   </div>
                   <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-brand-600 to-brand-400 rounded-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, ((usage.purchasedCreditsUsed ?? 0) / usage.purchasedCredits) * 100)}%` }}
+                      style={{ width: `${Math.min(100, ((usage.purchasedCreditsUsed ?? 0) / usage.totalCredits) * 100)}%` }}
                     />
                   </div>
                 </div>

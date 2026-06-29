@@ -210,9 +210,10 @@ export const handler = async (event) => {
     supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
     getUserUsage(user.id, supabase),
   ])
-  const isAdmin            = profile?.role === 'admin'
-  const purchasedRemaining = Math.max(0, (preflight.purchasedCredits ?? 0) - (preflight.purchasedCreditsUsed ?? 0))
-  if (!isAdmin && purchasedRemaining <= 0) return err('No credits available. Contact your admin to grant credits.', 503)
+  const isAdmin = profile?.role === 'admin'
+  // preflight.purchasedRemaining already accounts for both purchased AND
+  // granted credits (see getUserUsage) — do not recompute from purchasedCredits alone.
+  if (!isAdmin && (preflight.purchasedRemaining ?? 0) <= 0) return err('No credits available. Contact your admin to grant credits.', 503)
 
   // Run buildings + roads queries in parallel to stay within Netlify's 10s
   // function timeout. Buildings are preferred (one point per structure);
