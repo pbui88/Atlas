@@ -458,6 +458,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             }
           }
           await fetchStats()
+          refreshUsage()
         }
       }
     } catch { /* continue */ }
