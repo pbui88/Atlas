@@ -1067,27 +1067,6 @@ export default function AdminPanel() {
         />
       ) : tab === 'usage' ? (
         <div className="space-y-6">
-          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4">By Service — Last 30 Days</h3>
-            {usage?.byService?.length > 0 ? (
-              <div className="divide-y divide-white/[0.04]">
-                {usage.byService.map(row => (
-                  <div key={row.service} className="flex items-center justify-between py-3 text-sm">
-                    <span className="text-slate-500 capitalize">{row.service.replace(/_/g, ' ')}</span>
-                    <div className="text-right">
-                      <span className="text-slate-200 font-semibold">{row.total_count.toLocaleString()} calls</span>
-                      {row.total_cost != null && (
-                        <span className="text-slate-600 ml-3">${(+row.total_cost).toFixed(2)}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-600">No usage data yet.</p>
-            )}
-          </div>
-
           <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-white/[0.06] flex flex-wrap items-center gap-4">
               <h3 className="text-sm font-semibold text-slate-300 mr-auto">By User</h3>
