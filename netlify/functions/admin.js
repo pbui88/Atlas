@@ -92,18 +92,20 @@ export const handler = async (event) => {
   if (event.httpMethod === 'GET' && action === 'usage') {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const { data: logs } = await supabase
-      .from('usage_logs')
-      .select('service, count, cost_usd, user_id')
-      .gte('created_at', since)
+    const [{ data: logs }, { data: nonAdminProfiles }, { count: totalProjects }] = await Promise.all([
+      supabase.from('usage_logs').select('service, count, cost_usd, user_id').gte('created_at', since),
+      supabase.from('profiles').select('id').neq('role', 'admin').eq('is_active', true),
+      supabase.from('projects').select('*', { count: 'exact', head: true }),
+    ])
 
-    const { count: totalProjects } = await supabase
-      .from('projects')
-      .select('*', { count: 'exact', head: true })
+    const aggregated   = {}
+    const byUserSvcMap = {}
 
-    const aggregated    = {}
-    const byUserMap     = {}
-    const byUserSvcMap  = {}
+    // Seed every active non-admin user with zero usage so they always appear
+    const byUserMap = Object.fromEntries(
+      (nonAdminProfiles || []).map(p => [p.id, { userId: p.id, total_count: 0, total_cost: 0 }])
+    )
+
     for (const row of logs || []) {
       if (!aggregated[row.service]) aggregated[row.service] = { service: row.service, total_count: 0, total_cost: 0 }
       aggregated[row.service].total_count += row.count || 0

@@ -554,7 +554,6 @@ export default function AdminPanel() {
                 <tbody className="divide-y divide-white/[0.04]">
                   {usage.byUser.map(row => {
                     const u = users.find(x => x.id === row.userId)
-                    if (u?.role === 'admin') return null
                     const initial = (u?.full_name || u?.email || '?')[0].toUpperCase()
                     return (
                       <tr key={row.userId} className="hover:bg-white/[0.02] transition-colors">
