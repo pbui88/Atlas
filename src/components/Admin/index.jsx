@@ -522,6 +522,8 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,           setUsers]           = useState([])
+  const [usersLoading,    setUsersLoading]    = useState(false)
+  const [usersRefreshedAt, setUsersRefreshedAt] = useState(null)
   const [usage,           setUsage]           = useState(null)
   const [monitor,         setMonitor]         = useState(null)
   const [svQuota,         setSvQuota]         = useState(null)
@@ -556,6 +558,16 @@ export default function AdminPanel() {
     }
   }
 
+  const loadUsers = async () => {
+    setUsersLoading(true)
+    try {
+      const data = await safe(adminGetUsers())
+      if (data) { setUsers(data); setUsersRefreshedAt(new Date()) }
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
   const load = async () => {
     setLoading(true)
     try {
@@ -563,7 +575,7 @@ export default function AdminPanel() {
         safe(adminGetUsers()),
         safe(adminGetUsage(usageStart, usageEnd)),
       ])
-      if (usersData) setUsers(usersData)
+      if (usersData) { setUsers(usersData); setUsersRefreshedAt(new Date()) }
       if (usageData) setUsage(usageData)
     } catch (e) {
       console.error('[admin] load failed:', e)
@@ -613,6 +625,13 @@ export default function AdminPanel() {
     const id = setInterval(() => loadSvQuota(quotaStart, quotaEnd), 60000)
     return () => clearInterval(id)
   }, [tab, quotaStart, quotaEnd])
+
+  // Auto-refresh Users tab every 30s while active
+  useEffect(() => {
+    if (tab !== 'users') return
+    const id = setInterval(() => loadUsers(), 30000)
+    return () => clearInterval(id)
+  }, [tab])
 
   const toggleRole   = async (user) => {
     const newRole = user.role === 'admin' ? 'user' : 'admin'
@@ -739,6 +758,27 @@ export default function AdminPanel() {
         </div>
       ) : tab === 'users' ? (
         <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-semibold text-slate-300">Users</h3>
+              {usersRefreshedAt && (
+                <span className="text-xs text-slate-600">
+                  Updated {usersRefreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+              {usersLoading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
+            </div>
+            <button
+              onClick={loadUsers}
+              disabled={usersLoading}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition"
+            >
+              <svg className={`w-3.5 h-3.5 ${usersLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              Refresh
+            </button>
+          </div>
             <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] bg-navy-900/50">
