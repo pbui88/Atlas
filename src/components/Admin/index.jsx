@@ -807,7 +807,7 @@ export default function AdminPanel() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                    {['User', 'API Breakdown', 'Total Calls', 'Est. Cost'].map(h => (
+                    {['User', 'Geocoding', 'Street View', 'Gemini Vision'].map(h => (
                       <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -816,6 +816,12 @@ export default function AdminPanel() {
                   {usage.byUser.map(row => {
                     const u = users.find(x => x.id === row.userId)
                     const initial = (u?.full_name || u?.email || '?')[0].toUpperCase()
+                    const svcCount = (keys) => {
+                      const total = (row.services || [])
+                        .filter(s => keys.includes(s.service))
+                        .reduce((sum, s) => sum + (s.total_count || 0), 0)
+                      return total > 0 ? total.toLocaleString() : <span className="text-slate-600">—</span>
+                    }
                     return (
                       <tr key={row.userId} className="hover:bg-white/[0.02] transition-colors">
                         <td className="px-4 py-3">
@@ -829,24 +835,14 @@ export default function AdminPanel() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-1.5">
-                            {(row.services || []).map(svc => (
-                              <span key={svc.service} className="inline-flex items-center gap-1 text-xs bg-navy-700 border border-white/[0.06] rounded-md px-2 py-1">
-                                <span className="text-slate-400 capitalize">{svc.service.replace(/_/g, ' ')}</span>
-                                <span className="text-slate-200 font-semibold tabular-nums">{svc.total_count.toLocaleString()}</span>
-                                {svc.total_cost > 0 && (
-                                  <span className="text-slate-600 tabular-nums">${svc.total_cost.toFixed(2)}</span>
-                                )}
-                              </span>
-                            ))}
-                          </div>
+                        <td className="px-4 py-3 text-xs font-semibold tabular-nums text-slate-300">
+                          {svcCount(['geocoding'])}
                         </td>
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-200 tabular-nums whitespace-nowrap">
-                          {row.total_count.toLocaleString()}
+                        <td className="px-4 py-3 text-xs font-semibold tabular-nums text-slate-300">
+                          {svcCount(['street_view', 'streetlevel_gsv'])}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-400 tabular-nums whitespace-nowrap">
-                          ${row.total_cost.toFixed(2)}
+                        <td className="px-4 py-3 text-xs font-semibold tabular-nums text-slate-300">
+                          {svcCount(['gemini_vision'])}
                         </td>
                       </tr>
                     )
