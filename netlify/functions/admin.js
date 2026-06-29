@@ -92,9 +92,9 @@ export const handler = async (event) => {
   if (event.httpMethod === 'GET' && action === 'usage') {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const { data: byService } = await supabase
+    const { data: logs } = await supabase
       .from('usage_logs')
-      .select('service, count, cost_usd')
+      .select('service, count, cost_usd, user_id')
       .gte('created_at', since)
 
     const { count: totalProjects } = await supabase
@@ -102,10 +102,15 @@ export const handler = async (event) => {
       .select('*', { count: 'exact', head: true })
 
     const aggregated = {}
-    for (const row of byService || []) {
+    const byUserMap  = {}
+    for (const row of logs || []) {
       if (!aggregated[row.service]) aggregated[row.service] = { service: row.service, total_count: 0, total_cost: 0 }
       aggregated[row.service].total_count += row.count || 0
       aggregated[row.service].total_cost  += row.cost_usd || 0
+
+      if (!byUserMap[row.user_id]) byUserMap[row.user_id] = { userId: row.user_id, total_count: 0, total_cost: 0 }
+      byUserMap[row.user_id].total_count += row.count || 0
+      byUserMap[row.user_id].total_cost  += row.cost_usd || 0
     }
 
     const totalCalls30d = Object.values(aggregated).reduce((s, r) => s + r.total_count, 0)
@@ -114,6 +119,7 @@ export const handler = async (event) => {
       totalProjects,
       totalCalls30d,
       byService: Object.values(aggregated),
+      byUser: Object.values(byUserMap).sort((a, b) => b.total_cost - a.total_cost),
     })
   }
 

@@ -516,25 +516,73 @@ export default function AdminPanel() {
           )}
         </div>
       ) : tab === 'usage' ? (
-        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-slate-300 mb-4">Usage Summary — Last 30 Days</h3>
-          {usage?.byService?.length > 0 ? (
-            <div className="divide-y divide-white/[0.04]">
-              {usage.byService.map(row => (
-                <div key={row.service} className="flex items-center justify-between py-3 text-sm">
-                  <span className="text-slate-500 capitalize">{row.service.replace(/_/g, ' ')}</span>
-                  <div className="text-right">
-                    <span className="text-slate-200 font-semibold">{row.total_count.toLocaleString()} calls</span>
-                    {row.total_cost != null && (
-                      <span className="text-slate-600 ml-3">${(+row.total_cost).toFixed(2)}</span>
-                    )}
+        <div className="space-y-6">
+          <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-slate-300 mb-4">By Service — Last 30 Days</h3>
+            {usage?.byService?.length > 0 ? (
+              <div className="divide-y divide-white/[0.04]">
+                {usage.byService.map(row => (
+                  <div key={row.service} className="flex items-center justify-between py-3 text-sm">
+                    <span className="text-slate-500 capitalize">{row.service.replace(/_/g, ' ')}</span>
+                    <div className="text-right">
+                      <span className="text-slate-200 font-semibold">{row.total_count.toLocaleString()} calls</span>
+                      {row.total_cost != null && (
+                        <span className="text-slate-600 ml-3">${(+row.total_cost).toFixed(2)}</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">No usage data yet.</p>
+            )}
+          </div>
+
+          <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-white/[0.06]">
+              <h3 className="text-sm font-semibold text-slate-300">By User — Last 30 Days</h3>
             </div>
-          ) : (
-            <p className="text-sm text-slate-600">No usage data yet.</p>
-          )}
+            {usage?.byUser?.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/[0.06] bg-navy-900/50">
+                    {['User', 'Calls', 'Est. Cost'].map(h => (
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {usage.byUser.map(row => {
+                    const u = users.find(x => x.id === row.userId)
+                    const initial = (u?.full_name || u?.email || '?')[0].toUpperCase()
+                    return (
+                      <tr key={row.userId} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
+                              <span className="text-xs font-bold text-brand-400">{initial}</span>
+                            </div>
+                            <div>
+                              {u?.full_name && <p className="text-xs font-semibold text-slate-200">{u.full_name}</p>}
+                              <p className="text-xs text-slate-500">{u?.email ?? row.userId}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-sm font-semibold text-slate-200 tabular-nums">
+                          {row.total_count.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2.5 text-sm text-slate-400 tabular-nums">
+                          ${row.total_cost.toFixed(2)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-sm text-slate-600 px-6 py-4">No usage data yet.</p>
+            )}
+          </div>
         </div>
       ) : tab === 'monitor' ? (
         monitorLoading ? (
