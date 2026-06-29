@@ -1,4 +1,4 @@
-import { requireAdmin, adminSupabase, ok, err, options, isValidUUID, getPathParam } from './utils/supabase.js'
+import { requireAdmin, adminSupabase, ok, err, options, isValidUUID, getPathParam, fetchAllRows } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
 
 // Default monitoring thresholds (Supabase Pro tier) — overridable via env vars.
@@ -55,14 +55,16 @@ export const handler = async (event) => {
     // per user to their specific cycle window client-side. Replaces N
     // parallel queries that could exhaust Supabase connection pools.
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    const { data: recentLogs } = await supabase
-      .from('usage_logs')
-      .select('user_id, count, created_at')
-      .in('service', ['street_view', 'mapillary'])
-      .gte('created_at', since30.toISOString())
+    const recentLogs = await fetchAllRows((from, to) =>
+      supabase.from('usage_logs')
+        .select('user_id, count, created_at')
+        .in('service', ['street_view', 'streetlevel_gsv', 'mapillary'])
+        .gte('created_at', since30.toISOString())
+        .range(from, to)
+    )
 
     const usageByUser = {}
-    for (const log of recentLogs || []) {
+    for (const log of recentLogs) {
       const cycleStart = userCycleStarts[log.user_id]
       if (cycleStart && new Date(log.created_at) >= cycleStart) {
         usageByUser[log.user_id] = (usageByUser[log.user_id] || 0) + (log.count || 0)
@@ -92,9 +94,13 @@ export const handler = async (event) => {
   if (event.httpMethod === 'GET' && action === 'usage') {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const [{ data: logs }, { data: nonAdminProfiles }, { count: totalProjects }] = await Promise.all([
-      supabase.from('usage_logs').select('service, count, cost_usd, user_id').gte('created_at', since),
-      supabase.from('profiles').select('id').neq('role', 'admin').eq('is_active', true),
+    const [[logs, nonAdminProfiles], { count: totalProjects }] = await Promise.all([
+      Promise.all([
+        fetchAllRows((from, to) =>
+          supabase.from('usage_logs').select('service, count, cost_usd, user_id').gte('created_at', since).range(from, to)
+        ),
+        supabase.from('profiles').select('id').neq('role', 'admin').eq('is_active', true).then(r => r.data || []),
+      ]),
       supabase.from('projects').select('*', { count: 'exact', head: true }),
     ])
 
@@ -103,10 +109,10 @@ export const handler = async (event) => {
 
     // Seed every active non-admin user with zero usage so they always appear
     const byUserMap = Object.fromEntries(
-      (nonAdminProfiles || []).map(p => [p.id, { userId: p.id, total_count: 0, total_cost: 0 }])
+      nonAdminProfiles.map(p => [p.id, { userId: p.id, total_count: 0, total_cost: 0 }])
     )
 
-    for (const row of logs || []) {
+    for (const row of logs) {
       if (!aggregated[row.service]) aggregated[row.service] = { service: row.service, total_count: 0, total_cost: 0 }
       aggregated[row.service].total_count += row.count || 0
       aggregated[row.service].total_cost  += row.cost_usd || 0
@@ -259,16 +265,19 @@ export const handler = async (event) => {
 
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
-    const [profilesRes, keyRowsRes, logsRes] = await Promise.all([
+    const [profilesRes, keyRowsRes, svLogs] = await Promise.all([
       supabase.from('profiles')
         .select('id, full_name, email, points_limit, cycle_anchor_date')
         .neq('role', 'admin')
         .eq('is_active', true),
       supabase.from('user_keys').select('user_id').not('google_maps_key', 'is', null),
-      supabase.from('usage_logs')
-        .select('user_id, count, created_at')
-        .in('service', ['street_view', 'mapillary'])
-        .gte('created_at', since30.toISOString()),
+      fetchAllRows((from, to) =>
+        supabase.from('usage_logs')
+          .select('user_id, count, created_at')
+          .in('service', ['street_view', 'streetlevel_gsv'])
+          .gte('created_at', since30.toISOString())
+          .range(from, to)
+      ),
     ])
 
     const usersWithKey = new Set((keyRowsRes.data || []).map(r => r.user_id))
@@ -289,7 +298,7 @@ export const handler = async (event) => {
     }
 
     const cycleUsage = {}
-    for (const log of logsRes.data || []) {
+    for (const log of svLogs) {
       const start = cycleStarts[log.user_id]
       if (start && new Date(log.created_at) >= start) {
         cycleUsage[log.user_id] = (cycleUsage[log.user_id] || 0) + (log.count || 0)
