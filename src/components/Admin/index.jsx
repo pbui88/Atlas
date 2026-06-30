@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer,
 } from 'recharts'
 import {
-  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor, adminGetScanActivity,
+  adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
   adminGetSkipTraceStats, adminGetStreetViewQuota,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
@@ -523,213 +523,12 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
   )
 }
 
-// Merge consecutive log entries within 5 minutes into scan sessions
-function buildSessions(logs) {
-  const sorted = [...logs].sort((a, b) => a.created_at.localeCompare(b.created_at))
-  const sessions = []
-  for (const log of sorted) {
-    const prev = sessions[sessions.length - 1]
-    const gap  = prev ? (new Date(log.created_at) - new Date(prev.end_at)) / 60000 : Infinity
-    if (prev && gap <= 5) {
-      prev.points  += log.count ?? 1
-      prev.end_at   = log.created_at
-      prev.services.add(log.service)
-    } else {
-      sessions.push({ start_at: log.created_at, end_at: log.created_at, points: log.count ?? 1, services: new Set([log.service]) })
-    }
-  }
-  return sessions.reverse() // newest first
-}
-
-function ScanActivityPanel({ activity, loading, refreshedAt, onRefresh }) {
-  const [search,   setSearch]   = useState('')
-  const [expanded, setExpanded] = useState(new Set())
-
-  const toggle = (uid) => setExpanded(prev => {
-    const next = new Set(prev)
-    next.has(uid) ? next.delete(uid) : next.add(uid)
-    return next
-  })
-
-  const fmtSvc = s =>
-    s === 'street_view' || s === 'streetlevel_gsv' ? 'Street View'
-    : s === 'mapillary' ? 'Mapillary' : s
-
-  const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const fmtDuration = (start, end) => {
-    const mins = Math.round((new Date(end) - new Date(start)) / 60000)
-    if (mins < 1) return null
-    return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`
-  }
-
-  // Group by user
-  const grouped = []
-  if (activity) {
-    const map = new Map()
-    for (const row of activity) {
-      if (!map.has(row.user_id)) {
-        map.set(row.user_id, { user_id: row.user_id, email: row.email, full_name: row.full_name, total: 0, logs: [], first_at: row.created_at, last_at: row.created_at })
-      }
-      const g = map.get(row.user_id)
-      g.total += row.count ?? 1
-      g.logs.push(row)
-      if (row.created_at < g.first_at) g.first_at = row.created_at
-      if (row.created_at > g.last_at)  g.last_at  = row.created_at
-    }
-    grouped.push(...map.values())
-    grouped.sort((a, b) => b.last_at.localeCompare(a.last_at))
-  }
-
-  const q = search.trim().toLowerCase()
-  const filtered = grouped.filter(g =>
-    !q || g.email.toLowerCase().includes(q) || (g.full_name || '').toLowerCase().includes(q)
-  )
-
-  // For progress bars in sessions — find max points across all visible sessions
-  const allSessionPts = filtered.flatMap(g => buildSessions(g.logs).map(s => s.points))
-  const maxPts = Math.max(1, ...allSessionPts)
-
-  return (
-    <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
-        <div className="flex items-center gap-3 flex-1">
-          <h3 className="text-sm font-semibold text-slate-300 shrink-0">Today's Scan Activity</h3>
-          {refreshedAt && <span className="text-xs text-slate-600">Updated {refreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>}
-          {loading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search user…"
-            className="w-44 px-2.5 py-1 text-xs bg-navy-700 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
-          />
-          <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition shrink-0">
-            <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* Empty states */}
-      {!activity && !loading && <p className="text-center text-sm text-slate-600 py-10">Loading…</p>}
-      {activity && filtered.length === 0 && (
-        <p className="text-center text-sm text-slate-600 py-10">
-          {grouped.length === 0 ? 'No scans yet today.' : 'No users match your search.'}
-        </p>
-      )}
-
-      {/* Summary strip */}
-      {activity && filtered.length > 0 && (
-        <div className="flex items-center gap-6 px-4 py-2 bg-navy-900/40 border-b border-white/[0.04] text-xs text-slate-500">
-          <span><span className="text-slate-300 font-semibold">{filtered.length}</span> user{filtered.length !== 1 ? 's' : ''} active</span>
-          <span><span className="text-slate-300 font-semibold">{filtered.reduce((s, g) => s + g.total, 0).toLocaleString()}</span> pts scanned</span>
-        </div>
-      )}
-
-      {/* User cards */}
-      <div className="divide-y divide-white/[0.04]">
-        {filtered.map(group => {
-          const open     = expanded.has(group.user_id)
-          const initial  = (group.full_name || group.email || 'U')[0].toUpperCase()
-          const sessions = buildSessions(group.logs)
-          const dur      = fmtDuration(group.first_at, group.last_at)
-
-          return (
-            <div key={group.user_id}>
-              {/* Collapsed row */}
-              <button
-                onClick={() => toggle(group.user_id)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.02] transition-colors text-left"
-              >
-                <svg className={`w-3.5 h-3.5 text-slate-600 shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-                <div className="w-8 h-8 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-bold text-brand-400">{initial}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-200 truncate">{group.full_name || group.email}</p>
-                  {group.full_name && <p className="text-[11px] text-slate-600 truncate">{group.email}</p>}
-                </div>
-                {/* Right-side stats */}
-                <div className="flex items-center gap-5 shrink-0">
-                  {/* Session count badge */}
-                  <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/[0.05] text-slate-500">
-                    {sessions.length} session{sessions.length !== 1 ? 's' : ''}
-                  </span>
-                  {/* Duration */}
-                  {dur && <span className="hidden sm:block text-xs text-slate-600">{dur}</span>}
-                  {/* Points */}
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-slate-200">{group.total.toLocaleString()}</p>
-                    <p className="text-[10px] text-slate-600">pts today</p>
-                  </div>
-                  {/* Last seen */}
-                  <div className="text-right hidden md:block">
-                    <p className="text-xs text-slate-400">{fmtTime(group.last_at)}</p>
-                    <p className="text-[10px] text-slate-600">last active</p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Expanded — session timeline */}
-              {open && (
-                <div className="bg-navy-900/25 border-t border-white/[0.04] px-4 py-3 space-y-2">
-                  {sessions.map((s, i) => {
-                    const svcLabels = [...s.services].map(fmtSvc)
-                    const barPct    = Math.round((s.points / maxPts) * 100)
-                    const sessDur   = fmtDuration(s.start_at, s.end_at)
-                    return (
-                      <div key={i} className="flex items-center gap-3">
-                        {/* Time */}
-                        <div className="w-24 shrink-0 text-right">
-                          <p className="text-xs font-mono text-slate-400">{fmtTime(s.start_at)}</p>
-                          {sessDur && <p className="text-[10px] text-slate-600">{sessDur}</p>}
-                        </div>
-                        {/* Dot + line */}
-                        <div className="flex flex-col items-center gap-0.5 shrink-0">
-                          <div className="w-2 h-2 rounded-full bg-brand-500 ring-2 ring-brand-500/20" />
-                          {i < sessions.length - 1 && <div className="w-px h-4 bg-white/[0.06]" />}
-                        </div>
-                        {/* Session card */}
-                        <div className="flex-1 bg-navy-800 border border-white/[0.06] rounded-lg px-3 py-2">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {svcLabels.map(l => (
-                                <span key={l} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-brand-600/10 text-brand-400 border border-brand-600/20">{l}</span>
-                              ))}
-                            </div>
-                            <span className="text-xs font-bold text-slate-200 shrink-0 ml-2">{s.points.toLocaleString()} pts</span>
-                          </div>
-                          {/* Mini bar */}
-                          <div className="h-1 w-full bg-white/[0.05] rounded-full overflow-hidden">
-                            <div className="h-full bg-brand-500/60 rounded-full transition-all duration-500" style={{ width: `${barPct}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 export default function AdminPanel() {
   const { openSidebar } = useOutletContext()
   const [users,           setUsers]           = useState([])
   const [usersLoading,      setUsersLoading]      = useState(false)
   const [usersRefreshedAt,  setUsersRefreshedAt]  = useState(null)
-  const [activity,          setActivity]          = useState(null)
-  const [activityLoading,   setActivityLoading]   = useState(false)
-  const [activityRefreshedAt, setActivityRefreshedAt] = useState(null)
   const [usage,           setUsage]           = useState(null)
   const [monitor,         setMonitor]         = useState(null)
   const [svQuota,         setSvQuota]         = useState(null)
@@ -839,24 +638,6 @@ export default function AdminPanel() {
     return () => clearInterval(id)
   }, [tab])
 
-  const loadActivity = async () => {
-    setActivityLoading(true)
-    try {
-      const data = await safe(adminGetScanActivity(), 15000)
-      if (data) { setActivity(data); setActivityRefreshedAt(new Date()) }
-    } finally {
-      setActivityLoading(false)
-    }
-  }
-
-  // Auto-refresh Activity tab every 60s while active
-  useEffect(() => {
-    if (tab !== 'activity') return
-    loadActivity()
-    const id = setInterval(() => loadActivity(), 60000)
-    return () => clearInterval(id)
-  }, [tab])
-
   // Auto-refresh Skip Trace stats every 60s while active
   useEffect(() => {
     if (tab !== 'skip-trace') return
@@ -961,7 +742,6 @@ export default function AdminPanel() {
       <div className="flex gap-1 mb-6 bg-navy-800 border border-white/[0.06] rounded-lg p-1 w-fit flex-wrap">
         {[
           { key: 'users',      label: 'Users' },
-          { key: 'activity',   label: 'Activity' },
           { key: 'usage',      label: 'Usage' },
           { key: 'monitor',    label: 'Monitor' },
           { key: 'skip-trace', label: 'Skip Trace' },
@@ -1069,13 +849,6 @@ export default function AdminPanel() {
             <p className="text-center text-sm text-slate-600 py-10">No users found.</p>
           )}
         </div>
-      ) : tab === 'activity' ? (
-        <ScanActivityPanel
-          activity={activity}
-          loading={activityLoading}
-          refreshedAt={activityRefreshedAt}
-          onRefresh={loadActivity}
-        />
       ) : tab === 'usage' ? (
         <div className="space-y-6">
           <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
