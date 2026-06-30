@@ -608,6 +608,9 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                       {ptCount.toLocaleString()}
                     </span>
                   </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    In dense urban areas, 1 credit ≈ 1 property. In rural or large-scale areas, a property may span multiple scan points (up to 3 credits each).
+                  </p>
                   {pointCount !== null && (
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Grid Spacing</span>
