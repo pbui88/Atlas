@@ -601,11 +601,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     <span className="text-brand-400 font-bold">{ptCount.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">Est. Credits</span>
+                    <span className="text-slate-500">Est. Property Count</span>
                     <span className="text-slate-300">
-                      {ptCount.toLocaleString()}
+                      ~{Math.ceil(ptCount / 3).toLocaleString()}
                       <span className="text-slate-600"> – </span>
-                      {(ptCount * 3).toLocaleString()}
+                      {ptCount.toLocaleString()}
                     </span>
                   </div>
                   {pointCount !== null && (
@@ -614,9 +614,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                       <span className="text-slate-300">{spacing}m</span>
                     </div>
                   )}
-                  <p className="text-[11px] text-slate-600 leading-relaxed pt-0.5">
-                    Each scan point costs 1–3+ credits depending on services used.
-                  </p>
                 </>
               )}
             </div>
