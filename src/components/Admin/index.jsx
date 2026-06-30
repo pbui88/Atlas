@@ -495,7 +495,7 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">By Admin</p>
               <div className="space-y-2">
                 {adminUsers.map(u => {
-                  const pct = adminSummary.totalUsed > 0 ? Math.round((u.used / adminSummary.totalUsed) * 100) : 0
+                  const barPct = adminSummary.totalUsed > 0 ? Math.round((u.used / adminSummary.totalUsed) * 100) : 0
                   const initial = (u.fullName || u.email || '?')[0].toUpperCase()
                   return (
                     <div key={u.userId} className="flex items-center gap-3">
@@ -505,10 +505,10 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-0.5">
                           <span className="text-xs text-slate-400 truncate">{u.fullName || u.email}</span>
-                          <span className="text-xs font-semibold tabular-nums text-slate-300 ml-2 shrink-0">{u.used.toLocaleString()} <span className="text-slate-600 font-normal">({pct}%)</span></span>
+                          <span className="text-xs font-semibold tabular-nums text-slate-300 ml-2 shrink-0">{u.used.toLocaleString()}</span>
                         </div>
                         <div className="h-1 w-full bg-white/[0.05] rounded-full overflow-hidden">
-                          <div className="h-full bg-brand-500/50 rounded-full" style={{ width: `${pct}%` }} />
+                          <div className="h-full bg-brand-500/50 rounded-full" style={{ width: `${barPct}%` }} />
                         </div>
                       </div>
                     </div>
@@ -529,6 +529,7 @@ export default function AdminPanel() {
   const [users,           setUsers]           = useState([])
   const [usersLoading,      setUsersLoading]      = useState(false)
   const [usersRefreshedAt,  setUsersRefreshedAt]  = useState(null)
+  const [usersSearch,       setUsersSearch]       = useState('')
   const [usage,           setUsage]           = useState(null)
   const [monitor,         setMonitor]         = useState(null)
   const [svQuota,         setSvQuota]         = useState(null)
@@ -780,16 +781,23 @@ export default function AdminPanel() {
               )}
               {usersLoading && <span className="text-xs text-brand-400 animate-pulse">Refreshing…</span>}
             </div>
-            <button
-              onClick={loadUsers}
-              disabled={usersLoading}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition"
-            >
-              <svg className={`w-3.5 h-3.5 ${usersLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-              </svg>
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <input
+                value={usersSearch} onChange={e => setUsersSearch(e.target.value)}
+                placeholder="Search user…"
+                className="w-44 px-2.5 py-1 text-xs bg-navy-700 border border-white/[0.08] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+              <button
+                onClick={loadUsers}
+                disabled={usersLoading}
+                className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-40 transition"
+              >
+                <svg className={`w-3.5 h-3.5 ${usersLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Refresh
+              </button>
+            </div>
           </div>
             <table className="w-full text-sm">
             <thead>
@@ -800,7 +808,10 @@ export default function AdminPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.04]">
-              {users.map(user => {
+              {users.filter(u => {
+                const q = usersSearch.trim().toLowerCase()
+                return !q || (u.full_name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+              }).map(user => {
                 const initial = (user.full_name || user.email || 'U')[0].toUpperCase()
                 return (
                   <tr key={user.id} className={`transition-colors ${!user.is_active ? 'bg-amber-500/5' : 'hover:bg-white/[0.02]'}`}>
