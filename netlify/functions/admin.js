@@ -358,25 +358,27 @@ export const handler = async (event) => {
       return { userId: p.id, fullName: p.full_name, email: p.email, hasOwnKey, limit, used, ownKeyUsed, platformOverflow, purchasedCredits, grantedCredits, markupRevenue }
     }).sort((a, b) => b.platformOverflow - a.platformOverflow || b.used - a.used)
 
-    // Admin users: first 10k free, over 10k at $0.007
-    const adminUsers = (adminProfilesRes.data || []).map(p => {
-      const used          = usageInRange[p.id] || 0
-      const freePoints    = Math.min(used, FREE_TIER)
-      const billable      = Math.max(0, used - FREE_TIER)
-      const estimatedCost = Math.round(billable * API_COST_PER_POINT * 10000) / 10000
-      return { userId: p.id, fullName: p.full_name, email: p.email, used, freePoints, billable, estimatedCost }
-    }).sort((a, b) => b.used - a.used)
+    // Admin users all share ONE platform key — there is a single 10k free tier
+    // for the combined total, not one per admin account.
+    const adminUsers = (adminProfilesRes.data || []).map(p => ({
+      userId: p.id, fullName: p.full_name, email: p.email,
+      used: usageInRange[p.id] || 0,
+    })).sort((a, b) => b.used - a.used)
 
     const usersOverQuota        = users.filter(u => u.hasOwnKey && u.used > u.limit).length
     const totalPlatformOverflow = users.reduce((s, u) => s + u.platformOverflow, 0)
     const platformApiCost       = Math.round(totalPlatformOverflow * API_COST_PER_POINT * 10000) / 10000
     const totalMarkupRevenue    = Math.round(users.reduce((s, u) => s + u.markupRevenue, 0) * 10000) / 10000
-    const adminTotalBillable    = adminUsers.reduce((s, u) => s + u.billable, 0)
-    const adminTotalCost        = Math.round(adminTotalBillable * API_COST_PER_POINT * 10000) / 10000
+
+    // Combined admin usage against the shared 10k free tier
+    const adminTotalUsed     = adminUsers.reduce((s, u) => s + u.used, 0)
+    const adminFreeTier      = Math.min(adminTotalUsed, FREE_TIER)
+    const adminTotalBillable = Math.max(0, adminTotalUsed - FREE_TIER)
+    const adminTotalCost     = Math.round(adminTotalBillable * API_COST_PER_POINT * 10000) / 10000
 
     return ok({
       summary:      { usersOverQuota, totalPlatformOverflow, platformApiCost, totalMarkupRevenue },
-      adminSummary: { totalBillable: adminTotalBillable, totalCost: adminTotalCost },
+      adminSummary: { totalUsed: adminTotalUsed, freeTier: adminFreeTier, totalBillable: adminTotalBillable, totalCost: adminTotalCost },
       users,
       adminUsers,
     })

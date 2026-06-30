@@ -440,79 +440,83 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
       </div>
 
       {/* Admin usage section */}
-      {adminUsers?.length > 0 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Admin Billable Points</p>
-              <p className="text-3xl font-bold font-display text-amber-400">{adminSummary.totalBillable.toLocaleString()}</p>
-              <p className="text-xs text-slate-600 mt-1">pts over 10k free tier (cycle)</p>
+      {adminUsers?.length > 0 && adminSummary && (
+        <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6 space-y-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-300">Platform Key Usage — Current Cycle</h3>
+            <span className="text-xs text-slate-600">Shared across all admins · 10k free / $0.007 over</span>
+          </div>
+
+          {/* Combined totals */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Total Calls</p>
+              <p className={`text-2xl font-bold font-display tabular-nums ${adminSummary.totalUsed > 10000 ? 'text-amber-400' : 'text-slate-200'}`}>
+                {adminSummary.totalUsed.toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5">of 10,000 free</p>
             </div>
-            <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Admin API Cost</p>
-              <p className="text-3xl font-bold font-display text-white">${adminSummary.totalCost.toFixed(2)}</p>
-              <p className="text-xs text-slate-600 mt-1">$0.007 × billable pts (cycle)</p>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Billable Points</p>
+              <p className={`text-2xl font-bold font-display tabular-nums ${adminSummary.totalBillable > 0 ? 'text-amber-400' : 'text-slate-600'}`}>
+                {adminSummary.totalBillable > 0 ? adminSummary.totalBillable.toLocaleString() : '—'}
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5">beyond free tier</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Est. Cost</p>
+              <p className={`text-2xl font-bold font-display tabular-nums ${adminSummary.totalCost > 0 ? 'text-white' : 'text-slate-600'}`}>
+                {adminSummary.totalCost > 0 ? `$${adminSummary.totalCost.toFixed(2)}` : '$0.00'}
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5">this cycle</p>
             </div>
           </div>
 
-          <div className="bg-navy-800 border border-white/[0.06] rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-300">Admin Street View Usage — Current Cycle</h3>
-              <span className="text-xs text-slate-600">10k free / $0.007 over</span>
+          {/* Free tier progress bar */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-slate-500">Free tier used</span>
+              <span className="text-xs text-slate-400 tabular-nums">
+                {Math.min(adminSummary.totalUsed, 10000).toLocaleString()} / 10,000
+                {adminSummary.totalBillable > 0 && <span className="text-amber-400 ml-2">+{adminSummary.totalBillable.toLocaleString()} billable</span>}
+              </span>
             </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/[0.06] bg-navy-900/50">
-                  {['Admin', 'Total Used', 'Free (≤10k)', 'Billable (>10k)', 'Est. Cost'].map(h => (
-                    <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
+            <div className="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${adminSummary.totalBillable > 0 ? 'bg-amber-400' : 'bg-brand-500'}`}
+                style={{ width: `${Math.min(100, Math.round((adminSummary.totalUsed / 10000) * 100))}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Per-admin breakdown (contribution only, no per-user billing) */}
+          {adminUsers.length > 1 && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">By Admin</p>
+              <div className="space-y-2">
                 {adminUsers.map(u => {
-                  const overFree = u.used > 10000
-                  const pct = Math.min(100, Math.round((u.used / 10000) * 100))
+                  const pct = adminSummary.totalUsed > 0 ? Math.round((u.used / adminSummary.totalUsed) * 100) : 0
                   const initial = (u.fullName || u.email || '?')[0].toUpperCase()
                   return (
-                    <tr key={u.userId} className={`transition-colors ${overFree ? 'bg-amber-500/[0.03] hover:bg-amber-500/[0.06]' : 'hover:bg-white/[0.02]'}`}>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
-                            <span className="text-xs font-bold text-brand-400">{initial}</span>
-                          </div>
-                          <div>
-                            {u.fullName && <p className="text-xs font-semibold text-slate-200">{u.fullName}</p>}
-                            <p className="text-xs text-slate-500">{u.email}</p>
-                          </div>
+                    <div key={u.userId} className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-full bg-brand-600/15 border border-brand-600/20 flex items-center justify-center shrink-0">
+                        <span className="text-[10px] font-bold text-brand-400">{initial}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-xs text-slate-400 truncate">{u.fullName || u.email}</span>
+                          <span className="text-xs font-semibold tabular-nums text-slate-300 ml-2 shrink-0">{u.used.toLocaleString()} <span className="text-slate-600 font-normal">({pct}%)</span></span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div>
-                          <span className={`text-xs font-semibold tabular-nums ${overFree ? 'text-amber-400' : 'text-slate-200'}`}>
-                            {u.used.toLocaleString()}
-                          </span>
-                          <div className="h-1 w-24 bg-white/[0.06] rounded-full overflow-hidden mt-1">
-                            <div className={`h-full rounded-full ${overFree ? 'bg-amber-400' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} />
-                          </div>
+                        <div className="h-1 w-full bg-white/[0.05] rounded-full overflow-hidden">
+                          <div className="h-full bg-brand-500/50 rounded-full" style={{ width: `${pct}%` }} />
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs tabular-nums text-emerald-400 font-semibold">
-                        {u.freePoints.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        {u.billable > 0
-                          ? <span className="text-xs font-semibold tabular-nums text-amber-400">{u.billable.toLocaleString()}</span>
-                          : <span className="text-xs text-slate-600">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-xs font-semibold tabular-nums text-white">
-                        {u.estimatedCost > 0 ? `$${u.estimatedCost.toFixed(2)}` : <span className="text-slate-600">—</span>}
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   )
                 })}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
