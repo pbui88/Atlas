@@ -586,10 +586,6 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     <span className="text-slate-500">Est. Scan Points</span>
                     <span className="text-brand-400 font-bold">~{(estimatedCount ?? 0).toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">Grid Spacing</span>
-                    <span className="text-slate-300">{spacing}m</span>
-                  </div>
                   <p className="text-xs text-slate-500 leading-relaxed">
                     Large area — too big to scan directly. Draw a smaller custom area to run a scan.
                   </p>
@@ -609,14 +605,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    In dense urban areas, 1 credit ≈ 1 property. In rural or large-scale areas, a property may span multiple scan points (up to 3 credits each).
+                    Each scan point costs 1 credit. In dense urban areas, 1 credit ≈ 1 property. In rural or large-scale areas, a property may span multiple scan points (up to 3 credits each).
                   </p>
-                  {pointCount !== null && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Grid Spacing</span>
-                      <span className="text-slate-300">{spacing}m</span>
-                    </div>
-                  )}
                 </>
               )}
             </div>
