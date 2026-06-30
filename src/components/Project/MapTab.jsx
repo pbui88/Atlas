@@ -605,7 +605,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Each scan point costs 1 credit. In dense urban areas, 1 credit ≈ 1 property. In rural or large-scale areas, a property may span multiple scan points (up to 3 credits each).
+                    Each scan point costs 1 credit. In dense urban areas, 1 credit ≈ 1 property. In rural or large-scale areas, a property may span multiple scan points (up to 3 credits or more each).
                   </p>
                 </>
               )}
