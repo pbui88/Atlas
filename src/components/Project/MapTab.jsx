@@ -488,11 +488,11 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
           {/* Point count badge */}
           {largeArea && estimatedCount != null ? (
             <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
-              ~{estimatedCount.toLocaleString()} properties <span className="text-slate-500 ml-1">(estimated)</span>
+              ~{estimatedCount.toLocaleString()} scan points <span className="text-slate-500 ml-1">(estimated)</span>
             </div>
           ) : ptCount > 0 && (
             <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 backdrop-blur-sm">
-              {ptCount.toLocaleString()} properties scan
+              {ptCount.toLocaleString()} scan points
               {ptCount > 2000 && <span className="text-slate-500 ml-1">(showing 2,000)</span>}
             </div>
           )}
@@ -583,7 +583,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               {largeArea ? (
                 <>
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">Est. Properties</span>
+                    <span className="text-slate-500">Est. Scan Points</span>
                     <span className="text-brand-400 font-bold">~{(estimatedCount ?? 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
@@ -596,24 +596,27 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 </>
               ) : (
                 <>
-                  {ptCount > 0 && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Property Count</span>
-                      <span className="text-slate-300 font-semibold">{ptCount.toLocaleString()}</span>
-                    </div>
-                  )}
-                  {pointCount !== null && (
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Total Points (draw)</span>
-                      <span className="text-brand-400 font-bold">{pointCount.toLocaleString()}</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Scan Points</span>
+                    <span className="text-brand-400 font-bold">{ptCount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">Est. Credits</span>
+                    <span className="text-slate-300">
+                      {ptCount.toLocaleString()}
+                      <span className="text-slate-600"> – </span>
+                      {(ptCount * 3).toLocaleString()}
+                    </span>
+                  </div>
                   {pointCount !== null && (
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-500">Grid Spacing</span>
                       <span className="text-slate-300">{spacing}m</span>
                     </div>
                   )}
+                  <p className="text-[11px] text-slate-600 leading-relaxed pt-0.5">
+                    Each scan point costs 1–3+ credits depending on services used.
+                  </p>
                 </>
               )}
             </div>
