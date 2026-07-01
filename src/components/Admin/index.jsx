@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
-  adminGetSkipTraceStats, adminGetStreetViewQuota,
+  adminGetSkipTraceStats, adminCheckSkipTracePending, adminGetStreetViewQuota,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
 import { US_STATES } from '../../../shared/taxRates.js'
@@ -618,6 +618,11 @@ export default function AdminPanel() {
     try {
       const data = await safe(adminGetSkipTraceStats(), 20000)
       setSkipTraceStats(data || null)
+      if ((data?.platform?.pendingJobsCount ?? 0) > 0) {
+        safe(adminCheckSkipTracePending(), 30000).then(() =>
+          safe(adminGetSkipTraceStats(), 20000).then(d => { if (d) setSkipTraceStats(d) })
+        )
+      }
     } finally {
       setStLoading(false)
     }
