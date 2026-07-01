@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   adminGetUsers, adminUpdateUser, adminDeleteUser, adminGetUsage, adminGetMonitor,
-  adminGetSkipTraceStats, adminGetStreetViewQuota,
+  adminGetSkipTraceStats, adminCheckSkipTracePending, adminGetStreetViewQuota,
   adminResetUserCycle, adminSetUserKey, adminGrantCredits, adminSetCredits,
 } from '../../lib/api'
 import { US_STATES } from '../../../shared/taxRates.js'
@@ -232,7 +232,7 @@ function GrantCreditsEditor({ user, onGrant, onSet }) {
   )
 }
 
-function SkipTraceMonitor({ stats, onRefresh }) {
+function SkipTraceMonitor({ stats, onRefresh, onCheckPending, checkingPending }) {
   const { platform } = stats
 
   return (
@@ -258,9 +258,23 @@ function SkipTraceMonitor({ stats, onRefresh }) {
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pending Jobs</p>
           <p className="text-2xl font-bold font-display text-white tabular-nums">{platform.pendingJobsCount}</p>
-          <p className="text-xs text-slate-600 mt-1">
-            {platform.pendingJobsCount > 0 ? `$${platform.pendingJobsCost.toFixed(2)} committed` : 'no active jobs'}
-          </p>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <p className="text-xs text-slate-600">
+              {platform.pendingJobsCount > 0 ? `$${platform.pendingJobsCost.toFixed(2)} committed` : 'no active jobs'}
+            </p>
+            {platform.pendingJobsCount > 0 && (
+              <button
+                onClick={onCheckPending}
+                disabled={checkingPending}
+                className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300 disabled:opacity-40 transition"
+              >
+                <svg className={`w-3 h-3 ${checkingPending ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                {checkingPending ? 'Checking…' : 'Resolve'}
+              </button>
+            )}
+          </div>
         </div>
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">API Spend (30d)</p>
@@ -548,6 +562,7 @@ export default function AdminPanel() {
   const [usageEnd,    setUsageEnd]    = useState(defaultEnd)
   const [usageLoading, setUsageLoading] = useState(false)
   const [tab,             setTab]             = useState('users')
+  const [checkingPending, setCheckingPending] = useState(false)
 
   const safe = (p, ms = 20000) => {
     const t = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
@@ -620,6 +635,16 @@ export default function AdminPanel() {
       setSkipTraceStats(data || null)
     } finally {
       setStLoading(false)
+    }
+  }
+
+  const handleCheckPending = async () => {
+    setCheckingPending(true)
+    try {
+      await safe(adminCheckSkipTracePending(), 30000)
+      await loadSkipTraceStats(true)
+    } finally {
+      setCheckingPending(false)
     }
   }
 
@@ -1037,6 +1062,8 @@ export default function AdminPanel() {
           <SkipTraceMonitor
             stats={skipTraceStats}
             onRefresh={() => { setSkipTraceStats(null); loadSkipTraceStats(true) }}
+            onCheckPending={handleCheckPending}
+            checkingPending={checkingPending}
           />
         )
       ) : null}

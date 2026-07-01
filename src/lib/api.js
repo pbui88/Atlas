@@ -93,7 +93,8 @@ export const adminGetUsage       = (start, end) => {
   return call(`admin/usage${qs ? `?${qs}` : ''}`)
 }
 export const adminGetMonitor        = ()                      => call('admin/monitor')
-export const adminGetSkipTraceStats = ()                      => call('admin/skip-trace-stats')
+export const adminGetSkipTraceStats      = ()         => call('admin/skip-trace-stats')
+export const adminCheckSkipTracePending  = ()         => call('admin/check-skip-trace', 'POST')
 export const adminDeleteUser     = (userId)                => call('admin', 'DELETE', { userId })
 export const adminGetUserUsage         = (userId) => call(`admin/user-usage/${userId}`)
 export const adminGetStreetViewQuota   = (start, end) => {

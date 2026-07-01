@@ -212,6 +212,103 @@ export const handler = async (event) => {
     })
   }
 
+  // ── POST check-skip-trace: resolve all pending orders across all users ──
+  if (event.httpMethod === 'POST' && action === 'check-skip-trace') {
+    const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
+    if (!TRACERFY_API_KEY) return err('TRACERFY_API_KEY not configured', 503)
+
+    const { data: orders } = await supabase
+      .from('skip_trace_orders')
+      .select('id, tracerfy_order_id, user_id')
+      .eq('status', 'processing')
+      .not('tracerfy_order_id', 'is', null)
+
+    if (!orders?.length) return ok({ checked: 0, completed: 0, recordsUpdated: 0 })
+
+    // Fetch all Tracerfy queue statuses (up to 3 pages)
+    let queueStatuses = []
+    try {
+      for (let page = 1; page <= 3; page++) {
+        const res = await fetch(`https://tracerfy.com/v1/api/queues/?page=${page}`, {
+          headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
+        })
+        if (!res.ok) break
+        const data = await res.json().catch(() => null)
+        if (!Array.isArray(data) || !data.length) break
+        queueStatuses.push(...data)
+        if (data.length < 100) break
+      }
+    } catch (e) {
+      return err('Failed to reach Tracerfy: ' + e.message, 502)
+    }
+
+    const statusMap = Object.fromEntries(queueStatuses.map(q => [String(q.id), q]))
+    let completed = 0, recordsUpdated = 0
+
+    for (const order of orders) {
+      const queueStatus = statusMap[order.tracerfy_order_id]
+      if (!queueStatus || queueStatus.pending != false) continue
+
+      // Fetch results for this completed queue
+      let results = []
+      try {
+        for (let page = 1; ; page++) {
+          const res = await fetch(`https://tracerfy.com/v1/api/queue/${order.tracerfy_order_id}?page=${page}`, {
+            headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
+          })
+          if (!res.ok) break
+          const data = await res.json().catch(() => null)
+          if (!Array.isArray(data) || !data.length) break
+          results.push(...data)
+          if (data.length < 100) break
+        }
+      } catch (e) {
+        console.error(`[admin/check-skip-trace] Failed to fetch results for queue ${order.tracerfy_order_id}:`, e.message)
+        continue
+      }
+
+      const now = new Date().toISOString()
+
+      if (!results.length) {
+        await supabase.from('skip_trace_records')
+          .update({ status: 'completed', completed_at: now })
+          .eq('order_id', order.id)
+      } else {
+        const { data: records } = await supabase.from('skip_trace_records')
+          .select('id, address').eq('order_id', order.id)
+
+        if (records?.length) {
+          const updatedIds = new Set()
+          // Simple address-based matching
+          for (const row of results) {
+            const addr = (row.address || row.street || '').toLowerCase().trim()
+            const match = records.find(r => !updatedIds.has(r.id) && (r.address || '').toLowerCase().includes(addr.split(' ')[0]))
+            if (!match) continue
+            updatedIds.add(match.id)
+            await supabase.from('skip_trace_records')
+              .update({ status: 'completed', completed_at: now, result: row })
+              .eq('id', match.id)
+            recordsUpdated++
+          }
+          const unmatchedIds = records.map(r => r.id).filter(id => !updatedIds.has(id))
+          if (unmatchedIds.length) {
+            await supabase.from('skip_trace_records')
+              .update({ status: 'completed', completed_at: now })
+              .in('id', unmatchedIds)
+          }
+        }
+      }
+
+      await supabase.from('skip_trace_orders')
+        .update({ status: 'completed', completed_at: now })
+        .eq('id', order.id)
+
+      completed++
+    }
+
+    return ok({ checked: orders.length, completed, recordsUpdated })
+  }
+
   // ── GET system monitor: API cost trends + Supabase storage/DB size ──
   if (event.httpMethod === 'GET' && action === 'monitor') {
     const DAY     = 24 * 60 * 60 * 1000
