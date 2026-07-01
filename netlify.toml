@@ -17,6 +17,9 @@
 [functions."admin"]
   timeout = 26
 
+[functions."scheduled-skip-trace-check"]
+  schedule = "*/5 * * * *"
+
 
 [[headers]]
   for = "/*"
