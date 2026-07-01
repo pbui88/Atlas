@@ -125,6 +125,7 @@ export default function SkipTracePage() {
   const tracePollRef        = useRef(null)
   const pendingTraceIdsRef  = useRef(null)   // IDs submitted, cleared when first result arrives
   const fileRef             = useRef(null)
+  const autoPollingStarted  = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -140,6 +141,16 @@ export default function SkipTracePage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // ── Auto-start polling if page loads with pending records ─
+  useEffect(() => {
+    if (autoPollingStarted.current || tracePolling) return
+    const hasPending = records.some(r => r.status === 'submitted' || r.status === 'processing')
+    if (hasPending) {
+      autoPollingStarted.current = true
+      setTracePolling(true)
+    }
+  }, [records, tracePolling])
 
   // ── Realtime subscription ─────────────────────────────────
   useEffect(() => {
