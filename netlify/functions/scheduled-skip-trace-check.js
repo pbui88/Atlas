@@ -70,7 +70,7 @@ export const handler = async () => {
   // Check all processing orders across all users
   const { data: orders } = await supabase
     .from('skip_trace_orders')
-    .select('id, tracerfy_order_id, user_id')
+    .select('id, tracerfy_order_id, user_id, cost_usd, created_at')
     .eq('status', 'processing')
     .not('tracerfy_order_id', 'is', null)
 
@@ -86,26 +86,14 @@ export const handler = async () => {
     queueStatuses = await fetchQueueStatuses()
   } catch (e) {
     console.error('[scheduled-skip-trace-check] Tracerfy unreachable:', e.message)
-    return { statusCode: 200 }
   }
 
   const statusMap = Object.fromEntries(queueStatuses.map(q => [String(q.id), q]))
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   let completed = 0
 
-  for (const order of orders) {
-    const queueStatus = statusMap[order.tracerfy_order_id]
-    if (!queueStatus || queueStatus.pending != false) continue
-
-    let results = []
-    try {
-      results = await fetchQueueResults(order.tracerfy_order_id)
-    } catch (e) {
-      console.error(`[scheduled-skip-trace-check] failed to fetch results for queue ${order.tracerfy_order_id}:`, e.message)
-      continue
-    }
-
+  const resolveOrder = async (order, results) => {
     const now = new Date().toISOString()
-
     if (!results.length) {
       await supabase.from('skip_trace_records')
         .update({ status: 'completed', completed_at: now })
@@ -113,21 +101,16 @@ export const handler = async () => {
     } else {
       const { data: records } = await supabase.from('skip_trace_records')
         .select('id, address').eq('order_id', order.id)
-
       if (records?.length) {
-        const updatedIds   = new Set()
-        const matchUpdates = []
+        const updatedIds = new Set()
         for (const row of results) {
           const match = matchRecord(row, records)
           if (!match || updatedIds.has(match.id)) continue
           updatedIds.add(match.id)
-          matchUpdates.push({ id: match.id, result: normalizeResult(row) })
+          await supabase.from('skip_trace_records')
+            .update({ status: 'completed', completed_at: now, result: normalizeResult(row) })
+            .eq('id', match.id)
         }
-        await Promise.all(matchUpdates.map(({ id, result }) =>
-          supabase.from('skip_trace_records')
-            .update({ status: 'completed', completed_at: now, result })
-            .eq('id', id)
-        ))
         const unmatchedIds = records.map(r => r.id).filter(id => !updatedIds.has(id))
         if (unmatchedIds.length) {
           await supabase.from('skip_trace_records')
@@ -136,15 +119,57 @@ export const handler = async () => {
         }
       }
     }
-
     await supabase.from('skip_trace_orders')
       .update({ status: 'completed', completed_at: now })
       .eq('id', order.id)
-
-    completed++
-    console.log(`[scheduled-skip-trace-check] resolved order ${order.id} for user ${order.user_id}`)
   }
 
-  console.log(`[scheduled-skip-trace-check] done — ${completed}/${orders.length} resolved`)
+  for (const order of orders) {
+    const qid = order.tracerfy_order_id
+    const fromList = statusMap[qid]
+
+    // Case 1: found in list and marked done
+    if (fromList && fromList.pending == false) {
+      try {
+        const results = await fetchQueueResults(qid)
+        await resolveOrder(order, results)
+        completed++
+        console.log(`[scheduled-skip-trace-check] resolved order ${order.id}`)
+      } catch (e) {
+        console.error(`[scheduled-skip-trace-check] resolve failed for ${qid}:`, e.message)
+      }
+      continue
+    }
+
+    // Case 2: not in recent list — try fetching results directly
+    if (!fromList) {
+      try {
+        const results = await fetchQueueResults(qid)
+        if (results.length > 0) {
+          await resolveOrder(order, results)
+          completed++
+          console.log(`[scheduled-skip-trace-check] resolved via direct fetch: order ${order.id}`)
+          continue
+        }
+      } catch (e) {
+        console.error(`[scheduled-skip-trace-check] direct fetch failed for ${qid}:`, e.message)
+      }
+    }
+
+    // Case 3: stuck > 2 hours with no results — force-complete the job
+    if (order.created_at < twoHoursAgo) {
+      const now = new Date().toISOString()
+      await supabase.from('skip_trace_records')
+        .update({ status: 'completed', completed_at: now })
+        .eq('order_id', order.id)
+      await supabase.from('skip_trace_orders')
+        .update({ status: 'completed', completed_at: now })
+        .eq('id', order.id)
+      console.log(`[scheduled-skip-trace-check] force-completed stuck order ${order.id}`)
+      completed++
+    }
+  }
+
+  console.log(`[scheduled-skip-trace-check] done — ${completed} resolved`)
   return { statusCode: 200 }
 }

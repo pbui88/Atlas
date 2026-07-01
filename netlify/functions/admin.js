@@ -361,27 +361,21 @@ export const handler = async (event) => {
         }
       }
 
-      // Case 3: stuck for > 2 hours with no results — refund and reset to saved
+      // Case 3: stuck > 2 hours with no results from Tracerfy — force-complete the job
       if (order.created_at < twoHoursAgo) {
-        const { data: claimed } = await supabase
-          .from('skip_trace_orders')
-          .update({ status: 'failed' })
+        const now = new Date().toISOString()
+        await supabase.from('skip_trace_records')
+          .update({ status: 'completed', completed_at: now })
+          .eq('order_id', order.id)
+        await supabase.from('skip_trace_orders')
+          .update({ status: 'completed', completed_at: now })
           .eq('id', order.id)
-          .eq('status', 'processing')
-          .select('id, cost_usd')
-        if (claimed?.length) {
-          await supabase.from('skip_trace_records').update({ status: 'saved' }).eq('order_id', order.id)
-          if ((claimed[0].cost_usd || 0) > 0) {
-            await supabase.rpc('add_skip_trace_balance', { p_user_id: order.user_id, p_amount: claimed[0].cost_usd })
-              .catch(e => console.error('[admin/check-skip-trace] refund failed:', e.message))
-          }
-          console.log(`[admin/check-skip-trace] refunded stuck order ${order.id} ($${claimed[0].cost_usd})`)
-          refunded++
-        }
+        console.log(`[admin/check-skip-trace] force-completed stuck order ${order.id}`)
+        completed++
       }
     }
 
-    return ok({ checked: orders.length, completed, refunded })
+    return ok({ checked: orders.length, completed })
   }
 
   // ── GET system monitor: API cost trends + Supabase storage/DB size ──
