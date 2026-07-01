@@ -183,11 +183,13 @@ export const handler = async (event) => {
   if (event.httpMethod === 'GET' && action === 'skip-trace-stats') {
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const [balancesRes, pendingRes, spent30dRes, spentAllRes] = await Promise.all([
-      supabase.from('profiles').select('skip_trace_balance').neq('role', 'admin'),
-      supabase.from('skip_trace_orders').select('id, cost_usd').eq('status', 'processing'),
+    const [balancesRes, pendingRes, spent30dRes, spentAllRes, ordersRes, profilesRes] = await Promise.all([
+      supabase.from('profiles').select('id, skip_trace_balance').neq('role', 'admin'),
+      supabase.from('skip_trace_orders').select('id, cost_usd, user_id').eq('status', 'processing'),
       supabase.rpc('get_skip_trace_spend_since', { p_since: since30 }),
       supabase.rpc('get_skip_trace_total_spend'),
+      supabase.from('skip_trace_orders').select('user_id, cost_usd, record_count, status, created_at'),
+      supabase.from('profiles').select('id, full_name, email').neq('role', 'admin'),
     ])
 
     if (balancesRes.error) console.error('[skip-trace-stats] balances:', balancesRes.error.message)
@@ -201,6 +203,37 @@ export const handler = async (event) => {
     const spent30d         = Number(spent30dRes.data) || 0
     const spentAllTime     = Number(spentAllRes.data) || 0
 
+    // Build per-user usage table
+    const profileMap = Object.fromEntries((profilesRes.data || []).map(p => [p.id, p]))
+    const balanceMap = Object.fromEntries((balancesRes.data || []).map(p => [p.id, Number(p.skip_trace_balance) || 0]))
+    const userStatsMap = {}
+    for (const o of (ordersRes.data || [])) {
+      if (!userStatsMap[o.user_id]) {
+        userStatsMap[o.user_id] = { totalSpent: 0, totalRecords: 0, pendingRecords: 0, lastSubmitted: null }
+      }
+      const s = userStatsMap[o.user_id]
+      if (o.status === 'completed') {
+        s.totalSpent   += Number(o.cost_usd) || 0
+        s.totalRecords += Number(o.record_count) || 0
+      } else if (o.status === 'processing') {
+        s.pendingRecords += Number(o.record_count) || 0
+      }
+      if (!s.lastSubmitted || o.created_at > s.lastSubmitted) s.lastSubmitted = o.created_at
+    }
+    const userRows = Object.entries(userStatsMap).map(([userId, s]) => {
+      const p = profileMap[userId] || {}
+      return {
+        userId,
+        email:          p.email        || '',
+        fullName:       p.full_name    || '',
+        balance:        Math.round((balanceMap[userId] ?? 0) * 100) / 100,
+        totalSpent:     Math.round(s.totalSpent   * 100) / 100,
+        totalRecords:   s.totalRecords,
+        pendingRecords: s.pendingRecords,
+        lastSubmitted:  s.lastSubmitted,
+      }
+    }).sort((a, b) => (b.lastSubmitted || '').localeCompare(a.lastSubmitted || ''))
+
     return ok({
       platform: {
         totalUserBalance:  Math.round(totalUserBalance * 100) / 100,
@@ -209,6 +242,7 @@ export const handler = async (event) => {
         totalSpent30d:     Math.round(spent30d         * 100) / 100,
         totalSpentAllTime: Math.round(spentAllTime     * 100) / 100,
       },
+      users: userRows,
     })
   }
 
