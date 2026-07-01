@@ -251,19 +251,21 @@ export const handler = async (event) => {
     const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
     if (!TRACERFY_API_KEY) return err('TRACERFY_API_KEY not configured', 503)
 
+    const TRACERFY_BASE = 'https://tracerfy.com/v1/api'
+
     const { data: orders } = await supabase
       .from('skip_trace_orders')
-      .select('id, tracerfy_order_id, user_id')
+      .select('id, tracerfy_order_id, user_id, cost_usd, created_at')
       .eq('status', 'processing')
       .not('tracerfy_order_id', 'is', null)
 
-    if (!orders?.length) return ok({ checked: 0, completed: 0, recordsUpdated: 0 })
+    if (!orders?.length) return ok({ checked: 0, completed: 0, refunded: 0 })
 
-    // Fetch all Tracerfy queue statuses (up to 3 pages)
+    // Fetch recent queue list (up to 3 pages / 300 queues)
     let queueStatuses = []
     try {
       for (let page = 1; page <= 3; page++) {
-        const res = await fetch(`https://tracerfy.com/v1/api/queues/?page=${page}`, {
+        const res = await fetch(`${TRACERFY_BASE}/queues/?page=${page}`, {
           headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
         })
         if (!res.ok) break
@@ -273,36 +275,30 @@ export const handler = async (event) => {
         if (data.length < 100) break
       }
     } catch (e) {
-      return err('Failed to reach Tracerfy: ' + e.message, 502)
+      console.error('[admin/check-skip-trace] Tracerfy queue list failed:', e.message)
     }
 
     const statusMap = Object.fromEntries(queueStatuses.map(q => [String(q.id), q]))
-    let completed = 0, recordsUpdated = 0
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    let completed = 0, refunded = 0
 
-    for (const order of orders) {
-      const queueStatus = statusMap[order.tracerfy_order_id]
-      if (!queueStatus || queueStatus.pending != false) continue
-
-      // Fetch results for this completed queue
-      let results = []
-      try {
-        for (let page = 1; ; page++) {
-          const res = await fetch(`https://tracerfy.com/v1/api/queue/${order.tracerfy_order_id}?page=${page}`, {
-            headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
-          })
-          if (!res.ok) break
-          const data = await res.json().catch(() => null)
-          if (!Array.isArray(data) || !data.length) break
-          results.push(...data)
-          if (data.length < 100) break
-        }
-      } catch (e) {
-        console.error(`[admin/check-skip-trace] Failed to fetch results for queue ${order.tracerfy_order_id}:`, e.message)
-        continue
+    const fetchResults = async (queueId) => {
+      const rows = []
+      for (let page = 1; ; page++) {
+        const res = await fetch(`${TRACERFY_BASE}/queue/${queueId}?page=${page}`, {
+          headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
+        })
+        if (!res.ok) break
+        const data = await res.json().catch(() => null)
+        if (!Array.isArray(data) || !data.length) break
+        rows.push(...data)
+        if (data.length < 100) break
       }
+      return rows
+    }
 
+    const resolveOrder = async (order, results) => {
       const now = new Date().toISOString()
-
       if (!results.length) {
         await supabase.from('skip_trace_records')
           .update({ status: 'completed', completed_at: now })
@@ -310,19 +306,16 @@ export const handler = async (event) => {
       } else {
         const { data: records } = await supabase.from('skip_trace_records')
           .select('id, address').eq('order_id', order.id)
-
         if (records?.length) {
+          const { normalizeResult, matchRecord } = await import('./utils/tracerfy.js')
           const updatedIds = new Set()
-          // Simple address-based matching
           for (const row of results) {
-            const addr = (row.address || row.street || '').toLowerCase().trim()
-            const match = records.find(r => !updatedIds.has(r.id) && (r.address || '').toLowerCase().includes(addr.split(' ')[0]))
-            if (!match) continue
+            const match = matchRecord(row, records)
+            if (!match || updatedIds.has(match.id)) continue
             updatedIds.add(match.id)
             await supabase.from('skip_trace_records')
-              .update({ status: 'completed', completed_at: now, result: row })
+              .update({ status: 'completed', completed_at: now, result: normalizeResult(row) })
               .eq('id', match.id)
-            recordsUpdated++
           }
           const unmatchedIds = records.map(r => r.id).filter(id => !updatedIds.has(id))
           if (unmatchedIds.length) {
@@ -332,15 +325,63 @@ export const handler = async (event) => {
           }
         }
       }
-
       await supabase.from('skip_trace_orders')
         .update({ status: 'completed', completed_at: now })
         .eq('id', order.id)
-
-      completed++
     }
 
-    return ok({ checked: orders.length, completed, recordsUpdated })
+    for (const order of orders) {
+      const qid = order.tracerfy_order_id
+      const fromList = statusMap[qid]
+
+      // Case 1: found in list and marked done
+      if (fromList && fromList.pending == false) {
+        try {
+          const results = await fetchResults(qid)
+          await resolveOrder(order, results)
+          completed++
+        } catch (e) {
+          console.error(`[admin/check-skip-trace] resolve failed for ${qid}:`, e.message)
+        }
+        continue
+      }
+
+      // Case 2: not in list (too old / fell off pagination) — query directly
+      if (!fromList) {
+        try {
+          const results = await fetchResults(qid)
+          if (results.length > 0) {
+            // Results exist → queue is done, just not in recent list
+            await resolveOrder(order, results)
+            completed++
+            continue
+          }
+        } catch (e) {
+          console.error(`[admin/check-skip-trace] direct fetch failed for ${qid}:`, e.message)
+        }
+      }
+
+      // Case 3: stuck for > 2 hours with no results — refund and reset to saved
+      if (order.created_at < twoHoursAgo) {
+        const { data: claimed } = await supabase
+          .from('skip_trace_orders')
+          .update({ status: 'failed' })
+          .eq('id', order.id)
+          .eq('status', 'processing')
+          .select('id, cost_usd')
+        if (claimed?.length) {
+          await supabase.from('skip_trace_records').update({ status: 'saved' }).eq('order_id', order.id)
+          if ((claimed[0].cost_usd || 0) > 0) {
+            await supabase.rpc('add_skip_trace_balance', { p_user_id: order.user_id, p_amount: claimed[0].cost_usd })
+              .catch(e => console.error('[admin/check-skip-trace] refund failed:', e.message))
+          }
+          console.log(`[admin/check-skip-trace] refunded stuck order ${order.id} ($${claimed[0].cost_usd})`)
+          refunded++
+        }
+      }
+    }
+
+    return ok({ checked: orders.length, completed, refunded })
   }
 
   // ── GET system monitor: API cost trends + Supabase storage/DB size ──
