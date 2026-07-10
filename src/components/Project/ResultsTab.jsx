@@ -3,6 +3,7 @@ import { supabase, fetchAllRows } from '../../lib/supabase'
 import { collectImages, analyzePoints, geocodePoints, exportProject, saveSkipTraceRecords } from '../../lib/api'
 import { chunkArray } from '../../lib/geo'
 import { scoreLabel } from '../../lib/geo'
+import { cleanAddress, splitFullAddress } from '../../lib/address'
 import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
 import { useAuth } from '../../context/AuthContext'
 
@@ -174,6 +175,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [showTraceModal, setShowTraceModal] = useState(false)
   const [traceListName,  setTraceListName]  = useState('')
   const [traceModalPts,  setTraceModalPts]  = useState([])
+  const [traceSkippedCount, setTraceSkippedCount] = useState(0)
   const selectAllRef  = useRef(null)
   const sigMenuRef    = useRef(null)
   const zipFillDone   = useRef(false)
@@ -570,10 +572,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     }
   }
 
-  // Strip trailing country token from geocoded addresses for clean exports
-  const cleanAddress = (addr) =>
-    (addr || '').replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
-
   // Build export payload from local data (used for selected-only exports)
   const buildLocalExport = (pts, format) => {
     if (format === 'CSV') {
@@ -655,10 +653,19 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   // ── Save to Skip Trace ────────────────────────────────────
+  // Points without a resolved address are excluded — Skip Trace can't look up
+  // an owner without a property address, so saving them would just create
+  // permanent "No address" rows in the Skip Trace list.
   const openSaveModal = (pts) => {
-    setTraceModalPts(pts)
+    const withAddress = pts.filter(pt => pt.address)
+    setTraceModalPts(withAddress)
     setTraceListName(project.name || '')
     setShowTraceModal(true)
+    if (withAddress.length < pts.length) {
+      setTraceSkippedCount(pts.length - withAddress.length)
+    } else {
+      setTraceSkippedCount(0)
+    }
   }
 
   const handleSaveToSkipTrace = async () => {
@@ -666,21 +673,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setSavingTrace(true)
     setTraceSaved(null)
     try {
-      const records = traceModalPts.map(pt => {
-        const full = pt.address || ''
-        const cleaned = full.replace(/,?\s*(United States|USA|US)\s*$/, '').trim()
-        const parts = cleaned.split(',').map(s => s.trim()).filter(Boolean)
-        const stateZip = parts[parts.length - 1] || ''
-        const m = stateZip.match(/^([A-Z]{2})\s+(\d{5}(-\d{4})?)$/)
-        return {
-          source_point_id: pt.id,
-          project_id:      project.id,
-          address:         parts[0] || cleaned,
-          city:            parts.length >= 3 ? parts[parts.length - 2] : null,
-          state_code:      m ? m[1] : null,
-          zip:             m ? m[2] : null,
-        }
-      })
+      const records = traceModalPts.map(pt => ({
+        source_point_id: pt.id,
+        project_id:      project.id,
+        ...splitFullAddress(pt.address),
+      }))
       const { count } = await saveSkipTraceRecords(records, traceListName.trim() || project.name || 'Unnamed List')
       setTraceSaved(count)
       setTimeout(() => setTraceSaved(null), 4000)
@@ -1073,15 +1070,20 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
             <h2 className="text-base font-semibold text-white mb-1">Save to Skip Trace</h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-slate-400 mb-1">
               {traceModalPts.length} record{traceModalPts.length !== 1 ? 's' : ''} will be saved. Give this list a name so you can find it later.
             </p>
-            <label className="block text-xs font-medium text-slate-300 mb-1">List name</label>
+            {traceSkippedCount > 0 && (
+              <p className="text-xs text-amber-400 mb-3">
+                {traceSkippedCount} propert{traceSkippedCount === 1 ? 'y was' : 'ies were'} skipped — no address was found for {traceSkippedCount === 1 ? 'it' : 'them'} yet.
+              </p>
+            )}
+            <label className="block text-xs font-medium text-slate-300 mb-1 mt-3">List name</label>
             <input
               type="text"
               value={traceListName}
               onChange={e => setTraceListName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSaveToSkipTrace() }}
+              onKeyDown={e => { if (e.key === 'Enter' && traceModalPts.length > 0) handleSaveToSkipTrace() }}
               placeholder="e.g. Phoenix Q1 Leads"
               className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-5"
               autoFocus
@@ -1095,7 +1097,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
               </button>
               <button
                 onClick={handleSaveToSkipTrace}
-                disabled={!traceListName.trim()}
+                disabled={!traceListName.trim() || traceModalPts.length === 0}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 text-white transition disabled:opacity-40"
               >
                 Save

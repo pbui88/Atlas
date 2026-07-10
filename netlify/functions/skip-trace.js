@@ -29,25 +29,31 @@ export const handler = async (event) => {
     const { list_name } = body
     const listNameVal = list_name ? String(list_name).slice(0, 200) : null
 
-    const rows = records.map(r => ({
-      user_id:         user.id,
-      source_point_id: isValidUUID(r.source_point_id) ? r.source_point_id : null,
-      project_id:      isValidUUID(r.project_id)      ? r.project_id      : null,
-      address:         (r.address  || '').slice(0, 500),
-      city:            r.city       ? String(r.city).slice(0, 100)       : null,
-      state_code:      r.state_code ? String(r.state_code).slice(0, 10)  : null,
-      zip:             r.zip        ? String(r.zip).slice(0, 20)         : null,
-      first_name:      r.first_name ? String(r.first_name).slice(0, 100) : null,
-      last_name:       r.last_name  ? String(r.last_name).slice(0, 100)  : null,
-      list_name:       listNameVal,
-    }))
+    // Records without an address can't be skip-traced — drop them here so no
+    // caller (UI or future integration) can create permanent "No address" rows.
+    const skipped = records.length
+    const rows = records
+      .filter(r => (r.address || '').trim())
+      .map(r => ({
+        user_id:         user.id,
+        source_point_id: isValidUUID(r.source_point_id) ? r.source_point_id : null,
+        project_id:      isValidUUID(r.project_id)      ? r.project_id      : null,
+        address:         (r.address  || '').slice(0, 500),
+        city:            r.city       ? String(r.city).slice(0, 100)       : null,
+        state_code:      r.state_code ? String(r.state_code).slice(0, 10)  : null,
+        zip:             r.zip        ? String(r.zip).slice(0, 20)         : null,
+        first_name:      r.first_name ? String(r.first_name).slice(0, 100) : null,
+        last_name:       r.last_name  ? String(r.last_name).slice(0, 100)  : null,
+        list_name:       listNameVal,
+      }))
+    if (!rows.length) return err('No records with a valid address', 400)
 
     const { data, error: dbErr } = await supabase
       .from('skip_trace_records')
       .insert(rows)
       .select()
     if (dbErr) return err(dbErr.message, 500)
-    return ok({ records: data || [], count: data?.length || 0 })
+    return ok({ records: data || [], count: data?.length || 0, skipped: skipped - rows.length })
   }
 
   // ── DELETE: single record or entire group ────────────────────
