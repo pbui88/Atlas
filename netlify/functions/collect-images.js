@@ -78,13 +78,11 @@ async function downloadGoogleImage(lat, lng, heading, apiKey) {
   return { buffer: await res.arrayBuffer() }
 }
 
-async function processPoint(pt, projectId, userId, primaryKey, platformKey, supabase) {
+async function processPoint(pt, projectId, userId, apiKey, supabase) {
   const { id: pointId, lat, lng, road_bearing } = pt
 
   try {
-    if (!primaryKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
-
-    let apiKey = primaryKey
+    if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
     // Get the actual panorama position (free metadata call) and aim the camera
     // from there toward the scan point. This always faces the property regardless
@@ -105,19 +103,7 @@ async function processPoint(pt, projectId, userId, primaryKey, platformKey, supa
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
       .eq('id', pointId)
 
-    let result
-    try {
-      result = await downloadGoogleImage(lat, lng, heading, apiKey)
-    } catch (e) {
-      // Own key rejected (quota exceeded, revoked, etc.) — fall back to the
-      // platform key transparently instead of failing the whole batch.
-      if (e.message.includes('API key error') && platformKey && apiKey !== platformKey) {
-        apiKey = platformKey
-        result = await downloadGoogleImage(lat, lng, heading, apiKey)
-      } else {
-        throw e
-      }
-    }
+    const result = await downloadGoogleImage(lat, lng, heading, apiKey)
 
     if (result.noCoverage) {
       await supabase.from('scan_points')
@@ -248,7 +234,7 @@ export const handler = async (event) => {
   }
 
   const settled = await Promise.allSettled(
-    primaries.map((pt, i) => processPoint(pt, projectId, user.id, i < ownKeyCapacity ? ownKey : platformKey, platformKey, supabase))
+    primaries.map((pt, i) => processPoint(pt, projectId, user.id, i < ownKeyCapacity ? ownKey : platformKey, supabase))
   )
 
   // Surface API key errors as 503 so the frontend scan aborts with a clear message
