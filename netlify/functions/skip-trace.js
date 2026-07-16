@@ -24,7 +24,7 @@ export const handler = async (event) => {
     try { body = JSON.parse(event.body || '{}') } catch { return err('Invalid body', 400) }
     const { records } = body
     if (!Array.isArray(records) || records.length === 0) return err('records array required', 400)
-    if (records.length > 500) return err('Maximum 500 records per save', 400)
+    if (records.length > 2500) return err('Maximum 2500 records per save', 400)
 
     const { list_name } = body
     const listNameVal = list_name ? String(list_name).slice(0, 200) : null

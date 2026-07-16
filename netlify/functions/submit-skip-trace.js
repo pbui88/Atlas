@@ -18,7 +18,7 @@ export const handler = async (event) => {
   const { recordIds, traceType = 'advanced' } = body
   if (!Array.isArray(recordIds) || recordIds.length === 0) return err('recordIds required', 400)
   if (recordIds.some(id => !isValidUUID(id))) return err('Invalid record id', 400)
-  if (recordIds.length > 500) return err('Maximum 500 records per submission', 400)
+  if (recordIds.length > 2500) return err('Maximum 2500 records per submission', 400)
   if (!['normal', 'advanced'].includes(traceType)) return err('traceType must be normal or advanced', 400)
 
   const supabase = adminSupabase()
