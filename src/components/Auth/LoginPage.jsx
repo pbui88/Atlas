@@ -55,7 +55,7 @@ function PendingApprovalScreen({ email, onBack }) {
         Your account is waiting for admin activation. You'll have full access once an admin reviews and activates your account — this usually happens within 24 hours.
       </p>
       <a
-        href="https://api.leadconnectorhq.com/widget/bookings/atlas-set-up"
+        href="https://api.leadconnectorhq.com/widget/bookings/atlas-set-up-xgrsu"
         target="_blank"
         rel="noopener noreferrer"
         className="block w-full py-2.5 mb-4 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-lg transition text-sm"
