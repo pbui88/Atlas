@@ -50,6 +50,9 @@ async function getPanoramaLocation(lat, lng, apiKey) {
     )
     const data = await res.json()
     if (data.status === 'OK' && data.location) return data.location
+    if (data.status && data.status !== 'ZERO_RESULTS' && data.status !== 'NOT_FOUND') {
+      console.error(`Street View metadata rejected: ${data.status}${data.error_message ? ' — ' + data.error_message : ''}`)
+    }
   } catch { /* timeout or network error — fall back to road_bearing */ }
   finally { clearTimeout(timer) }
   return null
@@ -71,6 +74,11 @@ async function downloadGoogleImage(lat, lng, heading, apiKey) {
   const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=0&fov=60&return_error_code=true&key=${apiKey}`
   const res = await fetch(url)
   if (res.status === 403 || res.status === 400) {
+    // Google returns a plain-text reason (e.g. referrer/IP restriction, API not
+    // enabled, billing disabled) in the body — log it so the real cause is
+    // visible instead of just "HTTP 403".
+    const reason = await res.text().catch(() => '')
+    console.error(`Street View download rejected (HTTP ${res.status}):`, reason.slice(0, 500))
     throw new Error(`Street View API key error (HTTP ${res.status}) — check the key is valid and Street View Static API is enabled.`)
   }
   if (!res.ok) return { noCoverage: true }

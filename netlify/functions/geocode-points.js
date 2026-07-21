@@ -11,6 +11,9 @@ async function getPanoramaLocation(lat, lng, apiKey) {
     const res  = await fetch(url)
     const data = await res.json()
     if (data.status === 'OK' && data.location) return data.location
+    if (data.status && data.status !== 'ZERO_RESULTS' && data.status !== 'NOT_FOUND') {
+      console.error(`Street View metadata rejected: ${data.status}${data.error_message ? ' — ' + data.error_message : ''}`)
+    }
   } catch {}
   return null
 }
