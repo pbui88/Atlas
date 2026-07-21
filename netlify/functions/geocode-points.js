@@ -63,8 +63,11 @@ function extractAddress(results) {
   // some areas (e.g. "797 69", "982 27"). Nominatim always fills the zip.
   if (property.label && !looksLikeLatLng(property.label)) {
     // Strip any zip or zip+4 PS embedded in the label, then country tokens.
+    // (?<!^) keeps this from eating a 5-digit house number at the very start
+    // of the label (e.g. "10309 Shale Avenue, Cleveland, OH, USA") — house
+    // numbers always lead the label, a zip never does.
     let label = property.label
-      .replace(/\b\d{5}([\s-]+\d{4})?\b/g, '')
+      .replace(/(?<!^)\b\d{5}([\s-]+\d{4})?\b/g, '')
       .replace(/,?\s*(United States|USA|US)\s*$/i, '')
       .replace(/,\s*,/g, ',')
       .replace(/,\s*$/, '')
