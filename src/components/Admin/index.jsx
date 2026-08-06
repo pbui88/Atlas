@@ -495,8 +495,8 @@ function StreetViewQuota({ quota, start, end, onStart, onEnd, onApply, search, o
                       : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="px-4 py-3 text-xs font-semibold tabular-nums">
-                    {(u.totalSpend ?? 0) > 0
-                      ? <span className="text-slate-200">${u.totalSpend.toFixed(2)}</span>
+                    {(u.scanCreditSpent ?? 0) > 0
+                      ? <span className="text-slate-200">${u.scanCreditSpent.toFixed(2)}</span>
                       : <span className="text-slate-600">—</span>}
                   </td>
                 </tr>
