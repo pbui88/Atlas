@@ -69,13 +69,19 @@ export const handler = async (event) => {
 
   const { data: order, error: orderErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, user_id')
+    .select('id, user_id, status')
     .eq('tracerfy_order_id', queueId)
     .maybeSingle()
 
   if (orderErr || !order) {
     console.log('tracerfy-webhook: no matching order for queue', queueId)
     return ok({ ignored: true, reason: 'order not found' })
+  }
+
+  // Already resolved by a concurrent webhook retry, poll, or the scheduled check —
+  // skip re-fetching/re-matching results for nothing.
+  if (order.status !== 'processing') {
+    return ok({ ignored: true, reason: 'already resolved' })
   }
 
   if (!TRACERFY_API_KEY) {
@@ -91,7 +97,7 @@ export const handler = async (event) => {
     const results = await fetchQueueResults(queueId)
     const { data: records } = await supabase
       .from('skip_trace_records')
-      .select('id, address')
+      .select('id, address, city, state_code')
       .eq('order_id', order.id)
 
     const now = new Date().toISOString()
@@ -128,11 +134,14 @@ export const handler = async (event) => {
         .eq('order_id', order.id)
     }
 
-    // Mark the order complete only after all record writes succeed
+    // Mark the order complete only after all record writes succeed. Guard on
+    // status='processing' so a concurrent poll/scheduled-check resolving the
+    // same order first doesn't get silently overwritten by this stale flip.
     await supabase
       .from('skip_trace_orders')
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', order.id)
+      .eq('status', 'processing')
 
     return ok({ ok: true })
   } catch (e) {

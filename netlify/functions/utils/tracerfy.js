@@ -38,16 +38,22 @@ export function normalizeResult(row) {
 }
 
 const normAddr = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+const fullKey  = (addr, city, state) => normAddr([addr, city, state].filter(Boolean).join(' '))
 
-// Match a Tracerfy result row to one of our saved records by address prefix (10-char).
+// Match a Tracerfy result row to one of our saved records by exact normalized address.
+// Prefers address+city+state (disambiguates addresses that share a short street prefix,
+// e.g. "100 Oak Avenue" vs "100 Oak Ave Apt 3" in different cities); falls back to
+// street-address-only equality when the row has no city/state. Deliberately exact —
+// prefix matching previously let unrelated records collide and receive each other's PII.
 export function matchRecord(tracerfyRow, records) {
-  const rowKey = normAddr(tracerfyRow.address)
-  if (!rowKey) return null
-  return records.find(r => {
-    const recKey = normAddr(r.address)
-    return recKey && (
-      rowKey.startsWith(recKey.slice(0, 10)) ||
-      recKey.startsWith(rowKey.slice(0, 10))
-    )
-  }) || null
+  const rowAddrKey = normAddr(tracerfyRow.address)
+  if (!rowAddrKey) return null
+
+  const rowFullKey = fullKey(tracerfyRow.address, tracerfyRow.city, tracerfyRow.state)
+  if (rowFullKey) {
+    const match = records.find(r => fullKey(r.address, r.city, r.state_code) === rowFullKey)
+    if (match) return match
+  }
+
+  return records.find(r => normAddr(r.address) === rowAddrKey) || null
 }

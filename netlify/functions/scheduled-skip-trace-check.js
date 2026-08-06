@@ -100,7 +100,7 @@ export const handler = async () => {
         .eq('order_id', order.id)
     } else {
       const { data: records } = await supabase.from('skip_trace_records')
-        .select('id, address').eq('order_id', order.id)
+        .select('id, address, city, state_code').eq('order_id', order.id)
       if (records?.length) {
         const updatedIds = new Set()
         for (const row of results) {
@@ -119,9 +119,12 @@ export const handler = async () => {
         }
       }
     }
+    // Guard on status='processing' — a concurrent webhook or user-triggered
+    // poll may have already resolved this order between our select and this update.
     await supabase.from('skip_trace_orders')
       .update({ status: 'completed', completed_at: now })
       .eq('id', order.id)
+      .eq('status', 'processing')
   }
 
   for (const order of orders) {
@@ -156,16 +159,27 @@ export const handler = async () => {
       }
     }
 
-    // Case 3: stuck > 2 hours with no results — force-complete the job
+    // Case 3: stuck > 2 hours with no results — force-complete the job and refund,
+    // since no usable results were ever delivered for the money already deducted.
     if (order.created_at < twoHoursAgo) {
       const now = new Date().toISOString()
+      // Atomically claim by filtering on status='processing' — prevents double-refund
+      // if this and another check path race on the same stuck order.
+      const { data: claimed } = await supabase
+        .from('skip_trace_orders')
+        .update({ status: 'completed', completed_at: now })
+        .eq('id', order.id)
+        .eq('status', 'processing')
+        .select('id, cost_usd')
+      if (!claimed?.length) continue
       await supabase.from('skip_trace_records')
         .update({ status: 'completed', completed_at: now })
         .eq('order_id', order.id)
-      await supabase.from('skip_trace_orders')
-        .update({ status: 'completed', completed_at: now })
-        .eq('id', order.id)
-      console.log(`[scheduled-skip-trace-check] force-completed stuck order ${order.id}`)
+      if ((claimed[0].cost_usd || 0) > 0) {
+        await supabase.rpc('add_skip_trace_balance', { p_user_id: order.user_id, p_amount: claimed[0].cost_usd })
+          .catch(e => console.error('[scheduled] stuck-order refund failed:', e.message))
+      }
+      console.log(`[scheduled-skip-trace-check] force-completed and refunded stuck order ${order.id}`)
       completed++
     }
   }

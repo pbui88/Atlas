@@ -60,11 +60,30 @@ export const handler = async (event) => {
     phonesPerOrder[record.order_id] = (phonesPerOrder[record.order_id] || 0) + (record.result?.phones?.length || 0)
   }
 
-  // Only charge for phones in orders that need a NEW DNC scrub.
   // Orders already having dnc_queue_id are in-progress — don't charge again.
   const alreadyQueuedIds = new Set((orders || []).filter(o => o.dnc_queue_id).map(o => o.id))
-  const chargedPhones    = records.reduce((sum, r) =>
-    !r.order_id || alreadyQueuedIds.has(r.order_id) ? sum : sum + (r.result?.phones?.length || 0), 0)
+  const needsClaimIds    = (orders || []).map(o => o.id).filter(id => !alreadyQueuedIds.has(id))
+
+  // Atomically claim the orders that need a NEW scrub with a sentinel value.
+  // A single UPDATE statement is evaluated per-row against current DB state
+  // under row locks, so two concurrent scrub-dnc requests racing on the same
+  // order can't both claim it — only one gets it back from .select(), so only
+  // one request charges for and starts the scrub.
+  let claimedIds = new Set()
+  if (needsClaimIds.length) {
+    const { data: claimed } = await supabase
+      .from('skip_trace_orders')
+      .update({ dnc_queue_id: 'pending' })
+      .in('id', needsClaimIds)
+      .eq('user_id', user.id)
+      .is('dnc_queue_id', null)
+      .select('id')
+    claimedIds = new Set((claimed || []).map(o => o.id))
+  }
+
+  // Only charge for phones in orders this request actually claimed.
+  const chargedPhones = records.reduce((sum, r) =>
+    !r.order_id || !claimedIds.has(r.order_id) ? sum : sum + (r.result?.phones?.length || 0), 0)
 
   // ── Deduct DNC balance ($0.02/phone) — skipped for admins ─────────────────
   const COST_PER_PHONE = 0.02
@@ -98,8 +117,9 @@ export const handler = async (event) => {
   for (const order of (orders || [])) {
     if (!order.tracerfy_order_id) continue
 
-    // DNC scrub already in progress for this batch — count it as started, no charge
-    if (order.dnc_queue_id) { started++; continue }
+    // Already in progress (existing scrub, or claimed by a concurrent request
+    // just now) — count it as started, no charge, no duplicate Tracerfy call.
+    if (alreadyQueuedIds.has(order.id) || !claimedIds.has(order.id)) { started++; continue }
 
     try {
       const res = await fetch(`${TRACERFY_BASE}/dnc/scrub-from-queue/`, {
@@ -118,11 +138,14 @@ export const handler = async (event) => {
           .eq('id', order.id)
         started++
       } else {
+        // Release the claim so a future request can retry this order's scrub.
+        await supabase.from('skip_trace_orders').update({ dnc_queue_id: null }).eq('id', order.id)
         failedPhones += phonesPerOrder[order.id] || 0
         errs.push(data.error || data.detail || `Order ${order.id}: unknown error`)
       }
     } catch (e) {
       console.error(`scrub-dnc: failed for order ${order.id}:`, e.message)
+      await supabase.from('skip_trace_orders').update({ dnc_queue_id: null }).eq('id', order.id)
       failedPhones += phonesPerOrder[order.id] || 0
       errs.push(e.message)
     }

@@ -271,7 +271,7 @@ export const handler = async (event) => {
     } else {
       const { data: records } = await supabase
         .from('skip_trace_records')
-        .select('id, address')
+        .select('id, address, city, state_code')
         .eq('order_id', order.id)
 
       if (records?.length) {
@@ -302,10 +302,16 @@ export const handler = async (event) => {
       }
     }
 
-    await supabase
+    // Guard on status='processing' — a concurrent webhook or scheduled-check
+    // may have already resolved this order between our select and this update.
+    const { data: orderClaimed } = await supabase
       .from('skip_trace_orders')
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', order.id)
+      .eq('status', 'processing')
+      .select('id')
+
+    if (!orderClaimed?.length) continue
 
     completed++
   }
@@ -322,6 +328,10 @@ export const handler = async (event) => {
   let dncRecordsUpdated = 0
 
   for (const dncOrder of (dncOrders || [])) {
+    // 'pending' is a transient claim sentinel (scrub-dnc.js) written just before the
+    // Tracerfy call that replaces it with the real queue id — not a real queue to poll.
+    if (dncOrder.dnc_queue_id === 'pending') continue
+
     try {
       const res = await fetch(`${TRACERFY_BASE}/dnc/queue/${dncOrder.dnc_queue_id}`, {
         headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
