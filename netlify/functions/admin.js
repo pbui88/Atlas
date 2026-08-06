@@ -472,7 +472,7 @@ export const handler = async (event) => {
     // Extend until to end-of-day so the selected end date is fully included
     until.setHours(23, 59, 59, 999)
 
-    const [profilesRes, adminProfilesRes, keyRowsRes, svLogs] = await Promise.all([
+    const [profilesRes, adminProfilesRes, keyRowsRes, svLogs, paymentRows] = await Promise.all([
       supabase.from('profiles')
         .select('id, full_name, email, points_limit, cycle_anchor_date, purchased_credits, granted_credits')
         .neq('role', 'admin')
@@ -489,9 +489,21 @@ export const handler = async (event) => {
           .lte('created_at', until.toISOString())
           .range(from, to)
       ),
+      fetchAllRows((from, to) =>
+        supabase.from('payment_transactions')
+          .select('user_id, amount_usd')
+          .eq('status', 'completed')
+          .range(from, to)
+      ),
     ])
 
     const usersWithKey = new Set((keyRowsRes.data || []).map(r => r.user_id))
+
+    // Lifetime amount actually paid (all-time, not scoped to the markup cycle)
+    const lifetimeSpend = {}
+    for (const row of paymentRows) {
+      lifetimeSpend[row.user_id] = Math.round(((lifetimeSpend[row.user_id] || 0) + (row.amount_usd || 0)) * 100) / 100
+    }
 
     // All users share the same calendar-month cycle — matches Google billing.
     const calCycleStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))
@@ -521,7 +533,8 @@ export const handler = async (event) => {
       const grantedCredits   = p.granted_credits   ?? 0
       // Markup only applies to paying users (purchased_credits > 0)
       const markupRevenue    = purchasedCredits > 0 ? Math.round(used * MARKUP_PER_POINT * 10000) / 10000 : 0
-      return { userId: p.id, fullName: p.full_name, email: p.email, hasOwnKey, limit, used, ownKeyUsed, platformOverflow, purchasedCredits, grantedCredits, markupRevenue }
+      const totalSpend       = lifetimeSpend[p.id] || 0
+      return { userId: p.id, fullName: p.full_name, email: p.email, hasOwnKey, limit, used, ownKeyUsed, platformOverflow, purchasedCredits, grantedCredits, markupRevenue, totalSpend }
     }).sort((a, b) => b.platformOverflow - a.platformOverflow || b.used - a.used)
 
     // Admin users all share ONE platform key — there is a single 10k free tier
