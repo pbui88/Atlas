@@ -1,4 +1,5 @@
 import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { splitFullAddress } from './utils/address.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -33,6 +34,39 @@ export const handler = async (event) => {
 
   if (fetchErr) return err(fetchErr.message, 500)
   if (!records?.length) return err('No eligible records found', 400)
+
+  // Records saved before their scan point finished background geocoding can be
+  // missing state/zip — Tracerfy can't match a person without them. Re-derive
+  // from the scan point's current address (which may have been enriched since
+  // the record was saved) so we don't burn a paid lookup on a guaranteed miss.
+  const incomplete = records.filter(r => r.source_point_id && (!r.state_code || !r.zip))
+  if (incomplete.length) {
+    const { data: scanPoints } = await supabase
+      .from('scan_points')
+      .select('id, address')
+      .in('id', incomplete.map(r => r.source_point_id))
+
+    const byId = new Map((scanPoints || []).map(p => [p.id, p.address]))
+    const patched = []
+    for (const r of incomplete) {
+      const liveAddress = byId.get(r.source_point_id)
+      if (!liveAddress) continue
+      const split = splitFullAddress(liveAddress)
+      if (!split.state_code || !split.zip) continue
+      r.address    = split.address    || r.address
+      r.city       = split.city       || r.city
+      r.state_code = split.state_code
+      r.zip        = split.zip
+      patched.push({ id: r.id, address: r.address, city: r.city, state_code: r.state_code, zip: r.zip })
+    }
+    if (patched.length) {
+      await Promise.all(patched.map(p =>
+        supabase.from('skip_trace_records')
+          .update({ address: p.address, city: p.city, state_code: p.state_code, zip: p.zip })
+          .eq('id', p.id)
+      ))
+    }
+  }
 
   const creditsPerLead = traceType === 'advanced' ? 2 : 1
 

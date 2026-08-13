@@ -176,6 +176,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [traceListName,  setTraceListName]  = useState('')
   const [traceModalPts,  setTraceModalPts]  = useState([])
   const [traceSkippedCount, setTraceSkippedCount] = useState(0)
+  const [zipFillPending, setZipFillPending] = useState(false)
   const selectAllRef  = useRef(null)
   const sigMenuRef    = useRef(null)
   const zipFillDone   = useRef(false)
@@ -325,11 +326,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     })
     if (noZip.length === 0) return
     zipFillDone.current = true
+    setZipFillPending(true)
     const ids = [...new Set(noZip.flatMap(pt => pt.allPointIds || [pt.id]))]
     const chunks = chunkArray(ids, GEO_BATCH)
     Promise.allSettled(chunks.map(b => geocodePoints(project.id, b).catch(() => {}))).then(() => {
       fetchResults()
-    })
+    }).finally(() => setZipFillPending(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, resLoading, running])
 
@@ -946,11 +948,14 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 const pts = checkedCount > 0 ? exportable.filter(pt => checkedIds.has(pt.id)) : exportable
                 openSaveModal(pts)
               }}
-              disabled={savingTrace}
+              disabled={savingTrace || zipFillPending}
+              title={zipFillPending ? 'Finishing address lookups before saving…' : undefined}
               className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-brand-600/10 border border-brand-600/20 text-brand-400 hover:bg-brand-600/20 hover:text-brand-300 transition text-xs font-medium disabled:opacity-50"
             >
               {savingTrace ? (
                 <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Saving…</>
+              ) : zipFillPending ? (
+                <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Finishing addresses…</>
               ) : traceSaved != null ? (
                 <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>{traceSaved} saved</>
               ) : (
