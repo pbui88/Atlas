@@ -540,6 +540,13 @@ export default function SkipTracePage() {
                 <span className="font-bold">{submitResult.recordCount} record{submitResult.recordCount !== 1 ? 's' : ''}</span> submitted for skip trace.
               </p>
               <p className="text-xs text-emerald-600 mt-0.5">Results will appear here once processing is complete. This typically takes a few minutes.</p>
+              {submitResult.skippedIncomplete > 0 && (
+                <p className="text-xs text-amber-400 mt-1">
+                  {submitResult.skippedIncomplete} record{submitResult.skippedIncomplete !== 1 ? 's' : ''} skipped and left in your saved list —
+                  {submitResult.skippedIncomplete !== 1 ? ' their' : ' its'} address is still missing a state/zip, so we didn't charge for {submitResult.skippedIncomplete !== 1 ? 'them' : 'it'}.
+                  Try submitting again in a bit once the address lookup finishes.
+                </p>
+              )}
             </div>
             <button onClick={() => setSubmitResult(null)} className="text-emerald-600 hover:text-emerald-400 p-1 shrink-0"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>

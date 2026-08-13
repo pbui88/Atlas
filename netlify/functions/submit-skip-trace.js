@@ -25,7 +25,7 @@ export const handler = async (event) => {
   const supabase = adminSupabase()
 
   // Fetch only the user's 'saved' records matching the requested IDs
-  const { data: records, error: fetchErr } = await supabase
+  let { data: records, error: fetchErr } = await supabase
     .from('skip_trace_records')
     .select('*')
     .in('id', recordIds)
@@ -67,6 +67,20 @@ export const handler = async (event) => {
       ))
     }
   }
+
+  // Records still missing state/zip after the backfill attempt can't be matched
+  // by Tracerfy — leave them 'saved' (untouched) instead of charging for a
+  // guaranteed miss. User can retry once the address finishes geocoding.
+  const skippedIncomplete = records.filter(r => !r.state_code || !r.zip)
+  const billable = records.filter(r => r.state_code && r.zip)
+  if (!billable.length) {
+    return err(
+      'None of the selected records have a complete address (state/zip) yet. ' +
+      'Address lookups may still be running — try again in a moment.',
+      400
+    )
+  }
+  records = billable
 
   const creditsPerLead = traceType === 'advanced' ? 2 : 1
 
@@ -194,5 +208,6 @@ export const handler = async (event) => {
     creditsPerLead,
     traceType,
     status:       TRACERFY_API_KEY ? 'processing' : 'pending',
+    skippedIncomplete: skippedIncomplete.length,
   })
 }
