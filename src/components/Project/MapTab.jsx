@@ -422,8 +422,8 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
                 key={p.id}
                 paths={p.scan_area_geojson.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
                 options={{
-                  fillColor: '#64748b', fillOpacity: 0.08,
-                  strokeColor: '#64748b', strokeWeight: 1, strokeOpacity: 0.6,
+                  fillColor: '#334155', fillOpacity: 0.35,
+                  strokeColor: '#334155', strokeWeight: 1.5, strokeOpacity: 0.9,
                   clickable: false, zIndex: 1,
                 }}
               />
