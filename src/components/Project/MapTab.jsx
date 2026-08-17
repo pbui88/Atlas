@@ -4,6 +4,7 @@ import * as turf from '@turf/turf'
 import { generatePoints } from '../../lib/api'
 import { generateGridPoints } from '../../lib/geo'
 import { useAuth } from '../../context/AuthContext'
+import { supabase } from '../../lib/supabase'
 
 // Grid-based clustering — cell size shrinks as zoom increases
 function buildClusters(points, zoom) {
@@ -99,6 +100,7 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
   )
 
   const [zoom, setZoom] = useState(4)
+  const [pastAreas, setPastAreas] = useState([])
 
   const mapRef         = useRef(null)
   const tempPointsRef  = useRef([])
@@ -147,6 +149,22 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
     setSearchPin({ lat, lng, address: s.display_name })
   }
 
+
+  // Past scan areas from this account's other projects, shown grayed out for
+  // reference. RLS on `projects` scopes this to the signed-in user, so other
+  // accounts' areas never come back in the query.
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('projects')
+      .select('id, name, scan_area_geojson')
+      .neq('id', project.id)
+      .not('scan_area_geojson', 'is', null)
+      .then(({ data }) => {
+        if (!cancelled) setPastAreas(data || [])
+      })
+    return () => { cancelled = true }
+  }, [project.id])
 
   const onMapLoad = useCallback((map) => {
     mapRef.current = map
@@ -398,10 +416,23 @@ export default function MapTab({ project, scanPoints, onPointsGenerated, isLoade
               />
             )}
 
+            {/* Past scan areas from this account, grayed out for reference */}
+            {pastAreas.map(p => (
+              <Polygon
+                key={p.id}
+                paths={p.scan_area_geojson.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
+                options={{
+                  fillColor: '#64748b', fillOpacity: 0.08,
+                  strokeColor: '#64748b', strokeWeight: 1, strokeOpacity: 0.6,
+                  clickable: false, zIndex: 1,
+                }}
+              />
+            ))}
+
             {polygon && (
               <Polygon
                 paths={polygon.coordinates[0].map(([lng, lat]) => ({ lat, lng }))}
-                options={{ fillColor: '#ef4444', fillOpacity: 0.12, strokeColor: '#ef4444', strokeWeight: 2 }}
+                options={{ fillColor: '#ef4444', fillOpacity: 0.12, strokeColor: '#ef4444', strokeWeight: 2, zIndex: 2 }}
               />
             )}
 
