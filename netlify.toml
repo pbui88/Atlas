@@ -20,6 +20,10 @@
 [functions."scheduled-skip-trace-check"]
   schedule = "*/5 * * * *"
 
+[functions."scheduled-zip-backfill"]
+  schedule = "*/5 * * * *"
+  timeout  = 26
+
 
 [[headers]]
   for = "/*"

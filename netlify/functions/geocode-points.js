@@ -168,7 +168,9 @@ async function refundCreditIfCharged(pt, userId, isAdmin, supabase) {
   return true
 }
 
-async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
+// Exported so scheduled-zip-backfill.js can reuse the exact same geocode +
+// refund logic for its system-wide sweep instead of duplicating it.
+export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
   // Skip only if address has a house number AND a 5-digit zip — it's complete.
   if (pt.address && !looksLikeLatLng(pt.address) && /^\d/.test(pt.address.trim()) && /\d{5}\s*$/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
