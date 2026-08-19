@@ -661,19 +661,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }
 
   // ── Save to Skip Trace ────────────────────────────────────
-  // Points without a resolved address are excluded — Skip Trace can't look up
-  // an owner without a property address, so saving them would just create
-  // permanent "No address" rows in the Skip Trace list.
+  // Only points with a complete address (state + zip) are eligible — Tracerfy
+  // can't match a person without them, and submit-skip-trace.js excludes
+  // incomplete records from billing anyway, so saving them just creates dead
+  // "saved" rows the user has to notice and clean up later. Filtering here
+  // instead keeps the list itself accurate from the start.
   const openSaveModal = (pts) => {
-    const withAddress = pts.filter(pt => pt.address)
-    setTraceModalPts(withAddress)
+    const complete = pts.filter(pt => {
+      if (!pt.address) return false
+      const { state_code, zip } = splitFullAddress(pt.address)
+      return !!state_code && !!zip
+    })
+    setTraceModalPts(complete)
     setTraceListName(project.name || '')
     setShowTraceModal(true)
-    if (withAddress.length < pts.length) {
-      setTraceSkippedCount(pts.length - withAddress.length)
-    } else {
-      setTraceSkippedCount(0)
-    }
+    setTraceSkippedCount(pts.length - complete.length)
   }
 
   const handleSaveToSkipTrace = async () => {
@@ -1099,7 +1101,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             </p>
             {traceSkippedCount > 0 && (
               <p className="text-xs text-amber-400 mb-3">
-                {traceSkippedCount} propert{traceSkippedCount === 1 ? 'y was' : 'ies were'} skipped — no address was found for {traceSkippedCount === 1 ? 'it' : 'them'} yet.
+                {traceSkippedCount} propert{traceSkippedCount === 1 ? 'y was' : 'ies were'} skipped — {traceSkippedCount === 1 ? 'its' : 'their'} address is missing or still missing a state/zip.
               </p>
             )}
             <label className="block text-xs font-medium text-slate-300 mb-1 mt-3">List name</label>
