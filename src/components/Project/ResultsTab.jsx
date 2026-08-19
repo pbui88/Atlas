@@ -184,7 +184,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const zipFillDone   = useRef(false)
 
   // ── Scan state ─────────────────────────────────────────────
-  const [stats,      setStats]      = useState({ total: 0, pending: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
+  const [stats,      setStats]      = useState({ total: 0, pending: 0, downloading: 0, downloaded: 0, analyzing: 0, complete: 0, failed: 0, no_coverage: 0 })
   const [running,    setRunning]    = useState(false)
   const [phase,      setPhase]      = useState('')
   const [scanError,  setScanError]  = useState(null)
@@ -198,7 +198,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       supabase.from('scan_points').select('status').eq('project_id', project.id).range(from, to)
     )
     const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
-    setStats({ total: data.length, pending: c.pending || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
+    setStats({ total: data.length, pending: c.pending || 0, downloading: c.downloading || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
   }
 
   const fetchResults = useCallback(async () => {
@@ -309,12 +309,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (keyLoading) return
     if (noCreditsBlocked) return
     if (stats.total === 0) return
-    const incomplete = (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0)
+    const incomplete = (stats.pending || 0) + (stats.failed || 0) + (stats.downloaded || 0) + (stats.analyzing || 0) + (stats.downloading || 0)
     if (incomplete === 0) return
     autoStarted.current = true
     runScan()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stats.total, stats.pending, stats.failed, stats.downloaded, keyLoading, noCreditsBlocked])
+  }, [stats.total, stats.pending, stats.failed, stats.downloaded, stats.downloading, keyLoading, noCreditsBlocked])
 
   // Auto-fill missing zip codes once after results load.
   // Points that have an address but no trailing 5-digit zip are passed through
