@@ -177,6 +177,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [traceModalPts,  setTraceModalPts]  = useState([])
   const [traceSkippedCount, setTraceSkippedCount] = useState(0)
   const [zipFillPending, setZipFillPending] = useState(false)
+  const [creditRefunds, setCreditRefunds] = useState(0)
+  const [showRefundBanner, setShowRefundBanner] = useState(false)
   const selectAllRef  = useRef(null)
   const sigMenuRef    = useRef(null)
   const zipFillDone   = useRef(false)
@@ -329,7 +331,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setZipFillPending(true)
     const ids = [...new Set(noZip.flatMap(pt => pt.allPointIds || [pt.id]))]
     const chunks = chunkArray(ids, GEO_BATCH)
-    Promise.allSettled(chunks.map(b => geocodePoints(project.id, b).catch(() => {}))).then(() => {
+    Promise.allSettled(chunks.map(b => geocodePoints(project.id, b).catch(() => {}))).then((res) => {
+      const refunded = res.reduce((sum, r) => sum + (r.status === 'fulfilled' ? (r.value?.refundedCount || 0) : 0), 0)
+      if (refunded > 0) { setCreditRefunds(c => c + refunded); setShowRefundBanner(true) }
       fetchResults()
     }).finally(() => setZipFillPending(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -383,11 +387,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         const chunks = chunkArray(toGeocode.map(p => p.id), GEO_BATCH)
         for (let i = 0; i < chunks.length; i += GEO_CONCUR) {
           if (abortRef.current) break
-          await Promise.allSettled(
+          const res = await Promise.allSettled(
             chunks.slice(i, i + GEO_CONCUR).map(batch =>
               geocodePoints(project.id, batch).catch(() => {})
             )
           )
+          const refunded = res.reduce((sum, r) => sum + (r.status === 'fulfilled' ? (r.value?.refundedCount || 0) : 0), 0)
+          if (refunded > 0) { setCreditRefunds(c => c + refunded); setShowRefundBanner(true) }
         }
       }
     } catch { /* continue */ }
@@ -738,6 +744,19 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             ) : null}
           </div>
         </div>
+
+        {showRefundBanner && creditRefunds > 0 && (
+          <div className="flex items-start justify-between gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
+            <p className="text-xs text-amber-400">
+              {creditRefunds} scan credit{creditRefunds !== 1 ? 's' : ''} refunded — {creditRefunds === 1 ? 'a property' : 'properties'} without a resolvable street address can't be skip traced.
+            </p>
+            <button onClick={() => setShowRefundBanner(false)} className="text-amber-500/70 hover:text-amber-300 transition shrink-0">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Collapsible controls summary — click to expand progress/status/filters.
             Hidden while running (detail is force-shown then so progress is visible). */}

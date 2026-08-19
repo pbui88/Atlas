@@ -140,7 +140,35 @@ function injectZip(address, zip) {
   return patched !== stripped ? patched : `${stripped} ${zip}`
 }
 
-async function geocodePoint(pt, googleKey, supabase) {
+// A resolved address with no leading house number (e.g. a business/POI name)
+// can never be matched to a mailing address by skip trace — it's not a
+// temporary gap like a missing zip, it's permanently unusable.
+function hasNoHouseNumber(address) {
+  return !address || !/^\d/.test(address.trim())
+}
+
+// Refunds the 1 scan credit charged for this point's Street View download,
+// but only if a credit was actually charged for it (primaries get a
+// usage_logs row at download time; deduped/copied points don't) and it
+// hasn't already been refunded.
+async function refundCreditIfCharged(pt, userId, isAdmin, supabase) {
+  if (isAdmin || pt.credit_refunded) return false
+  const { data: log } = await supabase
+    .from('usage_logs')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('service', 'street_view')
+    .contains('metadata', { pointId: pt.id })
+    .limit(1)
+    .maybeSingle()
+  if (!log) return false
+
+  await supabase.rpc('refund_purchased_credit', { p_user_id: userId, p_points: 1 })
+  await supabase.from('scan_points').update({ credit_refunded: true }).eq('id', pt.id)
+  return true
+}
+
+async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
   // Skip only if address has a house number AND a 5-digit zip — it's complete.
   if (pt.address && !looksLikeLatLng(pt.address) && /^\d/.test(pt.address.trim()) && /\d{5}\s*$/.test(pt.address)) {
     return { pointId: pt.id, status: 'skipped' }
@@ -202,13 +230,24 @@ async function geocodePoint(pt, googleKey, supabase) {
       if (zip) address = injectZip(address, zip)
     }
 
-    if (address) {
+    if (address && !hasNoHouseNumber(address)) {
       await supabase.from('scan_points')
         .update({ address, updated_at: new Date().toISOString() })
         .eq('id', pt.id)
       return { pointId: pt.id, status: 'geocoded', address }
     }
-    return { pointId: pt.id, status: 'no_result' }
+
+    // No property-level address found (or the label had no house number, e.g.
+    // a business/POI name) — this point can never be matched to a mailing
+    // address, so refund the scan credit it cost instead of leaving the user
+    // to pay for a dead end.
+    if (address) {
+      await supabase.from('scan_points')
+        .update({ address, updated_at: new Date().toISOString() })
+        .eq('id', pt.id)
+    }
+    const refunded = await refundCreditIfCharged(pt, userId, isAdmin, supabase)
+    return { pointId: pt.id, status: 'no_result', refunded }
   } catch (e) {
     console.error(`Geocode failed ${pt.id}:`, e.message)
     return { pointId: pt.id, status: 'error', error: e.message }
@@ -219,8 +258,9 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
   if (event.httpMethod !== 'POST') return err('Method not allowed', 405)
 
-  const { user, error } = await requireAuth(event)
+  const { user, role, error } = await requireAuth(event)
   if (error) return err(error, 401)
+  const isAdmin = role === 'admin'
 
   if (!process.env.POSITIONSTACK_API_KEY) return err('POSITIONSTACK_API_KEY not configured', 503)
 
@@ -241,14 +281,14 @@ export const handler = async (event) => {
   // Fetch the requested points (road_bearing needed to offset toward the property)
   const { data: requested } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing')
+    .select('id, lat, lng, address, road_bearing, credit_refunded')
     .in('id', validIds.slice(0, CAP))
 
   // Also find any points in this project that have a lat/lng-looking address
   // so they get cleaned up even if not in the current batch
   const { data: badAddressed } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing')
+    .select('id, lat, lng, address, road_bearing, credit_refunded')
     .eq('project_id', projectId)
     .not('address', 'is', null)
 
@@ -267,11 +307,12 @@ export const handler = async (event) => {
   const googleKey = await resolveGoogleKey(user.id, supabase)
 
   const settled = await Promise.allSettled(
-    pts.map(pt => geocodePoint(pt, googleKey, supabase))
+    pts.map(pt => geocodePoint(pt, googleKey, supabase, user.id, isAdmin))
   )
 
   const results       = settled.map(s => s.status === 'fulfilled' ? s.value : { status: 'error' })
   const geocodedCount = results.filter(r => r.status === 'geocoded').length
+  const refundedCount = results.filter(r => r.refunded).length
 
   if (geocodedCount > 0) {
     await supabase.from('usage_logs').insert({
@@ -284,5 +325,5 @@ export const handler = async (event) => {
     })
   }
 
-  return ok({ results })
+  return ok({ results, refundedCount })
 }
