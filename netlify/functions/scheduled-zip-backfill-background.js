@@ -2,13 +2,16 @@
 // have a house number but no zip, and to retry/finalize (with a credit
 // refund, via geocodePoint) addresses that never resolved a house number at
 // all. Replaces having to manually re-run geocoding for affected users.
+//
+// Named with the "-background" suffix so Netlify gives it up to 15 minutes
+// instead of the ~26s ceiling on regular functions — needed to clear a large
+// backlog quickly. At BATCH=250 and ~1.1s/point (Nominatim's rate-limit
+// etiquette), a run takes ~5 min, comfortably inside the 15-min budget and
+// finishing before the next 5-min trigger.
 import { adminSupabase } from './utils/supabase.js'
 import { geocodePoint } from './geocode-points.js'
 
-// Nominatim's usage policy caps free reverse-geocode lookups at ~1/sec.
-// At 26s (this function's configured timeout, see netlify.toml) that leaves
-// room for ~20 points per run with margin for the Postgres round trips.
-const BATCH = 20
+const BATCH = 250
 
 function looksLikeLatLng(str) {
   return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test((str || '').trim())
@@ -34,7 +37,7 @@ export const handler = async () => {
     .select('id, lat, lng, address, road_bearing, credit_refunded, project_id')
     .not('address', 'is', null)
     .order('updated_at', { ascending: true })
-    .limit(2000)
+    .limit(5000)
 
   const targets = (pts || []).filter(p => {
     const addr = p.address.trim()
