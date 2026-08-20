@@ -112,9 +112,9 @@ async function reverseGeocode(lat, lng) {
   return address2
 }
 
-// Free zip-code fallback via Nominatim (OpenStreetMap).
-// Called only when Positionstack returns an address without a 5-digit zip.
-async function lookupZip(lat, lng) {
+// Free zip-code lookup via Nominatim (OpenStreetMap) — primary source, proven
+// reliable (unlike Positionstack's postal_code, see below).
+async function lookupZipNominatim(lat, lng) {
   try {
     const res  = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
@@ -123,6 +123,57 @@ async function lookupZip(lat, lng) {
     const data = await res.json()
     const pc = data.address?.postcode || ''
     return pc.replace(/^(\d{5})[\s-]\d{4}$/, '$1').trim() || null
+  } catch {
+    return null
+  }
+}
+
+// Fallback zip source for the rare point Nominatim has no postcode data for.
+// Positionstack's postal_code is normally unreliable (malformed values like
+// "797 69" in some areas — see extractAddress), so only accept it here if it
+// passes a strict 5-digit / ZIP+4 format check.
+async function lookupZipPositionstack(lat, lng) {
+  try {
+    const res  = await fetch(
+      `https://api.positionstack.com/v1/reverse?access_key=${process.env.POSITIONSTACK_API_KEY}&query=${lat},${lng}&output=json&limit=1`
+    )
+    const data = await res.json()
+    if (data.error) return null
+    const pc = (data.data?.[0]?.postal_code || '').trim()
+    const m  = pc.match(/^(\d{5})(-\d{4})?$/)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
+}
+
+// Nominatim first, Positionstack as a validated fallback if it has nothing.
+async function lookupZip(lat, lng) {
+  return (await lookupZipNominatim(lat, lng)) || (await lookupZipPositionstack(lat, lng))
+}
+
+// Fallback property lookup for when Positionstack can't find a house-numbered
+// match at all — Nominatim/OSM sometimes has house-level data Positionstack
+// misses. Builds an address without a zip (lookupZip fills that in after),
+// matching the shape extractAddress() produces.
+async function reverseGeocodeNominatim(lat, lng) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
+      { headers: { 'User-Agent': 'AtlasApp/1.0' } }
+    )
+    const data = await res.json()
+    const a = data.address
+    const street = a?.road || a?.pedestrian
+    if (!a?.house_number || !street) return null
+
+    const city  = a.city || a.town || a.village || a.hamlet || ''
+    // ISO3166-2-lvl4 looks like "US-TX" — cheaper and more reliable than
+    // mapping Nominatim's full state name ("Texas") to an abbreviation.
+    const state = (a['ISO3166-2-lvl4'] || '').split('-')[1] || ''
+
+    const parts = [`${a.house_number} ${street}`, city, state].filter(Boolean)
+    return parts.join(', ')
   } catch {
     return null
   }
@@ -225,8 +276,12 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
       if (!address) address = await reverseGeocode(baseLat, baseLng)
     }
 
-    // Always get the zip from Nominatim — Positionstack's postal data is
-    // unreliable (returns malformed values like "797 69" in some areas).
+    // Positionstack found nothing property-level — try Nominatim/OSM at the
+    // same offset point before giving up. Different data sources, so this
+    // occasionally finds a house number Positionstack doesn't have.
+    if (!address) address = await reverseGeocodeNominatim(geocodeLat, geocodeLng)
+
+    // Always get the zip — Nominatim primary, Positionstack validated fallback.
     if (address) {
       const zip = await lookupZip(geocodeLat, geocodeLng)
       if (zip) address = injectZip(address, zip)
