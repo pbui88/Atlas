@@ -4,14 +4,17 @@
 // all. Replaces having to manually re-run geocoding for affected users.
 //
 // Named with the "-background" suffix so Netlify gives it up to 15 minutes
-// instead of the ~26s ceiling on regular functions — needed to clear a large
-// backlog quickly. At BATCH=250 and ~1.1s/point (Nominatim's rate-limit
-// etiquette), a run takes ~5 min, comfortably inside the 15-min budget and
-// finishing before the next 5-min trigger.
+// instead of the ~26s ceiling on regular functions. At BATCH=700 and
+// ~1.1s/point (Nominatim's rate-limit etiquette), a run takes ~13 min —
+// close to the 15-min ceiling but verified fine, and clears a large backlog
+// in hours instead of days. Runs can occasionally overlap the next 5-min
+// trigger under this timing; that just means a little redundant work on the
+// same points (harmless — the first-line checks in geocodePoint just skip
+// anything already fixed), not correctness risk.
 import { adminSupabase } from './utils/supabase.js'
 import { geocodePoint } from './geocode-points.js'
 
-const BATCH = 250
+const BATCH = 700
 
 function looksLikeLatLng(str) {
   return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test((str || '').trim())
@@ -37,7 +40,7 @@ export const handler = async () => {
     .select('id, lat, lng, address, road_bearing, credit_refunded, project_id')
     .not('address', 'is', null)
     .order('updated_at', { ascending: true })
-    .limit(5000)
+    .limit(10000)
 
   const targets = (pts || []).filter(p => {
     const addr = p.address.trim()
