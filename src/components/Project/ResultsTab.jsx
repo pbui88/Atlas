@@ -259,7 +259,20 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setResLoading(false)
   }, [project.id])
 
-  useEffect(() => { fetchStats(); fetchResults() }, [project.id])
+  // Reflects actual persisted state — not just refunds triggered by a live call
+  // in this session. The scheduled background zip-backfill job can also refund
+  // credits server-side at any time, with no request in this session to report
+  // it, so this is the only reliable way the banner ever surfaces those.
+  const fetchCreditRefunds = async () => {
+    const { count } = await supabase
+      .from('scan_points')
+      .select('*', { count: 'exact', head: true })
+      .eq('project_id', project.id)
+      .eq('credit_refunded', true)
+    if (count > 0) { setCreditRefunds(count); setShowRefundBanner(true) }
+  }
+
+  useEffect(() => { fetchStats(); fetchResults(); fetchCreditRefunds() }, [project.id])
 
   // Close the signal dropdown on outside click or Escape.
   useEffect(() => {
