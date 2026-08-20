@@ -87,22 +87,32 @@ async function downloadGoogleImage(lat, lng, heading, apiKey) {
 }
 
 async function processPoint(pt, projectId, userId, apiKey, supabase) {
-  const { id: pointId, lat, lng, road_bearing } = pt
+  const { id: pointId, lat, lng, road_bearing, property_lat, property_lng } = pt
 
   try {
     if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
+    // Aim the camera at the exact point geocode-points.js resolved the address
+    // from (property_lat/lng), when it's known — not the raw road-snapped scan
+    // point. Using two independently-guessed offsets for the photo vs. the
+    // address let them drift onto different houses on curves, corner lots, or
+    // uneven parcel spacing; sharing one target point keeps them in sync.
+    // Falls back to the raw scan point if geocoding hasn't run yet or never
+    // resolved a house-numbered address.
+    const targetLat = property_lat ?? lat
+    const targetLng = property_lng ?? lng
+
     // Get the actual panorama position (free metadata call) and aim the camera
-    // from there toward the scan point. This always faces the property regardless
+    // from there toward the target point. This always faces the property regardless
     // of which side of the road it's on or whether road_bearing is available.
     // Falls back to road_bearing + 90 only if the metadata call fails.
     const pano = await getPanoramaLocation(lat, lng, apiKey)
     let heading
     if (pano) {
-      const dist = Math.abs(pano.lat - lat) + Math.abs(pano.lng - lng)
+      const dist = Math.abs(pano.lat - targetLat) + Math.abs(pano.lng - targetLng)
       heading = dist > 1e-7
-        ? Math.round(bearingTo(pano.lat, pano.lng, lat, lng))   // panorama → scan point
-        : Math.round((road_bearing ?? 0) + 90) % 360            // same spot, fall back
+        ? Math.round(bearingTo(pano.lat, pano.lng, targetLat, targetLng))   // panorama → property point
+        : Math.round((road_bearing ?? 0) + 90) % 360                       // same spot, fall back
     } else {
       heading = Math.round((road_bearing ?? 0) + 90) % 360
     }
@@ -203,7 +213,7 @@ export const handler = async (event) => {
 
   const { data: pts } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, road_bearing')
+    .select('id, lat, lng, road_bearing, property_lat, property_lng')
     .in('id', ids)
 
   if (!pts?.length) return ok({ results: [] })

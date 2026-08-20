@@ -233,8 +233,13 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     }
 
     if (address && !hasNoHouseNumber(address)) {
+      // Persist the exact point this address was resolved from — collect-images.js
+      // aims the camera at property_lat/lng instead of the raw road-snapped scan
+      // point, so the photo and the address always refer to the same location
+      // instead of two independently-guessed offsets that can drift onto
+      // different houses (adjacent lots, curves, corner lots).
       await supabase.from('scan_points')
-        .update({ address, updated_at: new Date().toISOString() })
+        .update({ address, property_lat: geocodeLat, property_lng: geocodeLng, updated_at: new Date().toISOString() })
         .eq('id', pt.id)
       return { pointId: pt.id, status: 'geocoded', address }
     }
