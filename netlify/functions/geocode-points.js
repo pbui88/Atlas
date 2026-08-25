@@ -347,14 +347,23 @@ export const handler = async (event) => {
     .in('id', validIds.slice(0, CAP))
 
   // Also find any points in this project that have a lat/lng-looking address
-  // so they get cleaned up even if not in the current batch
-  const { data: badAddressed } = await supabase
-    .from('scan_points')
-    .select('id, lat, lng, address, road_bearing, credit_refunded')
-    .eq('project_id', projectId)
-    .not('address', 'is', null)
-
-  const latLngPts = (badAddressed || []).filter(p => looksLikeLatLng(p.address))
+  // so they get cleaned up even if not in the current batch. Page through —
+  // PostgREST caps a single request at 1000 rows, and with no deterministic
+  // order a project with 1000+ already-addressed points could push the actual
+  // bad (lat/lng) ones past that cap, silently skipping them forever. Stop
+  // early once we have enough candidates since only CAP get processed anyway.
+  const latLngPts = []
+  for (let from = 0; latLngPts.length < CAP; from += 1000) {
+    const { data: page } = await supabase
+      .from('scan_points')
+      .select('id, lat, lng, address, road_bearing, credit_refunded')
+      .eq('project_id', projectId)
+      .not('address', 'is', null)
+      .range(from, from + 999)
+    if (!page?.length) break
+    latLngPts.push(...page.filter(p => looksLikeLatLng(p.address)))
+    if (page.length < 1000) break
+  }
 
   // Merge, deduplicate by id, cap total
   const seen = new Set()
