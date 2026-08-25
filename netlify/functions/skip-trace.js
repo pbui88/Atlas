@@ -9,13 +9,23 @@ export const handler = async (event) => {
 
   // ── GET: list the user's saved records ──────────────────────
   if (event.httpMethod === 'GET') {
-    const { data, error: dbErr } = await supabase
-      .from('skip_trace_records')
-      .select('*, skip_trace_orders(id, status, tracerfy_order_id, cost_usd)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-    if (dbErr) return err(dbErr.message, 500)
-    return ok({ records: data || [] })
+    // PostgREST caps a single request at 1000 rows — page through so heavy users
+    // (multiple thousand saved/traced records) don't silently lose their oldest ones.
+    const pageSize = 1000
+    const records  = []
+    for (let from = 0; ; from += pageSize) {
+      const { data, error: dbErr } = await supabase
+        .from('skip_trace_records')
+        .select('*, skip_trace_orders(id, status, tracerfy_order_id, cost_usd)')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1)
+      if (dbErr) return err(dbErr.message, 500)
+      if (!data?.length) break
+      records.push(...data)
+      if (data.length < pageSize) break
+    }
+    return ok({ records })
   }
 
   // ── POST: save one or more records ──────────────────────────
