@@ -65,24 +65,42 @@ export const handler = async (event) => {
   if (event.httpMethod === 'DELETE') {
     if (!projectId) return err('id required')
 
-    // Delete images from storage first
-    const { data: points } = await supabase
-      .from('scan_points')
-      .select('id')
-      .eq('project_id', projectId)
+    // Delete images from storage first. Page through scan_points and images —
+    // PostgREST caps a single request at 1000 rows, and large projects (or
+    // points with several images each) can exceed that, leaving orphaned
+    // files in storage after the project row is gone.
+    const pointIds = []
+    for (let from = 0; ; from += 1000) {
+      const { data: points } = await supabase
+        .from('scan_points')
+        .select('id')
+        .eq('project_id', projectId)
+        .range(from, from + 999)
+      if (!points?.length) break
+      pointIds.push(...points.map(p => p.id))
+      if (points.length < 1000) break
+    }
 
-    if (points?.length) {
-      const pointIds = points.map(p => p.id)
-      const { data: imgs } = await supabase
-        .from('images')
-        .select('storage_path')
-        .in('scan_point_id', pointIds)
-
-      if (imgs?.length) {
-        const paths = imgs.filter(i => i.storage_path).map(i => i.storage_path)
-        if (paths.length) {
-          await supabase.storage.from('street-view-images').remove(paths)
+    if (pointIds.length) {
+      const paths = []
+      // Chunk the .in() filter list to keep each request a reasonable size,
+      // and page each chunk's result in case it alone has 1000+ images.
+      for (let i = 0; i < pointIds.length; i += 500) {
+        const chunk = pointIds.slice(i, i + 500)
+        for (let from = 0; ; from += 1000) {
+          const { data: imgs } = await supabase
+            .from('images')
+            .select('storage_path')
+            .in('scan_point_id', chunk)
+            .range(from, from + 999)
+          if (!imgs?.length) break
+          paths.push(...imgs.filter(i => i.storage_path).map(i => i.storage_path))
+          if (imgs.length < 1000) break
         }
+      }
+
+      for (let i = 0; i < paths.length; i += 1000) {
+        await supabase.storage.from('street-view-images').remove(paths.slice(i, i + 1000))
       }
     }
 
