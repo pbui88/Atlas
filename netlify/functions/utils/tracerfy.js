@@ -1,6 +1,31 @@
 // Shared helpers for parsing and matching Tracerfy result rows.
 // Used by both tracerfy-webhook.js (realtime) and check-skip-trace.js (poll).
 
+// Fetch all result rows for a completed queue (paginated at 100/page).
+// Tracerfy has been observed to re-serve the same page instead of returning an
+// empty array once its result set is exhausted (e.g. queue 149803: rows_uploaded
+// 334, but page 2+ just repeats page 1's 302 rows forever) — without a guard,
+// callers loop until the Netlify function times out. Track seen ids and stop as
+// soon as a page contributes nothing new; a hard page cap backs that up.
+export async function fetchQueueResults(queueId, apiKey, base = 'https://tracerfy.com/v1/api') {
+  const rows = []
+  const seenIds = new Set()
+  for (let page = 1; page <= 200; page++) {
+    const res = await fetch(`${base}/queue/${queueId}?page=${page}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!res.ok) break
+    const data = await res.json().catch(() => null)
+    if (!Array.isArray(data) || !data.length) break
+    const newRows = data.filter(r => !seenIds.has(r.id))
+    if (newRows.length === 0) break
+    newRows.forEach(r => seenIds.add(r.id))
+    rows.push(...newRows)
+    if (data.length < 100) break
+  }
+  return rows
+}
+
 export function normalizeResult(row) {
   const makePhone = (number, type, field) => {
     if (!number) return null

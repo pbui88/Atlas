@@ -1,5 +1,5 @@
 import { adminSupabase } from './utils/supabase.js'
-import { normalizeResult, matchRecord } from './utils/tracerfy.js'
+import { normalizeResult, matchRecord, fetchQueueResults } from './utils/tracerfy.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -17,21 +17,6 @@ async function fetchQueueStatuses() {
     if (data.length < 100) break
   }
   return queues
-}
-
-async function fetchQueueResults(queueId) {
-  const rows = []
-  for (let page = 1; ; page++) {
-    const res = await fetch(`${TRACERFY_BASE}/queue/${queueId}?page=${page}`, {
-      headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
-    })
-    if (!res.ok) break
-    const data = await res.json().catch(() => null)
-    if (!Array.isArray(data) || !data.length) break
-    rows.push(...data)
-    if (data.length < 100) break
-  }
-  return rows
 }
 
 export const handler = async () => {
@@ -134,7 +119,7 @@ export const handler = async () => {
     // Case 1: found in list and marked done
     if (fromList && fromList.pending == false) {
       try {
-        const results = await fetchQueueResults(qid)
+        const results = await fetchQueueResults(qid, TRACERFY_API_KEY, TRACERFY_BASE)
         await resolveOrder(order, results)
         completed++
         console.log(`[scheduled-skip-trace-check] resolved order ${order.id}`)
@@ -147,7 +132,7 @@ export const handler = async () => {
     // Case 2: not in recent list — try fetching results directly
     if (!fromList) {
       try {
-        const results = await fetchQueueResults(qid)
+        const results = await fetchQueueResults(qid, TRACERFY_API_KEY, TRACERFY_BASE)
         if (results.length > 0) {
           await resolveOrder(order, results)
           completed++

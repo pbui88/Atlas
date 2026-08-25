@@ -6,28 +6,11 @@
 //   https://your-atlas-app.netlify.app/.netlify/functions/tracerfy-webhook?secret=<TRACERFY_WEBHOOK_SECRET>
 import { timingSafeEqual } from 'crypto'
 import { adminSupabase, ok, err, options } from './utils/supabase.js'
-import { normalizeResult, matchRecord } from './utils/tracerfy.js'
+import { normalizeResult, matchRecord, fetchQueueResults } from './utils/tracerfy.js'
 
 const WEBHOOK_SECRET   = process.env.TRACERFY_WEBHOOK_SECRET
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
-
-async function fetchQueueResults(queueId) {
-  const rows = []
-  let page = 1
-  while (true) {
-    const res  = await fetch(`${TRACERFY_BASE}/queue/${queueId}?page=${page}`, {
-      headers: { 'Authorization': `Bearer ${TRACERFY_API_KEY}` },
-    })
-    if (!res.ok) break
-    const data = await res.json().catch(() => null)
-    if (!data || !Array.isArray(data) || data.length === 0) break
-    rows.push(...data)
-    if (data.length < 100) break
-    page++
-  }
-  return rows
-}
 
 function checkSecret(provided) {
   if (!provided || !WEBHOOK_SECRET) return false
@@ -94,7 +77,7 @@ export const handler = async (event) => {
   }
 
   try {
-    const results = await fetchQueueResults(queueId)
+    const results = await fetchQueueResults(queueId, TRACERFY_API_KEY, TRACERFY_BASE)
     const { data: records } = await supabase
       .from('skip_trace_records')
       .select('id, address, city, state_code')

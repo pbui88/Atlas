@@ -1,5 +1,5 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
-import { normalizeResult, matchRecord } from './utils/tracerfy.js'
+import { normalizeResult, matchRecord, fetchQueueResults } from './utils/tracerfy.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -18,22 +18,6 @@ async function fetchQueueStatuses() {
     if (data.length < 100) break
   }
   return queues
-}
-
-// Fetch all result rows for a completed queue (paginated at 100)
-async function fetchQueueResults(queueId) {
-  const rows = []
-  for (let page = 1; ; page++) {
-    const res = await fetch(`${TRACERFY_BASE}/queue/${queueId}?page=${page}`, {
-      headers: { Authorization: `Bearer ${TRACERFY_API_KEY}` },
-    })
-    if (!res.ok) break
-    const data = await res.json().catch(() => null)
-    if (!Array.isArray(data) || !data.length) break
-    rows.push(...data)
-    if (data.length < 100) break
-  }
-  return rows
 }
 
 // Normalize a phone string to its last 10 digits for consistent matching.
@@ -253,7 +237,7 @@ export const handler = async (event) => {
 
     let results = []
     try {
-      results = await fetchQueueResults(order.tracerfy_order_id)
+      results = await fetchQueueResults(order.tracerfy_order_id, TRACERFY_API_KEY, TRACERFY_BASE)
     } catch (e) {
       console.error(`Failed to fetch results for queue ${order.tracerfy_order_id}:`, e.message)
       continue
