@@ -74,7 +74,21 @@ export const saveUserKey      = (key) => call('user-keys', 'POST', { google_maps
 export const deleteUserKey    = ()    => call('user-keys', 'DELETE')
 
 // ── Skip Trace ───────────────────────────────────────────────
-export const getSkipTraceRecords   = ()          => call('skip-trace')
+// GET /skip-trace is paginated server-side (a heavy user's full history can
+// exceed the ~6MB Lambda response cap in one shot) — loop pages together here
+// so callers still get the complete list back as before.
+export async function getSkipTraceRecords() {
+  const limit = 1500
+  let offset  = 0
+  let records = []
+  while (true) {
+    const res = await call(`skip-trace?offset=${offset}&limit=${limit}`)
+    records = records.concat(res.records || [])
+    if (!res.hasMore || !res.records?.length) break
+    offset += res.records.length
+  }
+  return { records }
+}
 export const saveSkipTraceRecords  = (records, list_name) => call('skip-trace', 'POST', { records, list_name })
 export const deleteSkipTraceRecord = (id)        => call(`skip-trace/${id}`, 'DELETE')
 export const deleteSkipTraceGroup  = (listKey)   => call(`skip-trace/list/${encodeURIComponent(listKey)}`, 'DELETE')
