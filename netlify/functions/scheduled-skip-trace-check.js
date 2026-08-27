@@ -1,5 +1,5 @@
 import { adminSupabase } from './utils/supabase.js'
-import { normalizeResult, matchRecord, fetchQueueResults } from './utils/tracerfy.js'
+import { normalizeResult, matchRecord, fetchQueueResults, refundIfZeroCreditsDeducted } from './utils/tracerfy.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -77,7 +77,7 @@ export const handler = async () => {
   const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   let completed = 0
 
-  const resolveOrder = async (order, results) => {
+  const resolveOrder = async (order, results, queueMeta) => {
     const now = new Date().toISOString()
     if (!results.length) {
       await supabase.from('skip_trace_records')
@@ -106,10 +106,13 @@ export const handler = async () => {
     }
     // Guard on status='processing' — a concurrent webhook or user-triggered
     // poll may have already resolved this order between our select and this update.
-    await supabase.from('skip_trace_orders')
+    const { data: claimed } = await supabase.from('skip_trace_orders')
       .update({ status: 'completed', completed_at: now })
       .eq('id', order.id)
       .eq('status', 'processing')
+      .select('id')
+
+    if (claimed?.length) await refundIfZeroCreditsDeducted(supabase, order, queueMeta)
   }
 
   for (const order of orders) {
@@ -120,7 +123,7 @@ export const handler = async () => {
     if (fromList && fromList.pending == false) {
       try {
         const results = await fetchQueueResults(qid, TRACERFY_API_KEY, TRACERFY_BASE)
-        await resolveOrder(order, results)
+        await resolveOrder(order, results, fromList)
         completed++
         console.log(`[scheduled-skip-trace-check] resolved order ${order.id}`)
       } catch (e) {

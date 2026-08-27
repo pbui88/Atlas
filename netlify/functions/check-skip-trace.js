@@ -1,5 +1,5 @@
 import { requireAuth, adminSupabase, ok, err, options } from './utils/supabase.js'
-import { normalizeResult, matchRecord, fetchQueueResults } from './utils/tracerfy.js'
+import { normalizeResult, matchRecord, fetchQueueResults, refundIfZeroCreditsDeducted } from './utils/tracerfy.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -209,7 +209,7 @@ export const handler = async (event) => {
 
   const { data: orders, error: ordersErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, tracerfy_order_id')
+    .select('id, tracerfy_order_id, user_id, cost_usd')
     .eq('user_id', user.id)
     .eq('status', 'processing')
     .not('tracerfy_order_id', 'is', null)
@@ -297,6 +297,7 @@ export const handler = async (event) => {
 
     if (!orderClaimed?.length) continue
 
+    await refundIfZeroCreditsDeducted(supabase, order, queueStatus)
     completed++
   }
 

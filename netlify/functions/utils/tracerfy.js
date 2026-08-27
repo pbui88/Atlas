@@ -26,6 +26,45 @@ export async function fetchQueueResults(queueId, apiKey, base = 'https://tracerf
   return rows
 }
 
+// Find a single queue's metadata (rows_uploaded, credits_deducted, etc.) by
+// searching Tracerfy's recent-queues list. Used where a caller only has a
+// queue id and no already-fetched statusMap to look it up in (e.g. the webhook).
+export async function fetchQueueMeta(queueId, apiKey, base = 'https://tracerfy.com/v1/api') {
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(`${base}/queues/?page=${page}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!res.ok) break
+    const data = await res.json().catch(() => null)
+    if (!Array.isArray(data) || !data.length) break
+    const match = data.find(q => String(q.id) === String(queueId))
+    if (match) return match
+    if (data.length < 100) break
+  }
+  return null
+}
+
+// Tracerfy's own credits_deducted being 0 on a completed queue means THEY didn't
+// charge for it either — a reliable signal the job failed on their side rather
+// than genuinely finding zero matches (observed: queue 149741, 226/226 records
+// with no result at all, vs. this same user's normal 33-92% match rate elsewhere).
+// Auto-refund the order's cost in that case instead of silently charging the
+// customer for a batch that delivered nothing and cost us nothing either.
+export async function refundIfZeroCreditsDeducted(supabase, order, queueMeta) {
+  if (!queueMeta || queueMeta.credits_deducted !== 0) return false
+  if (!(order.cost_usd > 0)) return false
+  const { error } = await supabase.rpc('add_skip_trace_balance', {
+    p_user_id: order.user_id,
+    p_amount:  order.cost_usd,
+  })
+  if (error) {
+    console.error(`refundIfZeroCreditsDeducted: refund failed for order ${order.id}:`, error.message)
+    return false
+  }
+  console.log(`[tracerfy] auto-refunded $${order.cost_usd} for order ${order.id} — Tracerfy reported credits_deducted=0`)
+  return true
+}
+
 export function normalizeResult(row) {
   const makePhone = (number, type, field) => {
     if (!number) return null

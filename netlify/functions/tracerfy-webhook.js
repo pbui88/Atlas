@@ -6,7 +6,7 @@
 //   https://your-atlas-app.netlify.app/.netlify/functions/tracerfy-webhook?secret=<TRACERFY_WEBHOOK_SECRET>
 import { timingSafeEqual } from 'crypto'
 import { adminSupabase, ok, err, options } from './utils/supabase.js'
-import { normalizeResult, matchRecord, fetchQueueResults } from './utils/tracerfy.js'
+import { normalizeResult, matchRecord, fetchQueueResults, fetchQueueMeta, refundIfZeroCreditsDeducted } from './utils/tracerfy.js'
 
 const WEBHOOK_SECRET   = process.env.TRACERFY_WEBHOOK_SECRET
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
@@ -52,7 +52,7 @@ export const handler = async (event) => {
 
   const { data: order, error: orderErr } = await supabase
     .from('skip_trace_orders')
-    .select('id, user_id, status')
+    .select('id, user_id, status, cost_usd')
     .eq('tracerfy_order_id', queueId)
     .maybeSingle()
 
@@ -120,11 +120,17 @@ export const handler = async (event) => {
     // Mark the order complete only after all record writes succeed. Guard on
     // status='processing' so a concurrent poll/scheduled-check resolving the
     // same order first doesn't get silently overwritten by this stale flip.
-    await supabase
+    const { data: claimed } = await supabase
       .from('skip_trace_orders')
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', order.id)
       .eq('status', 'processing')
+      .select('id')
+
+    if (claimed?.length) {
+      const queueMeta = await fetchQueueMeta(queueId, TRACERFY_API_KEY, TRACERFY_BASE).catch(() => null)
+      await refundIfZeroCreditsDeducted(supabase, order, queueMeta)
+    }
 
     return ok({ ok: true })
   } catch (e) {
