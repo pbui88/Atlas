@@ -86,7 +86,10 @@ function buildCacheKey(hashes) {
   return crypto.createHash('sha256').update(joined).digest('hex')
 }
 
-async function analyzePoint(pointId, projectId, userId, supabase) {
+// Exported so one-off recovery scripts (e.g. re-running points that failed due
+// to a platform-wide Gemini billing outage) can reuse the exact same logic
+// instead of duplicating it.
+export async function analyzePoint(pointId, projectId, userId, supabase) {
   try {
     const { data: images } = await supabase
       .from('images')
