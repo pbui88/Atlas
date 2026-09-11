@@ -1,6 +1,11 @@
 import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
 
-const CAP = 50   // points geocoded in parallel per function call
+// Nominatim throttling (below) now serializes ~1 call/point through this
+// invocation, so CAP must stay small enough that a worst-case batch (every
+// point needing Nominatim) still finishes inside the 26s function timeout
+// (netlify.toml) — 20 points × ~1.1s ≈ 22s, leaving headroom for the rest of
+// the work each point does (Positionstack calls, DB writes).
+const CAP = 20
 
 // Fetch the actual Street View panorama location (free metadata call).
 // The panorama is where the camera physically was — offset from here gives
@@ -112,18 +117,40 @@ async function reverseGeocode(lat, lng) {
   return address2
 }
 
+// Nominatim's usage policy caps free reverse-geocoding at ~1 request/second.
+// A single geocode-points invocation processes up to CAP points concurrently
+// (Promise.allSettled in the handler below), which used to fire dozens of
+// simultaneous Nominatim requests — Nominatim would rate-limit most of them,
+// and the failure was swallowed as if the address simply didn't exist. Every
+// Nominatim call in this module now goes through this queue so they run one
+// at a time, spaced a full second apart, no matter how many points are in
+// flight at once.
+let nominatimReady = Promise.resolve()
+function throttleNominatim(task) {
+  const run = nominatimReady.then(task)
+  nominatimReady = run.then(() => {}, () => {}).then(() => new Promise(r => setTimeout(r, 1100)))
+  return run
+}
+
+async function fetchNominatim(url) {
+  return throttleNominatim(async () => {
+    const res = await fetch(url, { headers: { 'User-Agent': 'AtlasApp/1.0' } })
+    if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`)
+    return res.json()
+  })
+}
+
 // Free zip-code lookup via Nominatim (OpenStreetMap) — primary source, proven
-// reliable (unlike Positionstack's postal_code, see below).
+// reliable (unlike Positionstack's postal_code, see below). A zip is a
+// nice-to-have with a Positionstack fallback right below, so any failure here
+// (including a rate limit) just falls through — no need to distinguish it.
 async function lookupZipNominatim(lat, lng) {
   try {
-    const res  = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
-      { headers: { 'User-Agent': 'AtlasApp/1.0' } }
-    )
-    const data = await res.json()
+    const data = await fetchNominatim(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
     const pc = data.address?.postcode || ''
     return pc.replace(/^(\d{5})[\s-]\d{4}$/, '$1').trim() || null
-  } catch {
+  } catch (e) {
+    console.error(`[geocode] Nominatim zip lookup failed ${lat},${lng}:`, e.message)
     return null
   }
 }
@@ -156,27 +183,27 @@ async function lookupZip(lat, lng) {
 // match at all — Nominatim/OSM sometimes has house-level data Positionstack
 // misses. Builds an address without a zip (lookupZip fills that in after),
 // matching the shape extractAddress() produces.
+//
+// Unlike lookupZipNominatim, HTTP/network failures here are NOT swallowed —
+// they propagate up to geocodePoint's catch block, which marks the point
+// 'error' instead of 'no_result'. That distinction matters: 'no_result' is
+// treated as a permanent dead end (credit refunded, point never retried
+// again), but a rate-limited or dropped request isn't proof the address
+// doesn't exist — it just means try again later. Only a clean response that
+// genuinely has no house number counts as "not found".
 async function reverseGeocodeNominatim(lat, lng) {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-      { headers: { 'User-Agent': 'AtlasApp/1.0' } }
-    )
-    const data = await res.json()
-    const a = data.address
-    const street = a?.road || a?.pedestrian
-    if (!a?.house_number || !street) return null
+  const data = await fetchNominatim(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`)
+  const a = data.address
+  const street = a?.road || a?.pedestrian
+  if (!a?.house_number || !street) return null
 
-    const city  = a.city || a.town || a.village || a.hamlet || ''
-    // ISO3166-2-lvl4 looks like "US-TX" — cheaper and more reliable than
-    // mapping Nominatim's full state name ("Texas") to an abbreviation.
-    const state = (a['ISO3166-2-lvl4'] || '').split('-')[1] || ''
+  const city  = a.city || a.town || a.village || a.hamlet || ''
+  // ISO3166-2-lvl4 looks like "US-TX" — cheaper and more reliable than
+  // mapping Nominatim's full state name ("Texas") to an abbreviation.
+  const state = (a['ISO3166-2-lvl4'] || '').split('-')[1] || ''
 
-    const parts = [`${a.house_number} ${street}`, city, state].filter(Boolean)
-    return parts.join(', ')
-  } catch {
-    return null
-  }
+  const parts = [`${a.house_number} ${street}`, city, state].filter(Boolean)
+  return parts.join(', ')
 }
 
 // Inject a zip code into an address that already has a 2-letter state abbreviation.

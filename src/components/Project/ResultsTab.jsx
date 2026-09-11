@@ -11,7 +11,7 @@ const COLLECT_BATCH     = 20   // must match CAP in collect-images.js
 const COLLECT_CONCUR    = 3    // parallel function calls during image collection
 const AI_BATCH          = 8    // must match CAP in analyze-points.js
 const AI_CONCUR         = 2    // parallel function calls during analysis
-const GEO_BATCH         = 50   // must match CAP in geocode-points.js
+const GEO_BATCH         = 20   // must match CAP in geocode-points.js
 const GEO_CONCUR        = 2    // parallel function calls during geocoding
 
 
