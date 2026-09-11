@@ -532,11 +532,22 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setPhase('')
     setRunning(false)
 
-    // Mark project complete so the dashboard badge updates correctly.
+    // Mark project complete so the dashboard badge updates correctly — but only
+    // if every point actually reached a terminal state. A silently-failed batch
+    // (e.g. a function timeout that isn't a 429/503) doesn't set abortRef, so
+    // without this check the project would get stamped "Complete" with points
+    // still stuck pending/downloading/failed.
     if (!abortRef.current) {
-      await supabase.from('projects')
-        .update({ status: 'complete' })
-        .eq('id', project.id)
+      const { count: unfinished } = await supabase
+        .from('scan_points')
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', project.id)
+        .in('status', ['pending', 'downloading', 'downloaded', 'analyzing', 'failed'])
+      if (!unfinished) {
+        await supabase.from('projects')
+          .update({ status: 'complete' })
+          .eq('id', project.id)
+      }
     }
 
     await fetchStats()

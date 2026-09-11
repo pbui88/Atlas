@@ -72,7 +72,14 @@ function bearingTo(fromLat, fromLng, toLat, toLng) {
 // or throws an Error for 400/403 (bad key / API not enabled).
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
   const url = `https://maps.googleapis.com/maps/api/streetview?size=640x640&location=${lat},${lng}&heading=${heading}&pitch=0&fov=60&return_error_code=true&key=${apiKey}`
-  const res = await fetch(url)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  let res
+  try {
+    res = await fetch(url, { signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
   if (res.status === 403 || res.status === 400) {
     // Google returns a plain-text reason (e.g. referrer/IP restriction, API not
     // enabled, billing disabled) in the body — log it so the real cause is
