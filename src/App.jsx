@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import LandingPage         from './components/Auth/LandingPage'
 import LoginPage           from './components/Auth/LoginPage'
+import ResetPasswordPage   from './components/Auth/ResetPasswordPage'
 import PendingApprovalPage from './components/Auth/PendingApprovalPage'
 import AppLayout           from './components/Layout/AppLayout'
 import Dashboard           from './components/Dashboard/index'
@@ -46,6 +47,7 @@ export default function App() {
           {/* Public */}
           <Route path="/"      element={<IndexRoute />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
 
           {/* App (authenticated) */}
           <Route path="/dashboard" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
