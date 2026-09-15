@@ -14,7 +14,7 @@
 // redundant work on the same points (harmless — the first-line checks in
 // geocodePoint just skip anything already fixed), not correctness risk.
 import { adminSupabase } from './utils/supabase.js'
-import { geocodePoint } from './geocode-points.js'
+import { geocodePoint, MAX_RETRIES } from './geocode-points.js'
 
 const BATCH = 700
 
@@ -36,9 +36,10 @@ export const handler = async () => {
   // crowd them out of the oldest-10000 pool below.
   const { data: nullAddrPts } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing, credit_refunded, project_id')
+    .select('id, lat, lng, address, road_bearing, credit_refunded, retry_count, project_id')
     .is('address', null)
     .eq('credit_refunded', false)
+    .lt('retry_count', MAX_RETRIES)
     .order('updated_at', { ascending: true })
     .limit(BATCH)
 
@@ -49,8 +50,9 @@ export const handler = async () => {
   // being retried every single run.
   const { data: pts } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing, credit_refunded, project_id')
+    .select('id, lat, lng, address, road_bearing, credit_refunded, retry_count, project_id')
     .not('address', 'is', null)
+    .lt('retry_count', MAX_RETRIES)
     .order('updated_at', { ascending: true })
     .limit(10000)
 

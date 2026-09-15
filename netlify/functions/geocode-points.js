@@ -246,6 +246,27 @@ async function refundCreditIfCharged(pt, userId, isAdmin, supabase) {
   return true
 }
 
+// A thrown error (rate limit, network blip, timeout) isn't proof an address
+// doesn't exist — unlike 'no_result', it used to leave retry_count/updated_at
+// untouched, so a permanently-failing point (e.g. a dead API key, or an area
+// neither provider can ever resolve) stayed "oldest" forever and got
+// re-selected by the backfill job's every-5-minute sweep on every single run,
+// burning through the Positionstack quota on the same doomed batch instead of
+// working through the real backlog. Bumping updated_at here — win or lose —
+// moves it to the back of the retry queue so failures get spread across runs;
+// after MAX_RETRIES, treat it like 'no_result' and refund instead of retrying
+// forever with no chance of success.
+export const MAX_RETRIES = 5
+async function bumpRetry(pt, supabase, userId, isAdmin) {
+  const nextCount = (pt.retry_count || 0) + 1
+  await supabase.from('scan_points')
+    .update({ retry_count: nextCount, updated_at: new Date().toISOString() })
+    .eq('id', pt.id)
+  if (nextCount >= MAX_RETRIES) {
+    await refundCreditIfCharged(pt, userId, isAdmin, supabase)
+  }
+}
+
 // Exported so scheduled-zip-backfill.js can reuse the exact same geocode +
 // refund logic for its system-wide sweep instead of duplicating it.
 export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
@@ -269,6 +290,7 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     } catch (e) {
       console.error(`Zip lookup failed ${pt.id}:`, e.message)
     }
+    await bumpRetry(pt, supabase, userId, isAdmin)
     return { pointId: pt.id, status: 'no_zip' }
   }
 
@@ -339,6 +361,7 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     return { pointId: pt.id, status: 'no_result', refunded }
   } catch (e) {
     console.error(`Geocode failed ${pt.id}:`, e.message)
+    await bumpRetry(pt, supabase, userId, isAdmin)
     return { pointId: pt.id, status: 'error', error: e.message }
   }
 }
@@ -370,7 +393,7 @@ export const handler = async (event) => {
   // Fetch the requested points (road_bearing needed to offset toward the property)
   const { data: requested } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, address, road_bearing, credit_refunded')
+    .select('id, lat, lng, address, road_bearing, credit_refunded, retry_count')
     .in('id', validIds.slice(0, CAP))
 
   // Also find any points in this project that have a lat/lng-looking address
@@ -383,7 +406,7 @@ export const handler = async (event) => {
   for (let from = 0; latLngPts.length < CAP; from += 1000) {
     const { data: page } = await supabase
       .from('scan_points')
-      .select('id, lat, lng, address, road_bearing, credit_refunded')
+      .select('id, lat, lng, address, road_bearing, credit_refunded, retry_count')
       .eq('project_id', projectId)
       .not('address', 'is', null)
       .range(from, from + 999)
