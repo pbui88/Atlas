@@ -269,12 +269,14 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       allImgs.set(key, [...(allImgs.get(key) || []), ...(pt.images || [])])
     }
 
-    setPoints(Array.from(seen.entries()).map(([key, pt]) => ({
+    const deduped = Array.from(seen.entries()).map(([key, pt]) => ({
       ...pt,
       allPointIds: allIds.get(key) || [pt.id],
       images:      allImgs.get(key) || pt.images || [],
-    })))
+    }))
+    setPoints(deduped)
     setResLoading(false)
+    return deduped
   }, [project.id])
 
   // Reflects actual persisted state — not just refunds triggered by a live call
@@ -642,15 +644,25 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       }
     }
 
-    const finalStats   = await fetchStats()
-    await fetchResults()
-    const finalCredits = await fetchCreditsCharged()
+    const finalStats     = await fetchStats()
+    const finalDeduped   = await fetchResults()
+    const finalCredits   = await fetchCreditsCharged()
     onProjectUpdate?.()
 
     // Auto-popup summary — only when the scan genuinely finished on its own
     // (not paused/aborted by the user), so it doesn't fire on every partial run.
     if (fullyDone) {
-      setCompletionSummary({ credits: finalCredits, properties: finalStats.complete + finalStats.no_coverage })
+      // Properties: deduped unique properties with a usable result (matches
+      // what the results list actually shows), not the raw per-scan-point
+      // count — a property can span several scan_points that collapse into
+      // one row once they share the same resolved address.
+      const properties = (finalDeduped || []).filter(p => p.status === 'complete').length
+      // Uncharged: points that reached a terminal state without ever costing
+      // a credit — no_coverage (nothing to photograph) and failed (gave up
+      // after retries). Not deduped, since each represents its own
+      // no-Street-View or a network/API-error scan point.
+      const uncharged = finalStats.no_coverage + finalStats.failed
+      setCompletionSummary({ credits: finalCredits, properties, uncharged })
     }
   }
 
@@ -1286,7 +1298,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             </div>
             <h2 className="text-base font-semibold text-white mb-1">Scan complete</h2>
             <p className="text-sm text-slate-400 mb-4">Here's the summary for this run.</p>
-            <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className={`grid gap-3 mb-5 ${completionSummary.uncharged > 0 ? 'grid-cols-3' : 'grid-cols-2'}`}>
               <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
                 <p className="text-xl font-bold text-white tabular-nums">{completionSummary.credits.toLocaleString()}</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">credits charged</p>
@@ -1295,6 +1307,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 <p className="text-xl font-bold text-white tabular-nums">{completionSummary.properties.toLocaleString()}</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">properties finalized</p>
               </div>
+              {completionSummary.uncharged > 0 && (
+                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+                  <p className="text-xl font-bold text-amber-400 tabular-nums">{completionSummary.uncharged.toLocaleString()}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">unresolved, uncharged</p>
+                </div>
+              )}
             </div>
             <button
               onClick={() => setCompletionSummary(null)}
