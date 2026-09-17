@@ -58,6 +58,15 @@ function scoreBorderColor(score) {
   return 'border-emerald-300 bg-emerald-50'
 }
 
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} sec`
+  const mins = Math.round(seconds / 60)
+  if (mins < 60) return `${mins} min`
+  const hrs = Math.floor(mins / 60)
+  const remMins = mins % 60
+  return remMins > 0 ? `${hrs} hr ${remMins} min` : `${hrs} hr`
+}
+
 function ProgressBar({ label, value, max, color = 'bg-brand-500' }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
@@ -188,9 +197,12 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [running,    setRunning]    = useState(false)
   const [phase,      setPhase]      = useState('')
   const [scanError,  setScanError]  = useState(null)
+  const [etaSeconds, setEtaSeconds] = useState(null)
   const [abortRef]   = useState({ current: false })
   const autoStarted        = useRef(false)
   const autoStartInitialRef = useRef(autoStart)
+  const scanStartRef       = useRef(null)
+  const startDoneRef       = useRef(0)
 
   // ── Data fetching ──────────────────────────────────────────
   const fetchStats = async () => {
@@ -296,6 +308,36 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
 
+  // Continuous auto-refresh while a scan is running. The scan loop itself only
+  // calls fetchStats() between batches, which can leave the progress bars
+  // static for up to ~22s during a Nominatim-throttled geocoding batch — this
+  // keeps progress visibly moving without the user needing to switch away
+  // from and back to the tab.
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(fetchStats, 4000)
+    return () => clearInterval(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running])
+
+  // Estimated time remaining, recomputed as stats come in. Based on the
+  // throughput observed so far *this run* (points resolved since the scan
+  // started, divided by elapsed time) rather than a fixed assumption, since
+  // the three phases (geocoding, image collection, AI analysis) run at very
+  // different speeds. Needs a few resolved points and a little elapsed time
+  // before the estimate is stable enough to show.
+  useEffect(() => {
+    if (!running || !scanStartRef.current) { setEtaSeconds(null); return }
+    const done          = stats.complete + stats.no_coverage + stats.failed
+    const doneSinceStart = done - startDoneRef.current
+    const remaining      = stats.total - done
+    const elapsedSec     = (Date.now() - scanStartRef.current) / 1000
+    if (remaining <= 0) { setEtaSeconds(0); return }
+    if (doneSinceStart < 3 || elapsedSec < 10) { setEtaSeconds(null); return }
+    const rate = doneSinceStart / elapsedSec
+    setEtaSeconds(rate > 0 ? Math.round(remaining / rate) : null)
+  }, [stats, running])
+
   // Close the signal dropdown on outside click or Escape.
   useEffect(() => {
     if (!sigMenuOpen) return
@@ -398,6 +440,8 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     abortRef.current = false
     setScanError(null)
     setRunning(true)
+    scanStartRef.current = Date.now()
+    startDoneRef.current = stats.complete + stats.no_coverage + stats.failed
 
     // Reset points left mid-flight by a previous run that was interrupted
     // (closed tab, function timeout) so this run picks them back up.
@@ -839,6 +883,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           <div className="px-4 py-2 border-b border-white/[0.06] space-y-1.5">
             <ProgressBar label="Collecting Property Images" value={stats.total - stats.pending} max={stats.total} />
             <ProgressBar label="Atlas Analyzing" value={stats.complete + stats.no_coverage + stats.failed} max={stats.total} color="bg-green-500" />
+            {running && (
+              <p className="text-[11px] text-slate-500 pt-0.5">
+                {etaSeconds == null
+                  ? 'Estimating time remaining…'
+                  : etaSeconds <= 0
+                    ? 'Finishing up…'
+                    : `Estimated time remaining: ~${formatDuration(etaSeconds)}`}
+              </p>
+            )}
           </div>
         )}
 
