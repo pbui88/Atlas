@@ -320,18 +320,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running])
 
-  // Estimated time remaining, recomputed as stats come in. Based on the
-  // throughput observed so far *this run* (points resolved since the scan
-  // started, divided by elapsed time) rather than a fixed assumption, since
-  // the three phases (geocoding, image collection, AI analysis) run at very
-  // different speeds. Needs a few resolved points and a little elapsed time
-  // before the estimate is stable enough to show.
+  // Estimated time remaining, recomputed as stats come in. Tracks points that
+  // have left 'pending' (i.e. total - pending) rather than fully-terminal
+  // points (complete/no_coverage/failed) — geocoding, the phase most scans
+  // start in, only ever touches the address field and never moves a point out
+  // of 'pending', so a terminal-only counter stays at zero for the entire
+  // geocoding phase and the estimate would never appear. total - pending
+  // starts moving as soon as dedup/collection begins, which covers most of a
+  // scan's runtime. Needs a little progress and elapsed time before the
+  // estimate is stable enough to show.
   useEffect(() => {
     if (!running || !scanStartRef.current) { setEtaSeconds(null); return }
-    const done          = stats.complete + stats.no_coverage + stats.failed
+    const done           = stats.total - stats.pending
     const doneSinceStart = done - startDoneRef.current
-    const remaining      = stats.total - done
-    const elapsedSec     = (Date.now() - scanStartRef.current) / 1000
+    const remaining      = stats.pending
+    const elapsedSec      = (Date.now() - scanStartRef.current) / 1000
     if (remaining <= 0) { setEtaSeconds(0); return }
     if (doneSinceStart < 3 || elapsedSec < 10) { setEtaSeconds(null); return }
     const rate = doneSinceStart / elapsedSec
@@ -441,7 +444,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     setScanError(null)
     setRunning(true)
     scanStartRef.current = Date.now()
-    startDoneRef.current = stats.complete + stats.no_coverage + stats.failed
+    startDoneRef.current = stats.total - stats.pending
 
     // Reset points left mid-flight by a previous run that was interrupted
     // (closed tab, function timeout) so this run picks them back up.
@@ -885,11 +888,11 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             <ProgressBar label="Atlas Analyzing" value={stats.complete + stats.no_coverage + stats.failed} max={stats.total} color="bg-green-500" />
             {running && (
               <p className="text-[11px] text-slate-500 pt-0.5">
-                {etaSeconds == null
-                  ? 'Estimating time remaining…'
-                  : etaSeconds <= 0
-                    ? 'Finishing up…'
-                    : `Estimated time remaining: ~${formatDuration(etaSeconds)}`}
+                {etaSeconds != null
+                  ? (etaSeconds <= 0 ? 'Finishing up…' : `Estimated time remaining: ~${formatDuration(etaSeconds)}`)
+                  : phase === 'geocoding'
+                    ? 'Resolving property addresses… (time estimate available once image collection starts)'
+                    : 'Estimating time remaining…'}
               </p>
             )}
           </div>
