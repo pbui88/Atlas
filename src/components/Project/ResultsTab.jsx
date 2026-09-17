@@ -1037,9 +1037,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             {!resLoading && checkedCount === 0 && hasFilters && points.length !== sorted.length && (
               <span className="text-slate-400"> of {points.length}</span>
             )}
-            {!resLoading && checkedCount === 0 && stats.total > 0 && stats.total !== sorted.length && (
-              <span className="text-slate-600"> · {stats.total} pts</span>
-            )}
           </span>
           <button onClick={() => { fetchStats(); fetchResults() }} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
         </div>
