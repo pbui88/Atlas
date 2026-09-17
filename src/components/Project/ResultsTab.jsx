@@ -190,6 +190,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [zipFillPending, setZipFillPending] = useState(false)
   const [creditRefunds, setCreditRefunds] = useState(0)
   const [creditsCharged, setCreditsCharged] = useState(0)
+  const [completionSummary, setCompletionSummary] = useState(null) // { credits, properties } — shown in the completion popup
   const [showRefundBanner, setShowRefundBanner] = useState(false)
   const selectAllRef  = useRef(null)
   const sigMenuRef    = useRef(null)
@@ -213,7 +214,9 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       supabase.from('scan_points').select('status').eq('project_id', project.id).range(from, to)
     )
     const c = data.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc }, {})
-    setStats({ total: data.length, pending: c.pending || 0, downloading: c.downloading || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 })
+    const newStats = { total: data.length, pending: c.pending || 0, downloading: c.downloading || 0, downloaded: c.downloaded || 0, analyzing: c.analyzing || 0, complete: c.complete || 0, failed: c.failed || 0, no_coverage: c.no_coverage || 0 }
+    setStats(newStats)
+    return newStats
   }
 
   const fetchResults = useCallback(async () => {
@@ -298,6 +301,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       .eq('service', 'street_view')
       .contains('metadata', { projectId: project.id })
     setCreditsCharged(count || 0)
+    return count || 0
   }
 
   useEffect(() => { fetchStats(); fetchResults(); fetchCreditRefunds(); fetchCreditsCharged() }, [project.id])
@@ -623,23 +627,31 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     // (e.g. a function timeout that isn't a 429/503) doesn't set abortRef, so
     // without this check the project would get stamped "Complete" with points
     // still stuck pending/downloading/failed.
+    let fullyDone = false
     if (!abortRef.current) {
       const { count: unfinished } = await supabase
         .from('scan_points')
         .select('*', { count: 'exact', head: true })
         .eq('project_id', project.id)
         .in('status', ['pending', 'downloading', 'downloaded', 'analyzing', 'failed'])
-      if (!unfinished) {
+      fullyDone = !unfinished
+      if (fullyDone) {
         await supabase.from('projects')
           .update({ status: 'complete' })
           .eq('id', project.id)
       }
     }
 
-    await fetchStats()
+    const finalStats   = await fetchStats()
     await fetchResults()
-    await fetchCreditsCharged()
+    const finalCredits = await fetchCreditsCharged()
     onProjectUpdate?.()
+
+    // Auto-popup summary — only when the scan genuinely finished on its own
+    // (not paused/aborted by the user), so it doesn't fire on every partial run.
+    if (fullyDone) {
+      setCompletionSummary({ credits: finalCredits, properties: finalStats.complete + finalStats.no_coverage })
+    }
   }
 
   const pause = () => { abortRef.current = true }
@@ -1258,6 +1270,38 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 Save
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scan complete — auto popup summarizing credits charged and properties finalized */}
+      {completionSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCompletionSummary(null)} />
+          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl shadow-black/40 p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
+            <h2 className="text-base font-semibold text-white mb-1">Scan complete</h2>
+            <p className="text-sm text-slate-400 mb-4">Here's the summary for this run.</p>
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+                <p className="text-xl font-bold text-white tabular-nums">{completionSummary.credits.toLocaleString()}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">credits charged</p>
+              </div>
+              <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+                <p className="text-xl font-bold text-white tabular-nums">{completionSummary.properties.toLocaleString()}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">properties finalized</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setCompletionSummary(null)}
+              className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
