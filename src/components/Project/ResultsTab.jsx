@@ -274,6 +274,28 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
   useEffect(() => { fetchStats(); fetchResults(); fetchCreditRefunds() }, [project.id])
 
+  // Refresh stats/results whenever the tab regains focus or visibility. A
+  // backgrounded tab or a sleeping laptop can suspend the scan loop's own
+  // promise chain mid-run, leaving the UI frozen on a stale "in progress"
+  // snapshot even after the backend actually finished (verified in prod: a
+  // scan showed 0/962 with a spinner for 8+ hours after the DB already had
+  // it fully complete). This guarantees returning to the tab always shows
+  // current state without requiring a manual refresh.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      fetchStats()
+      fetchResults()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
+
   // Close the signal dropdown on outside click or Escape.
   useEffect(() => {
     if (!sigMenuOpen) return
