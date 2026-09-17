@@ -921,7 +921,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 {etaSeconds != null
                   ? (etaSeconds <= 0 ? 'Finishing up…' : `Estimated time remaining: ~${formatDuration(etaSeconds)}`)
                   : phase === 'geocoding'
-                    ? 'Resolving property addresses… (time estimate available once image collection starts)'
+                    ? 'Resolving property addresses…'
                     : 'Estimating time remaining…'}
               </p>
             )}
