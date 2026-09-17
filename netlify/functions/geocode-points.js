@@ -188,33 +188,6 @@ async function lookupZip(lat, lng) {
   return (await lookupZipNominatim(lat, lng)) || (await lookupZipPositionstack(lat, lng))
 }
 
-// Fallback property lookup for when Positionstack can't find a house-numbered
-// match at all — Nominatim/OSM sometimes has house-level data Positionstack
-// misses. Builds an address without a zip (lookupZip fills that in after),
-// matching the shape extractAddress() produces.
-//
-// Unlike lookupZipNominatim, HTTP/network failures here are NOT swallowed —
-// they propagate up to geocodePoint's catch block, which marks the point
-// 'error' instead of 'no_result'. That distinction matters: 'no_result' is
-// treated as a permanent dead end (credit refunded, point never retried
-// again), but a rate-limited or dropped request isn't proof the address
-// doesn't exist — it just means try again later. Only a clean response that
-// genuinely has no house number counts as "not found".
-async function reverseGeocodeNominatim(lat, lng) {
-  const data = await fetchNominatim(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`)
-  const a = data.address
-  const street = a?.road || a?.pedestrian
-  if (!a?.house_number || !street) return null
-
-  const city  = a.city || a.town || a.village || a.hamlet || ''
-  // ISO3166-2-lvl4 looks like "US-TX" — cheaper and more reliable than
-  // mapping Nominatim's full state name ("Texas") to an abbreviation.
-  const state = (a['ISO3166-2-lvl4'] || '').split('-')[1] || ''
-
-  const parts = [`${a.house_number} ${street}`, city, state].filter(Boolean)
-  return parts.join(', ')
-}
-
 // Inject a zip code into an address that already has a 2-letter state abbreviation.
 // Strips any existing trailing digits first (partial or wrong zip from Positionstack)
 // so we never get "TX 7 79763" or "TX 79769 79763".
@@ -337,10 +310,11 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     let address = addressResult?.address ?? null
     const psZip = addressResult?.zip ?? null
 
-    // Positionstack found nothing property-level — try Nominatim/OSM at the
-    // same offset point before giving up. Different data sources, so this
-    // occasionally finds a house number Positionstack doesn't have.
-    if (!address) address = await reverseGeocodeNominatim(geocodeLat, geocodeLng)
+    // Positionstack is the only address source now — no Nominatim fallback
+    // when it finds nothing property-level (removed: was a real but modest
+    // rescue rate, traded away for speed since it cost a throttled 1.1s
+    // Nominatim call on every batch with rural/sparse-coverage points).
+    // Nominatim is still used below, but only to fill in a missing zip.
 
     // Prefer the zip already returned alongside the matched Positionstack
     // address (validated, and free — no extra request). Only fall through to
