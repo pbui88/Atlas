@@ -190,7 +190,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [zipFillPending, setZipFillPending] = useState(false)
   const [creditRefunds, setCreditRefunds] = useState(0)
   const [creditsCharged, setCreditsCharged] = useState(0)
-  const [completionSummary, setCompletionSummary] = useState(null) // { credits, properties } — shown in the completion popup
   const [showRefundBanner, setShowRefundBanner] = useState(false)
   const selectAllRef  = useRef(null)
   const sigMenuRef    = useRef(null)
@@ -644,26 +643,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       }
     }
 
-    const finalStats     = await fetchStats()
-    const finalDeduped   = await fetchResults()
-    const finalCredits   = await fetchCreditsCharged()
+    await fetchStats()
+    await fetchResults()
+    await fetchCreditsCharged()
     onProjectUpdate?.()
-
-    // Auto-popup summary — only when the scan genuinely finished on its own
-    // (not paused/aborted by the user), so it doesn't fire on every partial run.
-    if (fullyDone) {
-      // Properties: deduped unique properties with a usable result (matches
-      // what the results list actually shows), not the raw per-scan-point
-      // count — a property can span several scan_points that collapse into
-      // one row once they share the same resolved address.
-      const properties = (finalDeduped || []).filter(p => p.status === 'complete').length
-      // Uncharged: points that reached a terminal state without ever costing
-      // a credit — no_coverage (nothing to photograph) and failed (gave up
-      // after retries). Not deduped, since each represents its own
-      // no-Street-View or a network/API-error scan point.
-      const uncharged = finalStats.no_coverage + finalStats.failed
-      setCompletionSummary({ credits: finalCredits, properties, uncharged })
-    }
   }
 
   const pause = () => { abortRef.current = true }
@@ -1286,43 +1269,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
         </div>
       )}
 
-      {/* Scan complete — auto popup summarizing credits charged and properties finalized */}
-      {completionSummary && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCompletionSummary(null)} />
-          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl shadow-black/40 p-6 text-center">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-            </div>
-            <h2 className="text-base font-semibold text-white mb-1">Scan complete</h2>
-            <p className="text-sm text-slate-400 mb-4">Here's the summary for this run.</p>
-            <div className={`grid gap-3 mb-5 ${completionSummary.uncharged > 0 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-              <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
-                <p className="text-xl font-bold text-white tabular-nums">{completionSummary.credits.toLocaleString()}</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">credits charged</p>
-              </div>
-              <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
-                <p className="text-xl font-bold text-white tabular-nums">{completionSummary.properties.toLocaleString()}</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">properties finalized</p>
-              </div>
-              {completionSummary.uncharged > 0 && (
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
-                  <p className="text-xl font-bold text-amber-400 tabular-nums">{completionSummary.uncharged.toLocaleString()}</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">unresolved, uncharged</p>
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => setCompletionSummary(null)}
-              className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
