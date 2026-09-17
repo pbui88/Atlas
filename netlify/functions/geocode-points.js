@@ -55,17 +55,26 @@ function looksLikeLatLng(str) {
   return /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test((str || '').trim())
 }
 
-// Attempts to extract a property-level address from a PositionStack response.
-// Returns a valid address string with house number, or null if none found.
+// Positionstack's postal_code is sometimes malformed in certain areas (e.g.
+// "797 69", "982 27" — note the internal space). This strict format check
+// rejects those; only a clean 5-digit or ZIP+4 value passes.
+function validZip(raw) {
+  const m = (raw || '').trim().match(/^(\d{5})(-\d{4})?$/)
+  return m ? m[1] : null
+}
+
+// Attempts to extract a property-level address (and a validated zip, if
+// Positionstack happened to return a well-formed one in the same response —
+// see validZip) from a PositionStack response. Returns { address, zip } with
+// zip possibly null, or null if no property-level address was found at all.
 function extractAddress(results) {
   // Must have a house number — street-only results are too imprecise
   const property = results.find(r => r.number != null && String(r.number).trim() !== '')
   if (!property) return null
 
   const regionCode = (property.region_code || property.region || '').trim()
+  const zip        = validZip(property.postal_code)
 
-  // Never use Positionstack's postal_code — it returns malformed values in
-  // some areas (e.g. "797 69", "982 27"). Nominatim always fills the zip.
   if (property.label && !looksLikeLatLng(property.label)) {
     // Strip any zip or zip+4 PS embedded in the label, then country tokens.
     // (?<!^) keeps this from eating a 5-digit house number at the very start
@@ -77,10 +86,10 @@ function extractAddress(results) {
       .replace(/,\s*,/g, ',')
       .replace(/,\s*$/, '')
       .trim()
-    return looksLikeLatLng(label) ? null : label
+    return looksLikeLatLng(label) ? null : { address: label, zip }
   }
 
-  // Fallback: build manually without zip (Nominatim fills it afterwards)
+  // Fallback: build manually without zip (injected below, or by lookupZip)
   const houseNum   = String(property.number).trim()
   const street     = property.street || property.name || ''
   const locality   = property.locality || property.county || ''
@@ -88,10 +97,10 @@ function extractAddress(results) {
   const parts      = [streetAddr, locality, regionCode].filter(Boolean)
 
   const address = parts.join(', ')
-  return (!address || looksLikeLatLng(address)) ? null : address
+  return (!address || looksLikeLatLng(address)) ? null : { address, zip }
 }
 
-// Returns a property-level address or null.
+// Returns { address, zip } (zip possibly null) or null.
 // Retries once with a wider candidate pool if the first pass yields nothing.
 async function reverseGeocode(lat, lng) {
   const base = `https://api.positionstack.com/v1/reverse?access_key=${process.env.POSITIONSTACK_API_KEY}&query=${lat},${lng}&output=json`
@@ -101,8 +110,8 @@ async function reverseGeocode(lat, lng) {
   const data1 = await res1.json()
   if (data1.error) throw new Error(data1.error.message || `Positionstack error (${data1.error.code})`)
 
-  const address1 = extractAddress(data1.data || [])
-  if (address1) return address1
+  const result1 = extractAddress(data1.data || [])
+  if (result1) return result1
 
   // Retry with wider candidate pool to find a property-level hit
   console.warn(`[geocode] first pass found no property address at ${lat},${lng} — retrying with limit=25`)
@@ -110,11 +119,11 @@ async function reverseGeocode(lat, lng) {
   const data2 = await res2.json()
   if (data2.error) throw new Error(data2.error.message || `Positionstack error (${data2.error.code})`)
 
-  const address2 = extractAddress(data2.data || [])
-  if (!address2) {
+  const result2 = extractAddress(data2.data || [])
+  if (!result2) {
     console.warn(`[geocode] retry also failed at ${lat},${lng} — no property address found`)
   }
-  return address2
+  return result2
 }
 
 // Nominatim's usage policy caps free reverse-geocoding at ~1 request/second.
@@ -295,7 +304,7 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
   }
 
   try {
-    let address = null
+    let addressResult = null
     const headingDeg = pt.road_bearing != null ? (pt.road_bearing + 90) % 360 : null
 
     // Use actual panorama location as the base for offsetting — it's where the
@@ -311,28 +320,34 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     if (headingDeg != null) {
       const { lat, lng } = offsetCoords(baseLat, baseLng, headingDeg, 20)
       geocodeLat = lat; geocodeLng = lng
-      address = await reverseGeocode(lat, lng)
+      addressResult = await reverseGeocode(lat, lng)
     } else {
       // No road bearing (grid fallback): try both perpendicular directions
       const { lat: lat1, lng: lng1 } = offsetCoords(baseLat, baseLng, 90, 20)
-      address = await reverseGeocode(lat1, lng1)
-      if (address) { geocodeLat = lat1; geocodeLng = lng1 }
-      if (!address) {
+      addressResult = await reverseGeocode(lat1, lng1)
+      if (addressResult) { geocodeLat = lat1; geocodeLng = lng1 }
+      if (!addressResult) {
         const { lat: lat2, lng: lng2 } = offsetCoords(baseLat, baseLng, 270, 20)
-        address = await reverseGeocode(lat2, lng2)
-        if (address) { geocodeLat = lat2; geocodeLng = lng2 }
+        addressResult = await reverseGeocode(lat2, lng2)
+        if (addressResult) { geocodeLat = lat2; geocodeLng = lng2 }
       }
-      if (!address) address = await reverseGeocode(baseLat, baseLng)
+      if (!addressResult) addressResult = await reverseGeocode(baseLat, baseLng)
     }
+
+    let address = addressResult?.address ?? null
+    const psZip = addressResult?.zip ?? null
 
     // Positionstack found nothing property-level — try Nominatim/OSM at the
     // same offset point before giving up. Different data sources, so this
     // occasionally finds a house number Positionstack doesn't have.
     if (!address) address = await reverseGeocodeNominatim(geocodeLat, geocodeLng)
 
-    // Always get the zip — Nominatim primary, Positionstack validated fallback.
+    // Prefer the zip already returned alongside the matched Positionstack
+    // address (validated, and free — no extra request). Only fall through to
+    // the throttled Nominatim/Positionstack-refetch lookup when Positionstack
+    // didn't return a well-formed one.
     if (address) {
-      const zip = await lookupZip(geocodeLat, geocodeLng)
+      const zip = psZip || await lookupZip(geocodeLat, geocodeLng)
       if (zip) address = injectZip(address, zip)
     }
 
