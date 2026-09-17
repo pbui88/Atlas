@@ -129,9 +129,6 @@ export default function ProjectPage() {
               )
             })()}
           </div>
-          {scanPoints.length > 0 && (
-            <p className="text-xs text-slate-500">{scanPoints.length.toLocaleString()} properties scan</p>
-          )}
         </div>
 
         {/* Tabs */}

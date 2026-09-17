@@ -189,7 +189,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [traceSkippedCount, setTraceSkippedCount] = useState(0)
   const [zipFillPending, setZipFillPending] = useState(false)
   const [creditRefunds, setCreditRefunds] = useState(0)
-  const [creditsCharged, setCreditsCharged] = useState(0)
   const [showRefundBanner, setShowRefundBanner] = useState(false)
   const selectAllRef  = useRef(null)
   const sigMenuRef    = useRef(null)
@@ -291,21 +290,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     if (count > 0) { setCreditRefunds(count); setShowRefundBanner(true) }
   }
 
-  // Total scan credits actually charged for this project — one usage_logs row
-  // per downloaded Street View image (duplicate/copied points cost nothing,
-  // so they never get a row here). Net of refunds isn't subtracted here since
-  // the refund banner above already surfaces that separately.
-  const fetchCreditsCharged = async () => {
-    const { count } = await supabase
-      .from('usage_logs')
-      .select('*', { count: 'exact', head: true })
-      .eq('service', 'street_view')
-      .contains('metadata', { projectId: project.id })
-    setCreditsCharged(count || 0)
-    return count || 0
-  }
-
-  useEffect(() => { fetchStats(); fetchResults(); fetchCreditRefunds(); fetchCreditsCharged() }, [project.id])
+  useEffect(() => { fetchStats(); fetchResults(); fetchCreditRefunds() }, [project.id])
 
   // Refresh stats/results whenever the tab regains focus or visibility. A
   // backgrounded tab or a sleeping laptop can suspend the scan loop's own
@@ -319,7 +304,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       if (document.visibilityState !== 'visible') return
       fetchStats()
       fetchResults()
-      fetchCreditsCharged()
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
@@ -337,7 +321,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // from and back to the tab.
   useEffect(() => {
     if (!running) return
-    const id = setInterval(() => { fetchStats(); fetchCreditsCharged() }, 4000)
+    const id = setInterval(fetchStats, 4000)
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running])
@@ -645,7 +629,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
 
     await fetchStats()
     await fetchResults()
-    await fetchCreditsCharged()
     onProjectUpdate?.()
   }
 
@@ -901,18 +884,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                 className="shrink-0 text-[10px] text-slate-500 hover:text-brand-400">Clear</span>
             )}
           </button>
-        )}
-
-        {/* Credits charged — always visible (not gated behind the collapsed
-            detail panel below) so it's visible immediately after a scan
-            finishes without needing to expand anything. */}
-        {creditsCharged > 0 && (
-          <div className="px-4 py-1.5 border-b border-white/[0.06]">
-            <p className="text-[11px] text-slate-500">
-              {creditsCharged.toLocaleString()} scan credit{creditsCharged !== 1 ? 's' : ''} charged so far
-              {creditRefunds > 0 && ` (${creditRefunds.toLocaleString()} refunded)`}
-            </p>
-          </div>
         )}
 
         {/* Detail blocks: progress, status, filters — shown while running or when expanded */}
