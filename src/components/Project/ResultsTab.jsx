@@ -896,6 +896,18 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
           </button>
         )}
 
+        {/* Credits charged — always visible (not gated behind the collapsed
+            detail panel below) so it's visible immediately after a scan
+            finishes without needing to expand anything. */}
+        {creditsCharged > 0 && (
+          <div className="px-4 py-1.5 border-b border-white/[0.06]">
+            <p className="text-[11px] text-slate-500">
+              {creditsCharged.toLocaleString()} scan credit{creditsCharged !== 1 ? 's' : ''} charged so far
+              {creditRefunds > 0 && ` (${creditRefunds.toLocaleString()} refunded)`}
+            </p>
+          </div>
+        )}
+
         {/* Detail blocks: progress, status, filters — shown while running or when expanded */}
         {(controlsOpen || running) && (<>
 
@@ -911,12 +923,6 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
                   : phase === 'geocoding'
                     ? 'Resolving property addresses… (time estimate available once image collection starts)'
                     : 'Estimating time remaining…'}
-              </p>
-            )}
-            {creditsCharged > 0 && (
-              <p className="text-[11px] text-slate-500 pt-0.5">
-                {creditsCharged.toLocaleString()} scan credit{creditsCharged !== 1 ? 's' : ''} charged so far
-                {creditRefunds > 0 && ` (${creditRefunds.toLocaleString()} refunded)`}
               </p>
             )}
           </div>
