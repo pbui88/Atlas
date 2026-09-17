@@ -8,7 +8,9 @@ import { DISTRESS_SIGNALS, SIGNAL_BADGE } from '../../lib/constants'
 import { useAuth } from '../../context/AuthContext'
 
 const COLLECT_BATCH     = 20   // must match CAP in collect-images.js
-const COLLECT_CONCUR    = 3    // parallel function calls during image collection
+const COLLECT_CONCUR    = 5    // parallel function calls during image collection — bumped from 3;
+                                // zero evidence of Google Street View rate-limiting at the old
+                                // level (checked production error logs), so there's real headroom
 const AI_BATCH          = 8    // must match CAP in analyze-points.js
 const AI_CONCUR         = 2    // parallel function calls during analysis
 const GEO_BATCH         = 20   // must match CAP in geocode-points.js

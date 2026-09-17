@@ -33,12 +33,27 @@ Allowed signal IDs:
 If no properties are clearly visible or no distress signals exist, return overallScore 0.0 and empty signals array.
 Only flag signals that are clearly and unambiguously visible.`
 
+// Fetches an image back from Supabase Storage's public CDN. Retries with
+// backoff on 429/5xx — these are short-lived burst limits on the storage
+// CDN itself (unrelated to Gemini's quota), and were previously treated as
+// a hard failure, silently burning ~700 analysis attempts in production
+// that would very likely have succeeded a second later on retry.
+async function fetchImageWithRetry(url, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    const res = await fetch(url)
+    if (res.ok) return Buffer.from(await res.arrayBuffer())
+    if ((res.status === 429 || res.status >= 500) && i < attempts - 1) {
+      await new Promise(r => setTimeout(r, 500 * (i + 1)))
+      continue
+    }
+    throw new Error(`Image fetch failed: ${res.status}`)
+  }
+}
+
 async function callGemini(imageUrls) {
   const imageParts = await Promise.all(
     imageUrls.map(async (url) => {
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`Image fetch failed: ${res.status}`)
-      const buf = Buffer.from(await res.arrayBuffer())
+      const buf = await fetchImageWithRetry(url)
       return { inlineData: { mimeType: 'image/jpeg', data: buf.toString('base64') } }
     })
   )
