@@ -1,7 +1,7 @@
 // Trigger a Tracerfy DNC scrub for a set of already-completed skip trace records.
 // Groups the records by their Tracerfy queue (order) and calls
 // POST /dnc/scrub-from-queue/ once per unique batch.
-import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID, chunkArray } from './utils/supabase.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
 const TRACERFY_BASE    = 'https://tracerfy.com/v1/api'
@@ -27,16 +27,22 @@ export const handler = async (event) => {
 
   const supabase = adminSupabase()
 
-  // Verify ownership and get order IDs + phone counts for these completed records
-  const { data: records, error: recErr } = await supabase
-    .from('skip_trace_records')
-    .select('id, order_id, result')
-    .in('id', recordIds)
-    .eq('user_id', user.id)
-    .eq('status', 'completed')
-
-  if (recErr) return err(recErr.message, 500)
-  if (!records?.length) return err('No eligible completed records found', 400)
+  // Verify ownership and get order IDs + phone counts for these completed
+  // records. Chunked — a single .in() with hundreds of UUIDs embedded in the
+  // URL can exceed Supabase's request-line limit and fail with a bare
+  // "Bad Request" (observed breaking around ~400 ids).
+  const records = []
+  for (const idChunk of chunkArray(recordIds)) {
+    const { data, error: recErr } = await supabase
+      .from('skip_trace_records')
+      .select('id, order_id, result')
+      .in('id', idChunk)
+      .eq('user_id', user.id)
+      .eq('status', 'completed')
+    if (recErr) return err(recErr.message, 500)
+    records.push(...(data || []))
+  }
+  if (!records.length) return err('No eligible completed records found', 400)
 
   const totalPhones = records.reduce((sum, r) => sum + (r.result?.phones?.length || 0), 0)
   if (totalPhones === 0) return err('No phone numbers found in these records', 400)
@@ -45,13 +51,16 @@ export const handler = async (event) => {
   const orderIds = [...new Set(records.map(r => r.order_id).filter(Boolean))]
   if (!orderIds.length) return err('No orders found for these records', 400)
 
-  const { data: orders, error: ordErr } = await supabase
-    .from('skip_trace_orders')
-    .select('id, tracerfy_order_id, dnc_queue_id')
-    .in('id', orderIds)
-    .eq('user_id', user.id)
-
-  if (ordErr) return err(ordErr.message, 500)
+  const orders = []
+  for (const idChunk of chunkArray(orderIds)) {
+    const { data, error: ordErr } = await supabase
+      .from('skip_trace_orders')
+      .select('id, tracerfy_order_id, dnc_queue_id')
+      .in('id', idChunk)
+      .eq('user_id', user.id)
+    if (ordErr) return err(ordErr.message, 500)
+    orders.push(...(data || []))
+  }
 
   // Build per-order phone counts for partial refund logic
   const phonesPerOrder = {}
@@ -71,14 +80,16 @@ export const handler = async (event) => {
   // one request charges for and starts the scrub.
   let claimedIds = new Set()
   if (needsClaimIds.length) {
-    const { data: claimed } = await supabase
-      .from('skip_trace_orders')
-      .update({ dnc_queue_id: 'pending' })
-      .in('id', needsClaimIds)
-      .eq('user_id', user.id)
-      .is('dnc_queue_id', null)
-      .select('id')
-    claimedIds = new Set((claimed || []).map(o => o.id))
+    for (const idChunk of chunkArray(needsClaimIds)) {
+      const { data: claimed } = await supabase
+        .from('skip_trace_orders')
+        .update({ dnc_queue_id: 'pending' })
+        .in('id', idChunk)
+        .eq('user_id', user.id)
+        .is('dnc_queue_id', null)
+        .select('id')
+      for (const o of (claimed || [])) claimedIds.add(o.id)
+    }
   }
 
   // Only charge for phones in orders this request actually claimed.

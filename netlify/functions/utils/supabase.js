@@ -8,6 +8,19 @@ export function adminSupabase() {
   )
 }
 
+// Postgres/Kong's GET request line has a fixed size limit — an .in('id', [...])
+// filter embeds every value in the URL query string, and a few hundred UUIDs
+// is enough to blow past it (observed failing around ~400 UUIDs, succeeding
+// at 390). Supabase then returns a bare "Bad Request" with no detail. Split
+// large ID lists into chunks well under that threshold before filtering.
+const IN_CHUNK_SIZE = 200
+
+export function chunkArray(arr, size = IN_CHUNK_SIZE) {
+  const out = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
 // Supabase/PostgREST caps each response at a max row count (commonly 1000),
 // regardless of .limit(). This fetches every row matching a query by paging
 // through with .range() until an empty page is returned.

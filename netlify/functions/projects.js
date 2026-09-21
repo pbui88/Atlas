@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options, getPathParam } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, getPathParam, chunkArray } from './utils/supabase.js'
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options()
@@ -83,10 +83,11 @@ export const handler = async (event) => {
 
     if (pointIds.length) {
       const paths = []
-      // Chunk the .in() filter list to keep each request a reasonable size,
-      // and page each chunk's result in case it alone has 1000+ images.
-      for (let i = 0; i < pointIds.length; i += 500) {
-        const chunk = pointIds.slice(i, i + 500)
+      // Chunk the .in() filter list to keep each request under Supabase's
+      // request-line limit (a plain 500-UUID chunk can exceed it and fail
+      // with a bare "Bad Request" — see chunkArray's default size), and page
+      // each chunk's result in case it alone has 1000+ images.
+      for (const chunk of chunkArray(pointIds)) {
         for (let from = 0; ; from += 1000) {
           const { data: imgs } = await supabase
             .from('images')

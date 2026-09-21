@@ -11,14 +11,24 @@ async function getToken() {
 async function call(fn, method = 'GET', body = null) {
   const token = await getToken()
   if (!token) console.warn('[api] getToken() returned null — no active session for', fn)
-  const res = await fetch(`/.netlify/functions/${fn}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...(body != null ? { body: JSON.stringify(body) } : {}),
-  })
+  let res
+  try {
+    res = await fetch(`/.netlify/functions/${fn}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(body != null ? { body: JSON.stringify(body) } : {}),
+    })
+  } catch {
+    // fetch() itself throws on a dropped connection — the most common cause
+    // in practice is the function exceeding its own execution time limit
+    // (e.g. a very large batch submission) before it can send any response.
+    const e = new Error('Lost connection to the server. This can happen with very large submissions — try a smaller batch, or try again.')
+    e.status = 0
+    throw e
+  }
   if (res.status === 401) {
     const body401 = await res.json().catch(() => ({}))
     console.error('[api] 401 from', fn, '— reason:', body401.error, '— token present:', !!token)
@@ -28,7 +38,14 @@ async function call(fn, method = 'GET', body = null) {
   }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const e = new Error(data.error || `Request failed (${res.status})`)
+    // 502/503/504 with no parseable JSON body means the platform (not our
+    // function) cut the request short — almost always the function hit its
+    // execution time limit before finishing, e.g. an oversized submission.
+    const isGatewayTimeout = [502, 503, 504].includes(res.status) && !data.error
+    const message = data.error || (isGatewayTimeout
+      ? 'The request took too long to complete. Try a smaller batch, or try again in a moment.'
+      : `Request failed (${res.status})`)
+    const e = new Error(message)
     e.status = res.status
     throw e
   }

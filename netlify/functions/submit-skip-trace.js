@@ -1,4 +1,4 @@
-import { requireAuth, adminSupabase, ok, err, options, isValidUUID } from './utils/supabase.js'
+import { requireAuth, adminSupabase, ok, err, options, isValidUUID, chunkArray } from './utils/supabase.js'
 import { splitFullAddress } from './utils/address.js'
 
 const TRACERFY_API_KEY = process.env.TRACERFY_API_KEY
@@ -19,21 +19,27 @@ export const handler = async (event) => {
   const { recordIds, traceType = 'advanced' } = body
   if (!Array.isArray(recordIds) || recordIds.length === 0) return err('recordIds required', 400)
   if (recordIds.some(id => !isValidUUID(id))) return err('Invalid record id', 400)
-  if (recordIds.length > 2500) return err('Maximum 2500 records per submission', 400)
+  if (recordIds.length > 5000) return err('Maximum 5000 records per submission', 400)
   if (!['normal', 'advanced'].includes(traceType)) return err('traceType must be normal or advanced', 400)
 
   const supabase = adminSupabase()
 
-  // Fetch only the user's 'saved' records matching the requested IDs
-  let { data: records, error: fetchErr } = await supabase
-    .from('skip_trace_records')
-    .select('*')
-    .in('id', recordIds)
-    .eq('user_id', user.id)
-    .eq('status', 'saved')
-
+  // Fetch only the user's 'saved' records matching the requested IDs.
+  // recordIds can be up to 5000 — a single .in() embeds every UUID in the
+  // request URL, which blows past Supabase's request-line limit well before
+  // that (fails silently with a bare "Bad Request" around ~400 ids), so this
+  // is chunked and run in parallel (sequential awaits over ~25 chunks at the
+  // max size would risk the function's own timeout).
+  const fetchedChunks = await Promise.all(
+    chunkArray(recordIds).map(idChunk =>
+      supabase.from('skip_trace_records').select('*')
+        .in('id', idChunk).eq('user_id', user.id).eq('status', 'saved')
+    )
+  )
+  const fetchErr = fetchedChunks.find(r => r.error)?.error
   if (fetchErr) return err(fetchErr.message, 500)
-  if (!records?.length) return err('No eligible records found', 400)
+  let records = fetchedChunks.flatMap(r => r.data || [])
+  if (!records.length) return err('No eligible records found', 400)
 
   // Records saved before their scan point finished background geocoding can be
   // missing state/zip — Tracerfy can't match a person without them. Re-derive
@@ -41,12 +47,14 @@ export const handler = async (event) => {
   // the record was saved) so we don't burn a paid lookup on a guaranteed miss.
   const incomplete = records.filter(r => r.source_point_id && (!r.state_code || !r.zip))
   if (incomplete.length) {
-    const { data: scanPoints } = await supabase
-      .from('scan_points')
-      .select('id, address')
-      .in('id', incomplete.map(r => r.source_point_id))
+    const spChunks = await Promise.all(
+      chunkArray(incomplete.map(r => r.source_point_id)).map(idChunk =>
+        supabase.from('scan_points').select('id, address').in('id', idChunk)
+      )
+    )
+    const scanPoints = spChunks.flatMap(r => r.data || [])
 
-    const byId = new Map((scanPoints || []).map(p => [p.id, p.address]))
+    const byId = new Map(scanPoints.map(p => [p.id, p.address]))
     const patched = []
     for (const r of incomplete) {
       const liveAddress = byId.get(r.source_point_id)
@@ -127,16 +135,19 @@ export const handler = async (event) => {
     return err(orderErr.message, 500)
   }
 
-  // Atomically claim records by filtering on status='saved' — detects concurrent double-submits
-  const { data: claimed, error: claimErr } = await supabase
-    .from('skip_trace_records')
-    .update({ status: 'submitted', order_id: order.id, submitted_at: new Date().toISOString() })
-    .in('id', records.map(r => r.id))
-    .eq('user_id', user.id)
-    .eq('status', 'saved')
-    .select('id')
+  // Atomically claim records by filtering on status='saved' — detects concurrent double-submits.
+  // Each chunk targets a disjoint set of ids, so running them in parallel is safe.
+  const claimChunks = await Promise.all(
+    chunkArray(records.map(r => r.id)).map(idChunk =>
+      supabase.from('skip_trace_records')
+        .update({ status: 'submitted', order_id: order.id, submitted_at: new Date().toISOString() })
+        .in('id', idChunk).eq('user_id', user.id).eq('status', 'saved').select('id')
+    )
+  )
+  const claimErr = claimChunks.find(r => r.error)?.error
+  const claimed  = claimChunks.flatMap(r => r.data || [])
 
-  if (claimErr || !claimed?.length) {
+  if (claimErr || !claimed.length) {
     await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
     await refund()
     return err('Records were already submitted. Please refresh and try again.', 409)
@@ -163,12 +174,27 @@ export const handler = async (event) => {
     form.append('trace_type',     traceType)
     // DNC scrub is a separate Tracerfy step (dnc/scrub-from-queue/) run after trace completes
 
+    // Bound the Tracerfy call ourselves — otherwise a slow response on a large
+    // batch just runs out the clock until Netlify kills the whole function,
+    // which leaves the order/records stuck mid-flight with no refund and no
+    // clean error for the frontend to show. 18s leaves headroom under the
+    // function's own timeout for the cleanup/refund writes below to still run.
+    const timeoutMs = 18_000
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
     try {
-      const res = await fetch(`${TRACERFY_BASE}/trace/`, {
-        method:  'POST',
-        headers: { 'Authorization': `Bearer ${TRACERFY_API_KEY}` },
-        body:    form,
-      })
+      let res
+      try {
+        res = await fetch(`${TRACERFY_BASE}/trace/`, {
+          method:  'POST',
+          headers: { 'Authorization': `Bearer ${TRACERFY_API_KEY}` },
+          body:    form,
+          signal:  controller.signal,
+        })
+      } finally {
+        clearTimeout(timer)
+      }
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {
@@ -194,11 +220,18 @@ export const handler = async (event) => {
         .eq('id', order.id)
 
     } catch (e) {
-      console.error('Tracerfy request failed:', e.message)
+      const timedOut = e.name === 'AbortError'
+      console.error('Tracerfy request failed:', timedOut ? `timed out after ${timeoutMs}ms` : e.message)
       await supabase.from('skip_trace_orders').update({ status: 'failed' }).eq('id', order.id)
       await supabase.from('skip_trace_records').update({ status: 'failed' }).eq('order_id', order.id)
       await refund()
-      return err('Failed to contact skip trace service. Please try again.', 502)
+      return err(
+        timedOut
+          ? `Skip trace service took too long to respond for ${records.length} records. ` +
+            `You have been refunded — try again with a smaller batch.`
+          : 'Failed to contact skip trace service. Please try again.',
+        502
+      )
     }
   }
 
