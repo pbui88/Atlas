@@ -20,6 +20,12 @@
 [functions."geocode-points"]
   timeout = 26
 
+[functions."collect-images"]
+  timeout = 26
+
+[functions."analyze-points"]
+  timeout = 26
+
 [functions."scheduled-skip-trace-check"]
   schedule = "*/5 * * * *"
 

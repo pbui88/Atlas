@@ -64,13 +64,26 @@ export default function Dashboard() {
 
       // Batch-fix any projects stuck in a non-terminal status that have scan points.
       // Transient states (analyzing/collecting/queued) should not persist after
-      // the scan tab closes — mark them complete so the DB matches the UI.
-      const toFix = (data || [])
+      // the scan tab closes — mark them complete so the DB matches the UI, but
+      // only when every point actually reached a terminal state. Otherwise a
+      // scan interrupted mid-run (closed tab, dropped network, function
+      // timeout) gets silently stamped "Complete" while points are still
+      // stuck pending/downloading/downloaded — mirrors the check in
+      // Project/index.jsx's loadProject.
+      const candidates = (data || [])
         .filter(p => ['analyzing', 'collecting', 'queued'].includes(p.status) && (p.total_points || 0) > 0)
-        .map(p => p.id)
-      if (toFix.length > 0) {
-        await supabase.from('projects').update({ status: 'complete' }).in('id', toFix)
-        data.forEach(p => { if (toFix.includes(p.id)) p.status = 'complete' })
+      if (candidates.length > 0) {
+        const { data: unfinishedPts } = await supabase
+          .from('scan_points')
+          .select('project_id')
+          .in('project_id', candidates.map(p => p.id))
+          .in('status', ['pending', 'downloading', 'downloaded'])
+        const stillWorking = new Set((unfinishedPts || []).map(p => p.project_id))
+        const toFix = candidates.filter(p => !stillWorking.has(p.id)).map(p => p.id)
+        if (toFix.length > 0) {
+          await supabase.from('projects').update({ status: 'complete' }).in('id', toFix)
+          data.forEach(p => { if (toFix.includes(p.id)) p.status = 'complete' })
+        }
       }
 
       setProjects(data || [])
