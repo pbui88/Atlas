@@ -38,6 +38,36 @@ async function resolveApiKeyAndMode(userId, supabase) {
   }
 }
 
+// Fetch the actual Street View panorama location (free metadata, no charge).
+// Returns { lat, lng } of where Google's camera physically is, or null.
+async function getPanoramaLocation(lat, lng, apiKey) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  try {
+    const res  = await fetch(
+      `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&return_error_code=true&key=${apiKey}`,
+      { signal: controller.signal }
+    )
+    const data = await res.json()
+    if (data.status === 'OK' && data.location) return data.location
+    if (data.status && data.status !== 'ZERO_RESULTS' && data.status !== 'NOT_FOUND') {
+      console.error(`Street View metadata rejected: ${data.status}${data.error_message ? ' — ' + data.error_message : ''}`)
+    }
+  } catch { /* timeout or network error — fall back below */ }
+  finally { clearTimeout(timer) }
+  return null
+}
+
+// Compass bearing (degrees, 0=North) from one coordinate to another.
+function bearingTo(fromLat, fromLng, toLat, toLng) {
+  const lat1 = fromLat * Math.PI / 180
+  const lat2 = toLat   * Math.PI / 180
+  const dLng = (toLng - fromLng) * Math.PI / 180
+  const y = Math.sin(dLng) * Math.cos(lat2)
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
 // Returns: { buffer } on success, { noCoverage: true } for 404 (no imagery),
 // or throws an Error for 400/403 (bad key / API not enabled).
 async function downloadGoogleImage(lat, lng, heading, apiKey) {
@@ -64,20 +94,32 @@ async function downloadGoogleImage(lat, lng, heading, apiKey) {
 }
 
 async function processPoint(pt, projectId, userId, apiKey, supabase) {
-  const { id: pointId, lat, lng, road_bearing } = pt
+  const { id: pointId, lat, lng, road_bearing, property_lat, property_lng } = pt
 
   try {
     if (!apiKey) return { pointId, status: 'error', error: 'No Google Maps API key configured' }
 
-    // Always shoot perpendicular to the road (90° off the direction of
-    // travel) rather than aiming at the geocoded property point — the actual
-    // Street View panorama sits at fixed intervals along the road, not
-    // directly across from each house, so bearing toward the property point
-    // could angle partway down the street instead of straight across it.
-    // A fixed 90° offset guarantees a straight-on shot of the house line,
-    // at the cost of not correcting for which side of the road the property
-    // is on.
-    const heading = Math.round(((road_bearing ?? 0) + 90) % 360)
+    let heading
+    if (road_bearing != null) {
+      // Road-sampled point: shoot a fixed 90° off the direction of travel.
+      // The actual Street View panorama sits at fixed intervals along the
+      // road, not directly across from each house, so bearing toward the
+      // geocoded property point could angle partway down the street instead
+      // of straight across it — a fixed perpendicular offset avoids that.
+      heading = Math.round((road_bearing + 90) % 360)
+    } else {
+      // Building-centroid point (see generate-points.js buildBuildingCentroids)
+      // — there's no road data to offset from, so aim the camera from the
+      // actual panorama location toward the building instead. Falls back to
+      // due-east (90°) only if the metadata call itself fails; that's a rare
+      // network/timeout case, not the common path.
+      const targetLat = property_lat ?? lat
+      const targetLng = property_lng ?? lng
+      const pano = await getPanoramaLocation(lat, lng, apiKey)
+      heading = pano
+        ? Math.round(bearingTo(pano.lat, pano.lng, targetLat, targetLng))
+        : 90
+    }
 
     await supabase.from('scan_points')
       .update({ status: 'downloading', updated_at: new Date().toISOString() })
@@ -175,7 +217,7 @@ export const handler = async (event) => {
 
   const { data: pts } = await supabase
     .from('scan_points')
-    .select('id, lat, lng, road_bearing')
+    .select('id, lat, lng, road_bearing, property_lat, property_lng')
     .in('id', ids)
 
   if (!pts?.length) return ok({ results: [] })
