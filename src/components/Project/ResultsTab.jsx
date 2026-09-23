@@ -224,7 +224,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     const pts = await fetchAllRows((from, to) =>
       supabase
         .from('scan_points')
-        .select('id, lat, lng, address, status, ai_analyses(scan_point_id, overall_score, confidence, signals, notes), images(id, storage_url, direction, image_source)')
+        .select('id, lat, lng, address, status, road_bearing, ai_analyses(scan_point_id, overall_score, confidence, signals, notes), images(id, storage_url, direction, image_source)')
         .eq('project_id', project.id)
         .in('status', ['complete', 'no_coverage'])
         .order('created_at')
@@ -454,6 +454,15 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
       setRetryingIncomplete(false)
     }
   }
+
+  // Points with an image but no road_bearing fell back to the less reliable
+  // panorama-based aim in collect-images.js (no nearby named road was found,
+  // or the Overpass road lookup itself failed) instead of a guaranteed
+  // perpendicular shot off a real road — surfaced so a bad camera-angle batch
+  // is visible without having to eyeball individual Street View images.
+  const fallbackHeadingPoints = points.filter(pt =>
+    pt.status === 'complete' && pt.images?.length > 0 && pt.road_bearing == null
+  )
 
   // ── Image fetch when property selected ─────────────────────
   // Images are pre-loaded in fetchResults so no extra round-trip is needed in
@@ -890,6 +899,14 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             >
               {retryingIncomplete ? 'Retrying…' : 'Retry incomplete addresses'}
             </button>
+          </div>
+        )}
+
+        {!running && !resLoading && fallbackHeadingPoints.length > 0 && (
+          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-slate-500/10 border-b border-white/[0.06]">
+            <p className="text-xs text-slate-400">
+              {fallbackHeadingPoints.length} image{fallbackHeadingPoints.length !== 1 ? 's' : ''} used a fallback camera angle — no nearby road found, image may not be perfectly perpendicular
+            </p>
           </div>
         )}
 
