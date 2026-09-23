@@ -55,9 +55,11 @@ const SKIP_BUILDING_TYPES = new Set([
   'fence', 'wall', 'transformer_tower', 'service',
 ])
 
-// Place one scan point at each building centroid. road_bearing is left null —
-// the collect-images heading logic uses the Street View metadata to aim the
-// camera from the road toward the scan point (building), so no bearing is needed.
+// Place one scan point at each building centroid. road_bearing starts null
+// here and gets filled in by the caller via nearestRoadBearing() once roads
+// are available, so collect-images.js can shoot perpendicular to the actual
+// nearest road — stays null only if no named road is within range, in which
+// case collect-images.js falls back to aiming from the Street View panorama.
 function buildBuildingCentroids(osm, polygon) {
   const nodes = {}
   for (const el of osm.elements) {
@@ -160,6 +162,34 @@ function sampleRoadPoints(roads, polygon, spacingMeters) {
   return points
 }
 
+// Finds the road nearest to a building centroid and returns its local tangent
+// bearing (same 5m-window technique as sampleRoadPoints), or null if no road
+// is within maxMeters. Used to give building-centroid points a real
+// road_bearing instead of leaving it null — collect-images.js can then aim
+// every point the same way (perpendicular to the nearest road) instead of
+// relying on a geocoding-search byproduct that isn't actually oriented
+// toward the road.
+function nearestRoadBearing(lat, lng, roads, maxMeters = 60) {
+  const point = turf.point([lng, lat])
+  let best = null
+  let bestDistKm = Infinity
+
+  for (const road of roads) {
+    let snapped
+    try { snapped = turf.nearestPointOnLine(road, point) } catch { continue }
+    const distKm = snapped.properties.dist
+    if (distKm < bestDistKm) { bestDistKm = distKm; best = { road, location: snapped.properties.location } }
+  }
+
+  if (!best || bestDistKm * 1000 > maxMeters) return null
+
+  const len   = turf.length(best.road, { units: 'kilometers' })
+  const delta = 0.005
+  const ptA   = turf.along(best.road, Math.min(best.location + delta, len), { units: 'kilometers' }).geometry.coordinates
+  const ptB   = turf.along(best.road, Math.max(best.location - delta, 0),   { units: 'kilometers' }).geometry.coordinates
+  return bearingBetween(ptB[1], ptB[0], ptA[1], ptA[0])
+}
+
 function generateGrid(polygonGeoJson, spacingMeters) {
   const cellDegrees = spacingMeters / 111320
   const bbox        = turf.bbox(polygonGeoJson)
@@ -229,7 +259,24 @@ export const handler = async (event) => {
   if (buildingResult.status === 'fulfilled') {
     try {
       const candidates = buildBuildingCentroids(buildingResult.value, geojson)
-      if (candidates.length > 0) { points = candidates; method = 'building' }
+      if (candidates.length > 0) {
+        // Fill in a real road_bearing for each building centroid, when the
+        // roads query also succeeded, so collect-images.js can shoot every
+        // point the same way (a fixed perpendicular offset off the nearest
+        // road) instead of guessing from a geocoding-search byproduct.
+        if (roadResult.status === 'fulfilled') {
+          try {
+            const roads = buildRoadLines(roadResult.value)
+            for (const pt of candidates) {
+              const bearing = nearestRoadBearing(pt.lat, pt.lng, roads)
+              if (bearing != null) pt.road_bearing = +bearing.toFixed(2)
+            }
+          } catch (e) {
+            console.warn('Building road_bearing lookup failed:', e.message)
+          }
+        }
+        points = candidates; method = 'building'
+      }
     } catch (e) {
       console.warn('Building centroid extraction failed:', e.message)
     }
