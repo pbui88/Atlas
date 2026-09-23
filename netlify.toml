@@ -27,7 +27,7 @@
   timeout = 26
 
 [functions."scheduled-skip-trace-check"]
-  schedule = "*/5 * * * *"
+  schedule = "*/15 * * * *"
 
 
 [[headers]]
