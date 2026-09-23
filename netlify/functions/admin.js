@@ -1,5 +1,6 @@
 import { requireAdmin, adminSupabase, ok, err, options, isValidUUID, getPathParam, fetchAllRows } from './utils/supabase.js'
 import { getUserUsage } from './utils/usage.js'
+import { MAX_RETRIES } from './geocode-points.js'
 
 // Default monitoring thresholds (Supabase Pro tier) — overridable via env vars.
 const DB_LIMIT_BYTES      = parseInt(process.env.SUPABASE_DB_LIMIT_BYTES, 10)      || 8   * 1024 ** 3
@@ -386,13 +387,47 @@ export const handler = async (event) => {
     // Wrap each RPC individually so a single slow/failed query doesn't block the whole response.
     const safeRpc = (p) => p.then(r => r).catch(() => ({ data: null, error: null }))
 
-    const [summaryRes, trendRes, dbSizeRes, tableSizesRes, storageRes] = await Promise.all([
+    // Points that never resolved an address at all (e.g. a geocode-points call
+    // errored mid-run) — a plain count, cheap regardless of table size.
+    const nullAddressCountP = supabase
+      .from('scan_points')
+      .select('id', { count: 'exact', head: true })
+      .is('address', null)
+      .eq('credit_refunded', false)
+      .lt('retry_count', MAX_RETRIES)
+      .then(r => r).catch(() => ({ count: null }))
+
+    // Points with an address that's still missing a zip or house number.
+    // Regex checks aren't expressible via PostgREST filters, so this samples
+    // the oldest 3000 addressed rows and filters in JS — a bounded signal for
+    // the admin dashboard, not an exhaustive count (there's no more scheduled
+    // job to sweep the whole table, so this is now the only visibility into
+    // stragglers left after geocode-points.js's own retries are exhausted).
+    const incompleteSampleP = supabase
+      .from('scan_points')
+      .select('address, retry_count')
+      .not('address', 'is', null)
+      .lt('retry_count', MAX_RETRIES)
+      .order('updated_at', { ascending: true })
+      .limit(3000)
+      .then(r => r).catch(() => ({ data: null }))
+
+    const [summaryRes, trendRes, dbSizeRes, tableSizesRes, storageRes, nullAddressRes, incompleteSampleRes] = await Promise.all([
       safeRpc(supabase.rpc('get_usage_summary',    { p_since: since30.toISOString() })),
       safeRpc(supabase.rpc('get_daily_cost_trend', { p_since: since30.toISOString() })),
       safeRpc(supabase.rpc('get_database_size')),
       safeRpc(supabase.rpc('get_table_sizes')),
       safeRpc(supabase.rpc('get_storage_usage')),
+      nullAddressCountP,
+      incompleteSampleP,
     ])
+
+    const staleNullAddress = nullAddressRes.count ?? null
+    const staleIncompleteSample = (incompleteSampleRes.data || []).filter(r => {
+      const addr = (r.address || '').trim()
+      if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(addr)) return true
+      return !/\d{5}\s*$/.test(addr) || !/^\d/.test(addr)
+    }).length
 
     const byService = (summaryRes.data || []).map(r => ({
       service:    r.service,
@@ -433,6 +468,14 @@ export const handler = async (event) => {
       if (pct >= 1)        alerts.push({ level: 'critical', message: `30-day API spend ($${cost30d.toFixed(2)}) has exceeded the $${MONTHLY_BUDGET_USD.toFixed(2)} budget` })
       else if (pct >= 0.9) alerts.push({ level: 'warning',  message: `30-day API spend ($${cost30d.toFixed(2)}) is at ${(pct * 100).toFixed(0)}% of the $${MONTHLY_BUDGET_USD.toFixed(2)} budget` })
     }
+    // No scheduled backfill sweeps these anymore — surface a nudge so stuck
+    // points get noticed instead of sitting unresolved (and uncharged/unrefunded)
+    // in a project nobody reopens. Users clear these via the "Retry incomplete
+    // addresses" button on the project's Results tab.
+    const geocodingStuck = (staleNullAddress || 0) + staleIncompleteSample
+    if (geocodingStuck >= 50) {
+      alerts.push({ level: 'warning', message: `${geocodingStuck.toLocaleString()}+ scan points have an incomplete address — no automatic backfill runs anymore, ask affected users to reopen their project and click "Retry incomplete addresses."` })
+    }
 
     return ok({
       costs: {
@@ -452,6 +495,11 @@ export const handler = async (event) => {
         sizeBytes:  storageBytes,
         limitBytes: STORAGE_LIMIT_BYTES,
         buckets:    storageBuckets,
+      },
+      geocoding: {
+        staleNullAddress,
+        staleIncompleteSample,
+        sampledCap: 3000,
       },
       alerts,
     })

@@ -29,9 +29,6 @@
 [functions."scheduled-skip-trace-check"]
   schedule = "*/5 * * * *"
 
-[functions."scheduled-zip-backfill-background"]
-  schedule = "*/5 * * * *"
-
 
 [[headers]]
   for = "/*"

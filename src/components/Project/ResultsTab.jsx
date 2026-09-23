@@ -188,6 +188,7 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   const [traceModalPts,  setTraceModalPts]  = useState([])
   const [traceSkippedCount, setTraceSkippedCount] = useState(0)
   const [zipFillPending, setZipFillPending] = useState(false)
+  const [retryingIncomplete, setRetryingIncomplete] = useState(false)
   const [creditRefunds, setCreditRefunds] = useState(0)
   const [showRefundBanner, setShowRefundBanner] = useState(false)
   const selectAllRef  = useRef(null)
@@ -278,9 +279,10 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   }, [project.id])
 
   // Reflects actual persisted state — not just refunds triggered by a live call
-  // in this session. The scheduled background zip-backfill job can also refund
-  // credits server-side at any time, with no request in this session to report
-  // it, so this is the only reliable way the banner ever surfaces those.
+  // in this session. The auto zip-fill effect below (or the manual "Retry
+  // incomplete addresses" button) can also refund credits without a request
+  // in *this* render to report it, so this is the only reliable way the
+  // banner ever surfaces those.
   const fetchCreditRefunds = async () => {
     const { count } = await supabase
       .from('scan_points')
@@ -402,16 +404,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.total, stats.pending, stats.failed, stats.downloaded, stats.downloading, keyLoading, noCreditsBlocked])
 
+  // A point counts as incomplete if it has no address at all, a raw "lat,lng"
+  // placeholder address, a missing zip, or a missing house number.
+  const isIncompleteAddress = (pt) => {
+    if (!pt.address) return true
+    const addr = pt.address.trim()
+    if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(addr)) return true
+    return !/\d{5}\s*$/.test(addr) || !/^\d/.test(addr)  // missing zip OR missing house number
+  }
+
   // Auto-fill missing zip codes once after results load.
   // Points that have an address but no trailing 5-digit zip are passed through
   // geocode-points, which now skips Positionstack and only calls Nominatim (free).
   useEffect(() => {
     if (zipFillDone.current || resLoading || running || points.length === 0) return
-    const noZip = points.filter(pt => {
-      if (!pt.address) return false
-      const addr = pt.address.trim()
-      return !/\d{5}\s*$/.test(addr) || !/^\d/.test(addr)  // missing zip OR missing house number
-    })
+    const noZip = points.filter(pt => pt.address && isIncompleteAddress(pt))
     if (noZip.length === 0) return
     zipFillDone.current = true
     setZipFillPending(true)
@@ -424,6 +431,26 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
     }).finally(() => setZipFillPending(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, resLoading, running])
+
+  // Manual retry for incomplete addresses — including points with no address
+  // at all (e.g. a prior geocode-points call errored/timed out mid-run).
+  // There's no more scheduled backfill job doing this automatically system-wide,
+  // so this button is the only way to re-run geocoding on stragglers later.
+  const incompletePoints = points.filter(isIncompleteAddress)
+  const retryIncompleteAddresses = async () => {
+    if (retryingIncomplete || incompletePoints.length === 0) return
+    setRetryingIncomplete(true)
+    try {
+      const ids = [...new Set(incompletePoints.flatMap(pt => pt.allPointIds || [pt.id]))]
+      const chunks = chunkArray(ids, GEO_BATCH)
+      const res = await Promise.allSettled(chunks.map(b => geocodePoints(project.id, b).catch(() => {})))
+      const refunded = res.reduce((sum, r) => sum + (r.status === 'fulfilled' ? (r.value?.refundedCount || 0) : 0), 0)
+      if (refunded > 0) { setCreditRefunds(c => c + refunded); setShowRefundBanner(true) }
+      await fetchResults()
+    } finally {
+      setRetryingIncomplete(false)
+    }
+  }
 
   // ── Image fetch when property selected ─────────────────────
   // Images are pre-loaded in fetchResults so no extra round-trip is needed in
@@ -847,6 +874,21 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
             ) : null}
           </div>
         </div>
+
+        {!running && !resLoading && incompletePoints.length > 0 && (
+          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-slate-500/10 border-b border-white/[0.06]">
+            <p className="text-xs text-slate-400">
+              {incompletePoints.length} propert{incompletePoints.length !== 1 ? 'ies' : 'y'} with an incomplete address
+            </p>
+            <button
+              onClick={retryIncompleteAddresses}
+              disabled={retryingIncomplete}
+              className="btn border border-brand-600/30 text-brand-400 hover:bg-brand-600/10 text-xs px-2.5 py-1 shrink-0 disabled:opacity-50"
+            >
+              {retryingIncomplete ? 'Retrying…' : 'Retry incomplete addresses'}
+            </button>
+          </div>
+        )}
 
         {showRefundBanner && creditRefunds > 0 && (
           <div className="flex items-start justify-between gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">

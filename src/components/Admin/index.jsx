@@ -1054,6 +1054,28 @@ export default function AdminPanel() {
             </div>
           )}
 
+          {/* Geocoding health — no scheduled backfill anymore, so this is the
+              only system-wide signal that points are stuck with a bad address */}
+          {monitor.geocoding && (monitor.geocoding.staleNullAddress > 0 || monitor.geocoding.staleIncompleteSample > 0) && (
+            <div className="bg-navy-800 border border-white/[0.06] rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-slate-300 mb-1">Geocoding Health</h3>
+              <p className="text-xs text-slate-600 mb-4">No scheduled backfill — users clear these via "Retry incomplete addresses" on the project's Results tab.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">No Address At All</p>
+                  <p className="text-2xl font-bold font-display text-amber-400 tabular-nums">{monitor.geocoding.staleNullAddress.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Missing Zip / House #</p>
+                  <p className="text-2xl font-bold font-display text-amber-400 tabular-nums">
+                    {monitor.geocoding.staleIncompleteSample.toLocaleString()}
+                    {monitor.geocoding.staleIncompleteSample >= monitor.geocoding.sampledCap && '+'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Database / storage usage */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <UsageGauge label="Database Size" used={monitor.database.sizeBytes} limit={monitor.database.limitBytes} />
