@@ -11,14 +11,14 @@ function bearingBetween(lat1, lng1, lat2, lng2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
 }
 
-// Keep Overpass server timeout well inside Netlify's 10s function limit so
+// Keep Overpass server timeout well inside Netlify's function limit so
 // sequential fallback still fits if buildings succeed but roads are needed.
 const OVERPASS_TIMEOUT_S  = 8
 const OVERPASS_TIMEOUT_MS = (OVERPASS_TIMEOUT_S + 1) * 1000
 
-async function overpassFetch(query) {
+async function overpassFetchOnce(query, timeoutMs) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method:  'POST',
@@ -30,6 +30,21 @@ async function overpassFetch(query) {
     return res.json()
   } finally {
     clearTimeout(timer)
+  }
+}
+
+// Overpass's public instance is empirically flaky under load (observed 504s
+// on otherwise-valid queries) — a single failed roads query used to silently
+// leave every building-centroid point in the scan with road_bearing: null,
+// producing images aimed by an unreliable panorama-bearing fallback instead
+// of the correct perpendicular-to-road shot. One quick retry with a shorter
+// timeout catches most of these transient failures.
+async function overpassFetch(query) {
+  try {
+    return await overpassFetchOnce(query, OVERPASS_TIMEOUT_MS)
+  } catch (e) {
+    console.warn('Overpass request failed, retrying once:', e.message)
+    return overpassFetchOnce(query, 5000)
   }
 }
 
@@ -267,10 +282,18 @@ export const handler = async (event) => {
         if (roadResult.status === 'fulfilled') {
           try {
             const roads = buildRoadLines(roadResult.value)
+            let failures = 0
             for (const pt of candidates) {
-              const bearing = nearestRoadBearing(pt.lat, pt.lng, roads)
-              if (bearing != null) pt.road_bearing = +bearing.toFixed(2)
+              // Per-point try/catch — one bad geometry must not null out
+              // road_bearing for every remaining point in the scan.
+              try {
+                const bearing = nearestRoadBearing(pt.lat, pt.lng, roads)
+                if (bearing != null) pt.road_bearing = +bearing.toFixed(2)
+              } catch (e) {
+                failures++
+              }
             }
+            if (failures > 0) console.warn(`Building road_bearing lookup failed for ${failures}/${candidates.length} points`)
           } catch (e) {
             console.warn('Building road_bearing lookup failed:', e.message)
           }
