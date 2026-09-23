@@ -404,10 +404,13 @@ export default function ResultsTab({ project, onProjectUpdate, autoStart = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats.total, stats.pending, stats.failed, stats.downloaded, stats.downloading, keyLoading, noCreditsBlocked])
 
-  // A point counts as incomplete if it has no address at all, a raw "lat,lng"
-  // placeholder address, a missing zip, or a missing house number.
+  // A point counts as incomplete if it has no address at all (only meaningful
+  // for 'complete' points — 'no_coverage' ones are allowed to have no address
+  // by design, see fetchResults, and retrying them would just burn
+  // PositionStack calls with no possible payoff), a raw "lat,lng" placeholder
+  // address, a missing zip, or a missing house number.
   const isIncompleteAddress = (pt) => {
-    if (!pt.address) return true
+    if (!pt.address) return pt.status === 'complete'
     const addr = pt.address.trim()
     if (/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(addr)) return true
     return !/\d{5}\s*$/.test(addr) || !/^\d/.test(addr)  // missing zip OR missing house number

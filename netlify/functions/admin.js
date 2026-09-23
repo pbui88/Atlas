@@ -389,10 +389,13 @@ export const handler = async (event) => {
 
     // Points that never resolved an address at all (e.g. a geocode-points call
     // errored mid-run) — a plain count, cheap regardless of table size.
+    // Excludes 'no_coverage' points: those are allowed to have no address by
+    // design (see ResultsTab's fetchResults), not a failure to flag.
     const nullAddressCountP = supabase
       .from('scan_points')
       .select('id', { count: 'exact', head: true })
       .is('address', null)
+      .eq('status', 'complete')
       .eq('credit_refunded', false)
       .lt('retry_count', MAX_RETRIES)
       .then(r => r).catch(() => ({ count: null }))
