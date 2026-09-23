@@ -100,10 +100,29 @@ function extractAddress(results) {
   return (!address || looksLikeLatLng(address)) ? null : { address, zip }
 }
 
+// Temporary hard cap on PositionStack usage (see migration 033) — checked
+// before every actual PositionStack request. Fails open (allows the call) if
+// the RPC itself errors, so a monitoring-table problem can't take down
+// geocoding entirely.
+async function positionstackAllowed(supabase) {
+  try {
+    const { data, error } = await supabase.rpc('increment_positionstack_calls', { p_n: 1 })
+    if (error) throw error
+    return data !== false
+  } catch (e) {
+    console.error('[geocode] positionstack cap check failed, allowing call:', e.message)
+    return true
+  }
+}
+
 // Returns { address, zip } (zip possibly null) or null.
 // Retries once with a wider candidate pool if the first pass yields nothing.
-async function reverseGeocode(lat, lng) {
+async function reverseGeocode(lat, lng, supabase) {
   const base = `https://api.positionstack.com/v1/reverse?access_key=${process.env.POSITIONSTACK_API_KEY}&query=${lat},${lng}&output=json`
+
+  if (!(await positionstackAllowed(supabase))) {
+    throw new Error('PositionStack usage cap reached — geocoding paused until the cap window resets')
+  }
 
   // First attempt — tight limit
   const res1  = await fetch(`${base}&limit=10`)
@@ -113,7 +132,12 @@ async function reverseGeocode(lat, lng) {
   const result1 = extractAddress(data1.data || [])
   if (result1) return result1
 
-  // Retry with wider candidate pool to find a property-level hit
+  // Retry with wider candidate pool to find a property-level hit — skipped
+  // (not fatal) if the cap gets hit between the two requests.
+  if (!(await positionstackAllowed(supabase))) {
+    console.warn(`[geocode] positionstack cap reached — skipping wider-pool retry at ${lat},${lng}`)
+    return null
+  }
   console.warn(`[geocode] first pass found no property address at ${lat},${lng} — retrying with limit=25`)
   const res2  = await fetch(`${base}&limit=25`)
   const data2 = await res2.json()
@@ -168,7 +192,11 @@ async function lookupZipNominatim(lat, lng) {
 // Positionstack's postal_code is normally unreliable (malformed values like
 // "797 69" in some areas — see extractAddress), so only accept it here if it
 // passes a strict 5-digit / ZIP+4 format check.
-async function lookupZipPositionstack(lat, lng) {
+async function lookupZipPositionstack(lat, lng, supabase) {
+  if (!(await positionstackAllowed(supabase))) {
+    console.warn(`[geocode] positionstack cap reached — skipping zip fallback at ${lat},${lng}`)
+    return null
+  }
   try {
     const res  = await fetch(
       `https://api.positionstack.com/v1/reverse?access_key=${process.env.POSITIONSTACK_API_KEY}&query=${lat},${lng}&output=json&limit=1`
@@ -184,8 +212,8 @@ async function lookupZipPositionstack(lat, lng) {
 }
 
 // Nominatim first, Positionstack as a validated fallback if it has nothing.
-async function lookupZip(lat, lng) {
-  return (await lookupZipNominatim(lat, lng)) || (await lookupZipPositionstack(lat, lng))
+async function lookupZip(lat, lng, supabase) {
+  return (await lookupZipNominatim(lat, lng)) || (await lookupZipPositionstack(lat, lng, supabase))
 }
 
 // Inject a zip code into an address that already has a 2-letter state abbreviation.
@@ -261,7 +289,7 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
   // Addresses without a house number fall through to full Positionstack re-geocode.
   if (pt.address && !looksLikeLatLng(pt.address) && /^\d/.test(pt.address.trim())) {
     try {
-      const zip = await lookupZip(pt.lat, pt.lng)
+      const zip = await lookupZip(pt.lat, pt.lng, supabase)
       if (zip) {
         const address = injectZip(pt.address, zip)
         await supabase.from('scan_points')
@@ -293,18 +321,18 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     if (headingDeg != null) {
       const { lat, lng } = offsetCoords(baseLat, baseLng, headingDeg, 20)
       geocodeLat = lat; geocodeLng = lng
-      addressResult = await reverseGeocode(lat, lng)
+      addressResult = await reverseGeocode(lat, lng, supabase)
     } else {
       // No road bearing (grid fallback): try both perpendicular directions
       const { lat: lat1, lng: lng1 } = offsetCoords(baseLat, baseLng, 90, 20)
-      addressResult = await reverseGeocode(lat1, lng1)
+      addressResult = await reverseGeocode(lat1, lng1, supabase)
       if (addressResult) { geocodeLat = lat1; geocodeLng = lng1 }
       if (!addressResult) {
         const { lat: lat2, lng: lng2 } = offsetCoords(baseLat, baseLng, 270, 20)
-        addressResult = await reverseGeocode(lat2, lng2)
+        addressResult = await reverseGeocode(lat2, lng2, supabase)
         if (addressResult) { geocodeLat = lat2; geocodeLng = lng2 }
       }
-      if (!addressResult) addressResult = await reverseGeocode(baseLat, baseLng)
+      if (!addressResult) addressResult = await reverseGeocode(baseLat, baseLng, supabase)
     }
 
     let address = addressResult?.address ?? null
@@ -321,7 +349,7 @@ export async function geocodePoint(pt, googleKey, supabase, userId, isAdmin) {
     // the throttled Nominatim/Positionstack-refetch lookup when Positionstack
     // didn't return a well-formed one.
     if (address) {
-      const zip = psZip || await lookupZip(geocodeLat, geocodeLng)
+      const zip = psZip || await lookupZip(geocodeLat, geocodeLng, supabase)
       if (zip) address = injectZip(address, zip)
     }
 
